@@ -117,14 +117,21 @@ def evaluate_topk(
                 skipped += 1
                 continue
             entry = float(prices.at[entry_pos, "open"])
+            entry_volume = float(prices.at[entry_pos, "volume"])
             atr = float(signal.ATR_14)
-            if not np.isfinite(entry) or entry <= 0 or not np.isfinite(atr) or atr <= 0:
+            if (not np.isfinite(entry) or entry <= 0 or
+                    not np.isfinite(entry_volume) or entry_volume <= 0 or
+                    not np.isfinite(atr) or atr <= 0):
                 skipped += 1
                 continue
             bars = prices.iloc[entry_pos:end_pos][["open", "high", "low", "close", "volume"]].to_dict("records")
             outcome = labeler.backtest_trade(entry, atr, bars, max_bars=params.look_forward_days)
             exit_pos = entry_pos + int(outcome.exit_bars)
             exit_date = pd.Timestamp(prices.at[exit_pos, "date"])
+            closes = pd.to_numeric(
+                prices.iloc[signal_pos:exit_pos + 1]["close"], errors="coerce"
+            )
+            extreme_price_change = bool(closes.pct_change().abs().gt(0.50).any())
             blocked_until[symbol] = exit_date
             active_positions[symbol] = exit_date
             gross = float(outcome.pnl_pct) / 100.0
@@ -134,6 +141,8 @@ def evaluate_topk(
                 "exit_date": str(exit_date.date()),
                 "symbol": symbol,
                 "score": float(signal.score),
+                "entry_volume": entry_volume,
+                "extreme_price_change": extreme_price_change,
                 "target": int(signal.Target),
                 "outcome": outcome.outcome,
                 "gross_return": gross,
@@ -145,6 +154,9 @@ def evaluate_topk(
         raise ValueError("No valid trades in the test period")
     returns = np.array([trade["net_return"] for trade in trades], dtype=float)
     gross = np.array([trade["gross_return"] for trade in trades], dtype=float)
+    ordinary_returns = np.array([
+        trade["net_return"] for trade in trades if not trade["extreme_price_change"]
+    ], dtype=float)
     return {
         "sessions": sessions,
         "trades": len(trades),
@@ -154,6 +166,11 @@ def evaluate_topk(
         "cost_bps": float(cost_bps),
         "mean_gross_return_pct": float(gross.mean() * 100),
         "mean_net_return_pct": float(returns.mean() * 100),
+        "trades_excluding_extreme_price_changes": int(len(ordinary_returns)),
+        "mean_net_return_pct_excluding_extreme_price_changes": (
+            float(ordinary_returns.mean() * 100) if len(ordinary_returns) else None
+        ),
+        "extreme_price_change_trades": int(len(trades) - len(ordinary_returns)),
         "median_net_return_pct": float(np.median(returns) * 100),
         "net_win_rate": float((returns > 0).mean()),
         "target_hit_rate": float(np.mean([trade["outcome"] == "TP_HIT" for trade in trades])),
@@ -229,6 +246,7 @@ def main() -> None:
         "eligible_signal_rows": len(signals),
         "eligible_positive_label_rate": float(signals["Target"].mean()),
         "candidate": {key: value for key, value in selected.items() if key != "trade_log"},
+        "candidate_trade_log": selected["trade_log"],
         "random_baseline_runs": [
             {key: value for key, value in result.items() if key != "trade_log"}
             for result in random_results

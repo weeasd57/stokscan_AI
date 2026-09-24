@@ -1,0 +1,52 @@
+{
+  "status": "offline_candidate",
+  "selected_candidate": "model_EGX_candidate_v2_20260924.pkl",
+  "historical_data": {
+    "hf_dataset": "weeasdwee/egx-historical-prices",
+    "data_revision": "2bc338b4f71e28f49f8bff958366235f16baec1c",
+    "egx_rows": 515731,
+    "egx_sha256": "8bbf15b971019c42ae8182376990ad48b794d3a14d79269d3e7d6110de87c71c",
+    "index_rows": 10157
+  },
+  "evaluation": {
+    "test_start": "2023-05-23",
+    "test_end": "2026-08-26",
+    "sessions": 789,
+    "eligible_signals": 138293,
+    "top_k_per_session": 3,
+    "max_concurrent_positions": 5,
+    "round_trip_cost_bps_assumption": 40,
+    "entry_liquidity_rule": "Reject an entry session with zero or missing volume",
+    "extreme_price_change_rule": "Sensitivity excludes trades crossing a close-to-close change greater than 50% between signal and exit",
+    "random_runs": 20,
+    "random_mean_net_return_pct_per_trade": 1.4252436168752391,
+    "candidates": {
+      "model_EGX_candidate_v2_20260924.pkl": {
+        "trades": 498,
+        "mean_net_return_pct_per_trade": 3.2114094314138475,
+        "mean_net_return_pct_excluding_extreme_price_changes": 3.171133082309067,
+        "extreme_price_change_trades": 1,
+        "median_net_return_pct_per_trade": 2.1606517576197954,
+        "net_win_rate": 0.5240963855421686,
+        "auc": 0.559474411619645,
+        "f1": 0.4282737160638328
+      },
+      "model_EGX_candidate_v3_20260924.pkl": {
+        "trades": 580,
+        "mean_net_return_pct_per_trade": 2.6510486820678056,
+        "mean_net_return_pct_excluding_extreme_price_changes": 2.6104572049572767,
+        "extreme_price_change_trades": 1,
+        "median_net_return_pct_per_trade": -2.3290101013332802,
+        "net_win_rate": 0.47586206896551725,
+        "auc": 0.57233515913956,
+        "f1": 0.440501424644782
+      }
+    }
+  },
+  "limitations": [
+    "The two existing production artifacts used different or unreliable historical test procedures, so superiority to them is not established by their model cards.",
+    "Candidate selection has inspected this test period; a later untouched period or forward paper run is needed before production promotion.",
+    "Returns are per trade under an assumed 40 bps round-trip cost, not portfolio returns or a live execution guarantee.",
+    "The >50% close-jump exclusion is a sensitivity check, not a verified corporate-action adjustment."
+  ]
+}
