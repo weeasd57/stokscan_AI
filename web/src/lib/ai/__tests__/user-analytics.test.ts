@@ -44,4 +44,31 @@ describe("admin user analytics", () => {
     expect(result.topPages[0]).toMatchObject({ path: "/scanner/ai", views: 2, users: 1 });
     expect(result.topIntents[0]).toEqual({ intent: "stock_analysis", count: 1 });
   });
+
+  it("counts registered unique users for MAU, WAU, and Cairo-day DAU and returns shares of all users", () => {
+    const result = buildUserAnalytics({
+      now: new Date("2026-09-23T12:00:00.000Z"),
+      profiles: [{ id: "u1" }, { id: "u2" }, { id: "u3" }, { id: "u4" }, { id: "u5" }],
+      totalProfileCount: 5,
+      subscriptions: [],
+      events: [
+        { user_id: "u1", event_name: "page_view", path: "/", created_at: "2026-09-23T00:00:00Z" },
+        { user_id: "u2", event_name: "page_view", path: "/", created_at: "2026-09-13T12:00:00Z" },
+        { user_id: "u5", event_name: "page_view", path: "/", created_at: "2026-09-22T20:59:00Z" },
+        { user_id: "orphan", event_name: "page_view", path: "/", created_at: "2026-09-23T10:00:00Z" },
+        { user_id: "u4", event_name: "page_view", path: "/", created_at: "2026-09-25T10:00:00Z" },
+      ],
+      chatMessages: [
+        { user_id: "u1", role: "user", created_at: "2026-09-23T10:00:00Z" },
+        { user_id: "u3", role: "assistant", created_at: "2026-09-23T10:00:00Z" },
+      ],
+    });
+
+    expect(result.activeUsers30Days).toBe(3);
+    expect(result.activeUsers7Days).toBe(2);
+    expect(result.dau).toBe(1);
+    expect(result.activeUsers30DaysRate).toBe(60);
+    expect(result.activeUsers7DaysRate).toBe(40);
+    expect(result.dauRate).toBe(20);
+  });
 });

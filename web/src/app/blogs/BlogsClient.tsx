@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import BrandedPageHeader from "@/components/BrandedPageHeader";
 
 type Language = "en" | "ar";
 
@@ -788,19 +789,13 @@ export default function BlogsPage() {
 
   return (
     <div className="neobrutal-layout flex flex-col gap-12 pb-20 pt-2 relative -mx-3 sm:-mx-6 md:-mx-8 px-4 md:px-8 min-h-screen neobrutal-grid-bg">
-      {/* Header section */}
-      <header className="space-y-4 max-w-3xl pt-8">
-        <div className="inline-flex items-center gap-2 border-4 border-black dark:border-white px-4 py-2 neobrutal-bg-yellow font-black text-xs sm:text-sm uppercase tracking-widest rotate-[-1deg] shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,1)] hover:rotate-0 transition-transform duration-200 cursor-pointer">
-          <BookOpen className="w-4 h-4 text-black" />
-          <span className="text-black">{t("blogs.label")}</span>
-        </div>
-        <h1 className="text-4xl sm:text-5xl md:text-6xl font-black tracking-tighter text-black dark:text-white uppercase drop-shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:drop-shadow-[4px_4px_0px_rgba(255,255,255,0.15)] pt-2">
-          {t("blogs.heading")}
-        </h1>
-        <p className="text-zinc-800 dark:text-zinc-300 text-base sm:text-lg max-w-2xl font-bold leading-relaxed">
-          {t("blogs.description")}
-        </p>
-      </header>
+      <BrandedPageHeader
+        eyebrow={t("blogs.label")}
+        title={t("blogs.heading")}
+        description={t("blogs.description")}
+        dir={isAr ? "rtl" : "ltr"}
+        badgeIcon={<BookOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+      />
 
       {/* Market Depth & Macro Insight Cards */}
       <section className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 sm:p-8 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_0px_rgba(255,255,255,1)]">

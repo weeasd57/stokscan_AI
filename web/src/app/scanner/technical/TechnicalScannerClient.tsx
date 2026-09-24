@@ -14,6 +14,7 @@ import { useTechnicalScanner } from "@/contexts/TechnicalScannerContext";
 import type { TechResult } from "@/lib/api";
 import StockLogo from "@/components/StockLogo";
 import UnusualActivity from "@/components/UnusualActivity";
+import BrandedPageHeader from "@/components/BrandedPageHeader";
 import ScannerTemplates, { type ScannerTemplateId } from "@/components/ScannerTemplates";
 import TradingViewChart from "@/components/TradingViewChartDynamic";
 import { isShariaCompliant } from "@/lib/shariaStocks";
@@ -1436,6 +1437,16 @@ export default function TechnicalScannerPage() {
 
     return (
         <div className="technical-shell app-page-shell flex flex-col h-full bg-[#0c0d12] text-[#d1d4dc] font-sans selection:bg-[#2962ff]/30 selection:text-white relative min-h-[calc(100vh-100px)] border border-[#2a2e39]">
+            <div className="bg-white px-4 pt-4 dark:bg-[#0c0d12] sm:px-6 sm:pt-6">
+                <BrandedPageHeader
+                    eyebrow={language === "ar" ? "فحص وتحليل الأسهم" : "EGX STOCK SCREENER"}
+                    title={language === "ar" ? "الماسح الفني" : "Technical Scanner"}
+                    description={language === "ar"
+                        ? "افحص أسهم البورصة المصرية عبر مؤشرات فنية ومرشحات قابلة للتخصيص؛ البيانات حسب آخر تحديث متاح وليست أسعارًا لحظية."
+                        : "Screen EGX stocks with configurable technical indicators and filters. Data reflects the latest available update, not live quotes."}
+                    compact
+                />
+            </div>
             {/* --- Scanner Templates --- */}
             <div className="px-4 py-3 sm:px-6 bg-[#0c0d12] border-b border-[#2a2e39]">
                 <ScannerTemplates onSelect={applyTemplate} />

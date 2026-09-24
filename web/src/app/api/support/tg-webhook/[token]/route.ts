@@ -14,22 +14,6 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     }
 
     const data = await req.json().catch(() => ({}));
-    const BACKEND_URL = (process.env.PYTHON_BACKEND_URL || process.env.TRADING_SIGNALS_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
-
-    // If this is an inline button callback (e.g. payment approval/rejection), forward directly to the backend
-    if (data.callback_query) {
-      try {
-        await fetch(`${BACKEND_URL}/support-tg-webhook/${token}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-        });
-      } catch (e) {
-        console.error("[SUPPORT_CHAT_WEBHOOK] Failed to forward callback_query to backend:", e);
-      }
-      return NextResponse.json({ ok: true });
-    }
-
     const message = data.message || {};
     const chat = message.chat || {};
     const chatId = chat.id;

@@ -354,7 +354,7 @@ def _scheduler_worker():
                 try:
                     from api.daily_bot_run import retry_pending_recommendation_telegram_events
                     retry_pending_recommendation_telegram_events(limit=10)
-                    from api.local_payments import revoke_expired_pro_members
+                    from api.telegram_pro_invites import revoke_expired_pro_members
                     revoke_expired_pro_members()
                 except Exception as retry_err:
                     print(f"[DAILY-JOB-SCHEDULER] Recommendation retry failed: {retry_err}")

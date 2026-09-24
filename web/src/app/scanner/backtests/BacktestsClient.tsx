@@ -8,8 +8,8 @@ import { getBacktests, getBacktestTrades } from "@/lib/api";
 import { selectCanonicalModelCards } from "@/lib/models";
 import { useLanguage } from "@/contexts/LanguageContext";
 import StockLogo from "@/components/StockLogo";
+import BrandedPageHeader from "@/components/BrandedPageHeader";
 import Link from "next/link";
-import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { TradeTimeline } from "@/app/admin/components/TradeTimeline";
 import TradingViewChart from "@/components/TradingViewChartDynamic";
@@ -363,19 +363,6 @@ export default function AIScannerPage() {
     const { t, language } = useLanguage();
     const searchParams = useSearchParams();
 
-    // States for Hero Banner Interactive Spotlight
-    const [heroCoords, setHeroCoords] = useState({ x: 0, y: 0 });
-    const [isHeroHovered, setIsHeroHovered] = useState(false);
-    const heroRef = useRef<HTMLDivElement>(null);
-
-    const handleHeroMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-        if (!heroRef.current) return;
-        const rect = heroRef.current.getBoundingClientRect();
-        setHeroCoords({
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top,
-        });
-    };
     const tabParam = searchParams.get("tab");
     const activeTab = tabParam === "backtests" ? "backtests" : tabParam === "similarity" ? "similarity" : "bots";
 
@@ -1168,66 +1155,24 @@ export default function AIScannerPage() {
 
     return (
         <div className="backtests-shell app-page-shell mx-auto max-w-[1700px] w-full px-4 py-8 md:px-6 md:py-12 mt-2 min-h-[calc(100vh-200px)]">
-            {/* Header Banner */}
-            <div 
-                ref={heroRef}
-                onMouseMove={handleHeroMouseMove}
-                onMouseEnter={() => setIsHeroHovered(true)}
-                onMouseLeave={() => setIsHeroHovered(false)}
-                className="backtests-hero relative overflow-hidden rounded-none border-4 border-black dark:border-white bg-[#FFE600] dark:bg-[#FFE600] text-black dark:text-white p-6 sm:p-8 md:p-12 mb-8 shadow-[6px_6px_0px_0px_#000000] dark:shadow-[6px_6px_0px_0px_#ffffff] transition-all duration-300 hover:shadow-[6px_6px_0px_rgba(245,158,11,1)]"
-            >
-                {/* Spotlight overlay */}
-                <div
-                    className="absolute inset-0 pointer-events-none transition-opacity duration-300 z-0"
-                    style={{
-                        opacity: isHeroHovered ? 1 : 0,
-                        background: `radial-gradient(450px circle at ${heroCoords.x}px ${heroCoords.y}px, rgba(245, 158, 11, 0.18), rgba(245, 158, 11, 0.02) 40%, transparent 80%)`,
-                    }}
-                />
-                
-                <div className={`absolute top-1/2 -translate-y-1/2 right-12 pointer-events-none hidden md:block z-10 transition-all duration-500 ${isHeroHovered ? "opacity-35 scale-105" : "opacity-20"}`}>
-                    <Image
-                        src="/favicon_io/apple-touch-icon.png?v=2"
-                        alt="EGX Bots logo"
-                        width={200}
-                        height={200}
-                        className="object-contain filter drop-shadow-[0_0_15px_rgba(245,158,11,0.25)]"
-                    />
-                </div>
-                <div className="relative z-10 max-w-2xl space-y-4">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-none bg-black dark:bg-black border-2 border-black dark:border-black text-[#FFE600] dark:text-[#FFE600] text-xs font-black uppercase tracking-wider">
-                        <Sparkles className="w-3.5 h-3.5" /> {activeTab === "backtests" ? t("backtest.model_evaluation") : activeTab === "similarity" ? (language === "ar" ? "تحليل الأنماط التاريخية" : "HISTORICAL PATTERN MATCHING") : (language === "ar" ? "ترتيب السوق اليوم" : "TODAY'S MARKET RANKING")}
-                    </div>
-                    <h1 className="text-2xl sm:text-3xl md:text-5xl font-black text-black dark:text-white tracking-tight leading-tight uppercase">
-                        {activeTab === "backtests" ? (
-                            language === "ar" ? (
-                                <>نتائج الاختبار العكسي</>
-                            ) : (
-                                <>Backtest Results</>
-                            )
-                        ) : activeTab === "similarity" ? (
-                            language === "ar" ? (
-                                <>النماذج المتكررة (شبه ده)</>
-                            ) : (
-                                <>Historical Similarity</>
-                            )
-                        ) : (
-                            language === "ar" ? (
-                                <>أفضل الأسهم الشعبية تصنيفاً</>
-                            ) : (
-                                <>Top Ranked Popular Stocks</>
-                            )
-                        )}
-                    </h1>
-                    <p className="text-black/80 dark:text-white/80 font-mono text-xs md:text-sm leading-relaxed">
-                        {activeTab === "backtests"
-                            ? t("backtest.subtitle")
-                            : activeTab === "similarity"
-                            ? (language === "ar" ? "حالات تاريخية متكررة في البورصة تتطابق مع التكوين الحالي للأسهم بنسب نجاح مرتفعة." : "Historical patterns that closely match the current setups of stocks with high win rates.")
-                            : t("bots.banner_desc")}
-                    </p>
-                </div>
-            </div>
+            <BrandedPageHeader
+                dir={language === "ar" ? "rtl" : "ltr"}
+                eyebrow={activeTab === "backtests"
+                    ? t("backtest.model_evaluation")
+                    : activeTab === "similarity"
+                        ? (language === "ar" ? "تحليل الأنماط التاريخية" : "HISTORICAL PATTERN MATCHING")
+                        : (language === "ar" ? "ترتيب السوق اليوم" : "TODAY'S MARKET RANKING")}
+                title={activeTab === "backtests"
+                    ? (language === "ar" ? "نتائج الاختبار العكسي" : "Backtest Results")
+                    : activeTab === "similarity"
+                        ? (language === "ar" ? "النماذج المتكررة (شبه ده)" : "Historical Similarity")
+                        : (language === "ar" ? "أفضل الأسهم الشعبية تصنيفاً" : "Top Ranked Popular Stocks")}
+                description={activeTab === "backtests"
+                    ? t("backtest.subtitle")
+                    : activeTab === "similarity"
+                        ? (language === "ar" ? "حالات تاريخية متكررة في البورصة تتطابق مع التكوين الحالي للأسهم بنسب نجاح مرتفعة." : "Historical patterns that closely match the current setups of stocks with high win rates.")
+                        : t("bots.banner_desc")}
+            />
 
             {/* TAB CONTENT: BOTS */}
             {activeTab === "bots" && (

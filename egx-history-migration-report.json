@@ -1,0 +1,38 @@
+{
+  "created_at": "2026-09-24T14:02:06.540894+00:00",
+  "sources": {
+    "archive": {
+      "input": 426789,
+      "invalid": 0,
+      "duplicates": 0
+    },
+    "hf": {
+      "input": 515653,
+      "invalid": 0,
+      "duplicates": 0
+    },
+    "live": {
+      "input": 114876,
+      "invalid": 502,
+      "duplicates": 9
+    }
+  },
+  "canonical_rows": 515667,
+  "symbols": 247,
+  "first_date": "2001-06-28",
+  "last_date": "2026-09-24",
+  "overlapping_rows": 1056533,
+  "large_price_moves_over_50pct": 307,
+  "zero_volume_rows": 568,
+  "sha256": "7e809cdd6d050c33e275da593d8f00a1e78a60604017d27dabae2ada161eedf4",
+  "published": true,
+  "deleted_live": false,
+  "hf_metadata": {
+    "exchange": "EGX",
+    "rows": 515667,
+    "first_date": "2001-06-28",
+    "last_date": "2026-09-24",
+    "published_at": "2026-09-24T14:02:21.222012+00:00",
+    "format": "json.gz"
+  }
+}

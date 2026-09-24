@@ -1,6 +1,6 @@
 {
   "status": "offline_candidate",
-  "selected_candidate": "model_EGX_candidate_v2_20260924.pkl",
+  "selected_candidate": "vhagar.pkl",
   "historical_data": {
     "hf_dataset": "weeasdwee/egx-historical-prices",
     "data_revision": "2bc338b4f71e28f49f8bff958366235f16baec1c",
@@ -21,7 +21,7 @@
     "random_runs": 20,
     "random_mean_net_return_pct_per_trade": 1.4252436168752391,
     "candidates": {
-      "model_EGX_candidate_v2_20260924.pkl": {
+      "vhagar.pkl": {
         "trades": 498,
         "mean_net_return_pct_per_trade": 3.2114094314138475,
         "mean_net_return_pct_excluding_extreme_price_changes": 3.171133082309067,

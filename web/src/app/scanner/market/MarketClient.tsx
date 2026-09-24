@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import { MarketHealthScore, MarketBreadthStrip, TopMovers } from "@/components/MarketBreadth";
 import { ActiveAISignals, DailyAnalysisSummary } from "@/components/ActiveAISignals";
+import BrandedPageHeader from "@/components/BrandedPageHeader";
 
 interface MarketDataPoint {
     date: string;
@@ -1543,36 +1544,27 @@ export default function MarketClient() {
             className="market-shell app-page-shell mx-auto max-w-[1600px] w-full px-4 py-8 md:px-6 md:py-12 mt-2 min-h-[calc(100vh-200px)]"
             dir={isAr ? "rtl" : "ltr"}
         >
-            {/* Hero Banner */}
-            <div className="relative mb-8 overflow-hidden rounded-3xl border border-indigo-200/70 bg-gradient-to-br from-indigo-50 via-white to-cyan-50 p-6 shadow-sm dark:border-white/10 dark:from-indigo-950/50 dark:via-zinc-950 dark:to-cyan-950/30 sm:p-8 md:p-10">
-                <div className="pointer-events-none absolute -right-12 -top-20 h-64 w-64 rounded-full bg-indigo-400/10 blur-3xl" />
-                <div className="pointer-events-none absolute -bottom-28 left-1/3 h-56 w-56 rounded-full bg-cyan-400/10 blur-3xl" />
-                <div className="relative z-10 max-w-3xl space-y-4">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white/75 px-3 py-1.5 text-xs font-bold text-indigo-700 shadow-sm dark:border-indigo-400/20 dark:bg-zinc-900/70 dark:text-indigo-200">
-                        <Activity className="w-3.5 h-3.5" />
-                        {isAr ? "تحليل السوق" : "MARKET ANALYSIS"}
-                    </div>
-                    <h1 className="text-2xl font-extrabold tracking-tight leading-tight text-zinc-950 dark:text-white sm:text-3xl md:text-4xl">
-                        {t("market.title")}
-                    </h1>
-                    <p className="max-w-2xl text-sm leading-7 text-zinc-600 dark:text-zinc-300 md:text-base">
-                        {t("market.subtitle")}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-3 pt-1">
-                        <span className="text-xs font-medium text-zinc-500">
+            <BrandedPageHeader
+                eyebrow={isAr ? "تحليل السوق" : "MARKET ANALYSIS"}
+                title={t("market.title")}
+                description={t("market.subtitle")}
+                compact
+                action={
+                    <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
                             {t("market.last_updated")} {new Date(data.updated_at).toLocaleTimeString(isAr ? "ar-EG" : "en-US")}
                         </span>
                         <button
                             onClick={() => void fetchMarketStatus()}
-                            className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white/80 px-3 text-xs font-semibold text-zinc-700 shadow-sm transition hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50 dark:border-white/10 dark:bg-zinc-900/70 dark:text-zinc-200 dark:hover:border-indigo-400/40 dark:hover:text-indigo-200"
+                            className="inline-flex min-h-10 items-center justify-center gap-2 border-2 border-black bg-amber-300 px-3 text-xs font-black text-black shadow-[3px_3px_0px_rgba(0,0,0,1)] transition hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_rgba(0,0,0,1)] disabled:opacity-50 dark:border-white"
                             title={isAr ? "تحديث" : "Refresh"}
                         >
-                            <RefreshCw className="w-4 h-4" />
+                            <RefreshCw className="h-4 w-4" />
                             <span>{isAr ? "تحديث البيانات" : "Refresh data"}</span>
                         </button>
                     </div>
-                </div>
-            </div>
+                }
+            />
 
             {/* Market Breadth & Health Dashboard */}
             {breadthLoading && (

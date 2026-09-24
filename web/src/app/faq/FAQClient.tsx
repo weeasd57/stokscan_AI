@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import BrandedPageHeader from "@/components/BrandedPageHeader";
 
 type Language = "en" | "ar";
 
@@ -315,25 +316,16 @@ export default function FAQClient() {
 
   return (
     <div className="neobrutal-layout flex flex-col gap-12 pb-20 pt-2 relative -mx-3 sm:-mx-6 md:-mx-8 px-4 md:px-8 min-h-screen neobrutal-grid-bg">
-      {/* Header section */}
-      <header className="space-y-4 max-w-3xl pt-8">
-        <div className="inline-flex items-center gap-2 border-4 border-black dark:border-white px-4 py-2 neobrutal-bg-yellow font-black text-xs sm:text-sm uppercase tracking-widest rotate-[-1deg] shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,1)] hover:rotate-0 transition-transform duration-200 cursor-pointer">
-          <HelpCircle className="w-4 h-4 text-black" />
-          <span className="text-black">
-            {isAr ? "الأسئلة الشائعة" : "Frequently Asked Questions"}
-          </span>
-        </div>
-        <h1 className="text-4xl sm:text-5xl md:text-6xl font-black tracking-tighter text-black dark:text-white uppercase drop-shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:drop-shadow-[4px_4px_0px_rgba(255,255,255,0.15)] pt-2">
-          {isAr ? "كل ما تريد معرفته" : "Everything You Need To Know"}
-        </h1>
-        <p className="text-zinc-800 dark:text-zinc-300 text-base sm:text-lg max-w-2xl font-bold leading-relaxed">
-          {isAr
-            ? `إجابات تفصيلية على ${totalQuestions} سؤال حول منصة EGX Bots، الذكاء الاصطناعي، الماسح الفني، المحاكاة التاريخية، إشارات تليجرام، والاشتراكات.`
-            : `Detailed answers to ${totalQuestions} questions about EGX Bots, AI models, the technical scanner, backtesting, Telegram alerts, and subscriptions.`}
-        </p>
-
-        {/* Search */}
-        <div className="relative flex items-center w-full max-w-xl pt-2">
+      <BrandedPageHeader
+        eyebrow={isAr ? "الأسئلة الشائعة" : "Frequently Asked Questions"}
+        title={isAr ? "كل ما تريد معرفته" : "Everything You Need To Know"}
+        description={isAr
+          ? `إجابات تفصيلية على ${totalQuestions} سؤال حول منصة EGX Bots، الذكاء الاصطناعي، الماسح الفني، المحاكاة التاريخية، إشارات تليجرام، والاشتراكات.`
+          : `Detailed answers to ${totalQuestions} questions about EGX Bots, AI models, the technical scanner, backtesting, Telegram alerts, and subscriptions.`}
+        dir={isAr ? "rtl" : "ltr"}
+        badgeIcon={<HelpCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+        action={
+          <div className="relative flex items-center w-full max-w-xl">
           <Search className="absolute left-3 w-4 h-4 text-black/60 dark:text-white/60 pointer-events-none z-10" />
           <input
             type="text"
@@ -342,8 +334,9 @@ export default function FAQClient() {
             placeholder={isAr ? "ابحث في الأسئلة..." : "Search questions..."}
             className="h-12 w-full rounded-none pl-10 pr-4 text-sm font-bold outline-none border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white placeholder-black/50 dark:placeholder-white/50 focus:bg-[#FFE600] focus:text-black transition-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,1)]"
           />
-        </div>
-      </header>
+          </div>
+        }
+      />
 
       {/* Category quick-nav */}
       {!query && (

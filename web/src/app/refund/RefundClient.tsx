@@ -3,6 +3,7 @@
 import { useLanguage } from "@/contexts/LanguageContext";
 import { ArrowLeft, Wallet, Clock, BadgeCheck, FileText } from "lucide-react";
 import Link from "next/link";
+import BrandedPageHeader from "@/components/BrandedPageHeader";
 
 export default function RefundClient() {
   const { language } = useLanguage();
@@ -53,16 +54,14 @@ export default function RefundClient() {
 
   return (
     <div className="min-h-[70vh] py-12 px-4">
-      <div className="max-w-3xl mx-auto space-y-8">
-        <div className="text-center space-y-3">
-          <h1 className="text-4xl font-black text-black dark:text-white">
-            {isAr ? "سياسة الاسترجاع" : "Refund Policy"}
-          </h1>
-          <p className="text-zinc-500 font-bold">
-            {isAr ? "سياسة استرداد الأموال لاشتراكات EGX Bots" : "Refund policy for EGX Bots subscriptions"}
-          </p>
-        </div>
-
+      <div className="max-w-5xl mx-auto space-y-8">
+        <BrandedPageHeader
+          eyebrow={isAr ? "الدعم والاشتراكات" : "SUPPORT & SUBSCRIPTIONS"}
+          title={isAr ? "سياسة الاسترجاع" : "Refund Policy"}
+          description={isAr ? "سياسة استرداد الأموال لاشتراكات EGX Bots" : "Refund policy for EGX Bots subscriptions"}
+          dir={isAr ? "rtl" : "ltr"}
+          badgeIcon={<Wallet className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+        />
         <div className="space-y-6">
           {sections.map((s, i) => (
             <div key={i} className="neobrutal-card p-6 space-y-3 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[5px_5px_0px_rgba(0,0,0,1)] dark:shadow-[5px_5px_0px_rgba(255,255,255,1)]">

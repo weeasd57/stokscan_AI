@@ -22,62 +22,66 @@ import {
   ArrowLeft,
   ArrowRight,
   LockKeyhole,
+  Sparkles,
+  Shield,
+  Clock,
+  HelpCircle,
+  Copy,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 
 type Step = "plans" | "payment" | "submitted";
 
 const easyKashMethods = [
-  { id: "cards", ar: "البطاقات البنكية", en: "Bank cards", arHint: "فيزا وماستركارد", enHint: "Visa & Mastercard", icon: CreditCard },
-  { id: "mobile-wallet", ar: "محافظ الموبايل", en: "Mobile wallets", arHint: "ادفع من محفظتك", enHint: "Pay with your wallet", icon: Wallet },
-  { id: "cash", ar: "الدفع النقدي", en: "Cash payment", arHint: "أمان أو فوري", enHint: "Aman or Fawry", icon: Banknote },
-  { id: "meeza", ar: "ميزة", en: "Meeza", arHint: "بطاقة ميزة", enHint: "Meeza card", icon: CreditCard },
-  { id: "apple-pay", ar: "Apple Pay", en: "Apple Pay", arHint: "حسب الجهاز والإتاحة", enHint: "Device availability applies", icon: Smartphone },
+  {
+    id: "cards",
+    ar: "البطاقات البنكية",
+    en: "Bank Cards",
+    arHint: "فيزا، ماستركارد، كروت الخصم والائتمان",
+    enHint: "Visa, Mastercard, Debit & Credit",
+    icon: CreditCard,
+    badge: "Visa / MC",
+  },
+  {
+    id: "mobile-wallet",
+    ar: "محافظ الموبايل الذكية",
+    en: "Mobile Wallets",
+    arHint: "فودافون كاش، أورنج، اتصالات، وي كاش",
+    enHint: "Vodafone Cash, Orange, Etisalat, WE",
+    icon: Wallet,
+    badge: "Smart Wallet",
+  },
+  {
+    id: "cash",
+    ar: "الدفع النقدي",
+    en: "Cash Payment",
+    arHint: "سداد عبر منافذ فوري أو أمان",
+    enHint: "Pay at Aman or Fawry outlets",
+    icon: Banknote,
+    badge: "Fawry / Aman",
+  },
+  {
+    id: "meeza",
+    ar: "بطاقة ميزة الوطنية",
+    en: "Meeza Card",
+    arHint: "جميع كروت ميزة الحكومية والبنكية",
+    enHint: "All national Meeza debit cards",
+    icon: CreditCard,
+    badge: "Meeza",
+  },
+  {
+    id: "apple-pay",
+    ar: "Apple Pay",
+    en: "Apple Pay",
+    arHint: "الدفع السريع لأجهزة iOS المدعومة",
+    enHint: "Fast checkout on supported iOS devices",
+    icon: Smartphone,
+    badge: "Apple",
+  },
 ] as const;
 
 type EasyKashMethodId = (typeof easyKashMethods)[number]["id"];
-
-const paymentGroups: { ar: string; en: string; ids: EasyKashMethodId[] }[] = [
-  { ar: "البطاقات والدفع السريع", en: "Cards & express", ids: ["cards", "meeza", "apple-pay"] },
-  { ar: "المحافظ والدفع النقدي", en: "Wallets & cash", ids: ["mobile-wallet", "cash"] },
-];
-
-function EasyKashMethods({ isAr, selected, onSelect }: { isAr: boolean; selected: EasyKashMethodId; onSelect: (method: EasyKashMethodId) => void }) {
-  return (
-    <div className="space-y-5" dir={isAr ? "rtl" : "ltr"}>
-      <div>
-        <h2 className="text-xl font-black text-zinc-900 dark:text-white">
-          {isAr ? "اختار طريقة الدفع المناسبة" : "Choose how to pay"}
-        </h2>
-        <p className="mt-1 text-xs font-medium leading-relaxed text-zinc-600 dark:text-zinc-300">
-          {isAr
-            ? "الوسائل النهائية المتاحة يحددها حسابنا لدى EasyKash. اختار وسيلة لعرض خطواتها."
-            : "Final availability depends on our EasyKash account. Choose a method to see its steps."}
-        </p>
-      </div>
-      <div className="space-y-4">
-        {paymentGroups.map((group) => (
-          <div key={group.en} role="group" aria-label={isAr ? group.ar : group.en}>
-            <p className="mb-2 text-[11px] font-black uppercase tracking-[0.13em] text-zinc-500 dark:text-zinc-400">{isAr ? group.ar : group.en}</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {group.ids.map((id) => {
-                const method = easyKashMethods.find((item) => item.id === id)!;
-                const Icon = method.icon;
-                return (
-                  <button key={id} type="button" onClick={() => onSelect(id)} aria-pressed={selected === id} className={`group flex min-h-[72px] items-center gap-3 border-2 px-3.5 py-3 text-start transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 ${selected === id ? "border-zinc-950 bg-emerald-50 shadow-[4px_4px_0px_#10b981] dark:border-white dark:bg-emerald-950/50" : "border-zinc-200 bg-white hover:border-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-300 dark:hover:bg-zinc-800"}`}>
-                    <span className={`flex h-10 w-10 shrink-0 items-center justify-center border-2 ${selected === id ? "border-zinc-950 bg-emerald-500 text-zinc-950 dark:border-white" : "border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"}`}><Icon className="h-5 w-5" aria-hidden="true" /></span>
-                    <span className="min-w-0 flex-1"><span className="block text-sm font-black leading-tight text-zinc-950 dark:text-zinc-100">{isAr ? method.ar : method.en}</span><span className="mt-1 block text-xs font-medium leading-tight text-zinc-500 dark:text-zinc-400">{isAr ? method.arHint : method.enHint}</span></span>
-                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${selected === id ? "border-emerald-600 bg-emerald-500 text-white" : "border-zinc-400 dark:border-zinc-500"}`}>{selected === id && <Check className="h-3.5 w-3.5" aria-hidden="true" />}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default function PricingClient() {
   const { language } = useLanguage();
@@ -97,6 +101,7 @@ export default function PricingClient() {
   const [isPro, setIsPro] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState("pro_6m");
   const [paymentMethod, setPaymentMethod] = useState<EasyKashMethodId>("cards");
+  const [copiedOrder, setCopiedOrder] = useState(false);
 
   const normalizedMobile = customerMobile.trim().replace(/[\s-]/g, "").replace(/^\+20/, "0").replace(/^0020/, "0");
   const isMobileValid = /^01[0125]\d{8}$/.test(normalizedMobile);
@@ -107,24 +112,31 @@ export default function PricingClient() {
     const check = async () => {
       const res = await fetch(`/api/payment/easykash/status?order_id=${encodeURIComponent(localOrder)}`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
-        if (!stopped && data.status) {
-          const settledStatus = ["expired", "rejected", "failed", "canceled", "cancelled"].includes(String(data.status).toLowerCase()) ? "failed" : data.status;
-          setOrderStatus(settledStatus);
-          if (data.plan_id) setSelectedPlan(data.plan_id);
-          setSubscriptionEnd(data.subscription?.current_period_end || null);
-          setTelegramProUrl(data.telegram_pro_url || "");
-          if (data.status === "approved" && !data.telegram_pro_url) {
-            const vip = await fetch("/api/profile/telegram-pro", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).catch(() => null);
-            if (!stopped && vip?.invite_link) {
-              setTelegramProUrl(vip.invite_link);
-              setSubscriptionEnd(vip.current_period_end || data.subscription?.current_period_end || null);
-            }
+      if (!stopped && data.status) {
+        const settledStatus = ["expired", "rejected", "failed", "canceled", "cancelled"].includes(String(data.status).toLowerCase())
+          ? "failed"
+          : data.status;
+        setOrderStatus(settledStatus);
+        if (data.plan_id) setSelectedPlan(data.plan_id);
+        setSubscriptionEnd(data.subscription?.current_period_end || null);
+        setTelegramProUrl(data.telegram_pro_url || "");
+        if (data.status === "approved" && !data.telegram_pro_url) {
+          const vip = await fetch("/api/profile/telegram-pro", { cache: "no-store" })
+            .then((response) => (response.ok ? response.json() : null))
+            .catch(() => null);
+          if (!stopped && vip?.invite_link) {
+            setTelegramProUrl(vip.invite_link);
+            setSubscriptionEnd(vip.current_period_end || data.subscription?.current_period_end || null);
           }
         }
+      }
     };
     check();
     const timer = window.setInterval(check, 5000);
-    return () => { stopped = true; window.clearInterval(timer); };
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
   }, [step, localOrder]);
 
   useEffect(() => {
@@ -148,10 +160,18 @@ export default function PricingClient() {
       return;
     }
     fetch("/api/user/quota", { cache: "no-store" })
-      .then((response) => response.ok ? response.json() : null)
+      .then((response) => (response.ok ? response.json() : null))
       .then((data) => setIsPro(data?.plan?.is_pro === true))
       .catch(() => setIsPro(false));
   }, [user?.id]);
+
+  const copyOrderId = () => {
+    if (!localOrder) return;
+    navigator.clipboard.writeText(localOrder);
+    setCopiedOrder(true);
+    toast.success(isAr ? "تم نسخ رقم الطلب" : "Order ID copied");
+    setTimeout(() => setCopiedOrder(false), 2000);
+  };
 
   const startEasyKashPayment = async (planId = selectedPlan) => {
     if (!user) {
@@ -159,7 +179,7 @@ export default function PricingClient() {
       return;
     }
     if (!isMobileValid) {
-      toast.error(isAr ? "أدخل رقم موبايل مصري صحيح من أي شبكة" : "Enter a valid Egyptian mobile number");
+      toast.error(isAr ? "أدخل رقم موبايل مصري صحيح من أي شبكة (010 / 011 / 012 / 015)" : "Enter a valid Egyptian mobile number");
       return;
     }
     setBusy(true);
@@ -174,7 +194,14 @@ export default function PricingClient() {
       setLocalOrder(data.order_id);
       const checkoutUrl = new URL(String(data.url || ""));
       const checkoutPath = checkoutUrl.pathname.split("/").filter(Boolean);
-      if (!["https://easykash.net", "https://www.easykash.net"].includes(checkoutUrl.origin) || checkoutUrl.search || checkoutUrl.hash || checkoutPath.length !== 2 || checkoutPath[0] !== "DirectPayV1" || !/^[A-Za-z0-9]+$/.test(checkoutPath[1])) {
+      if (
+        !["https://easykash.net", "https://www.easykash.net"].includes(checkoutUrl.origin) ||
+        checkoutUrl.search ||
+        checkoutUrl.hash ||
+        checkoutPath.length !== 2 ||
+        checkoutPath[0] !== "DirectPayV1" ||
+        !/^[A-Za-z0-9]+$/.test(checkoutPath[1])
+      ) {
         throw new Error(isAr ? "رابط الدفع غير صالح" : "Invalid payment URL");
       }
       window.location.assign(`https://www.easykash.net/DirectPayV1/${checkoutPath[1]}`);
@@ -196,22 +223,20 @@ export default function PricingClient() {
     }
   }, []);
 
-  // ── Loading ──────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
-        <Loader2 className="w-7 h-7 animate-spin text-emerald-500" />
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
       </div>
     );
   }
 
-  // ── Payments disabled ────────────────────────────────────────────────────
   if (!localConfig?.enabled) {
     return (
       <div className="min-h-[70vh] flex items-center justify-center p-6">
-        <div className="max-w-xl w-full neobrutal-card p-8 text-center space-y-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-900">
+        <div className="max-w-xl w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-8 text-center space-y-4 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_#10b981]">
           <div className="flex justify-center">
-            <div className="h-16 w-16 border-4 border-black dark:border-white bg-emerald-500 text-white flex items-center justify-center">
+            <div className="h-16 w-16 border-4 border-black dark:border-white bg-emerald-500 text-white flex items-center justify-center shadow-[3px_3px_0px_rgba(0,0,0,1)]">
               <Rocket className="h-8 w-8" />
             </div>
           </div>
@@ -220,271 +245,691 @@ export default function PricingClient() {
           </h1>
           <p className="text-zinc-600 dark:text-zinc-300 font-bold leading-relaxed">
             {isAr
-              ? "نحن في فترة تجريبية. جميع المزايا متاحة بدون أي رسوم. سنعلن عن خطة الاشتراك المدفوع قريبًا."
-              : "We are in a free period. All features are available with no charge. Our paid subscription plan will be announced soon."}
+              ? "نحن في فترة تجريبية مفتوحة. جميع المزايا متاحة بدون أي رسوم. سنعلن عن خطة الاشتراك المدفوع قريبًا."
+              : "We are in an open preview period. All features are available with no charge. Our paid subscription plan will be announced soon."}
           </p>
         </div>
       </div>
     );
   }
 
-  // Display the same plan amounts the checkout API will actually charge.
   const monthlyPrice = Number(localConfig?.plans?.find((item: any) => item.id === "pro")?.amount_egp ?? 200);
   const paidPlans = [
-    { id: "pro", name_ar: "30 يومًا", name_en: "30 days", amount_egp: 200, days: 30 },
-    { id: "pro_6m", name_ar: "180 يومًا", name_en: "180 days", amount_egp: 1000, days: 180 },
-    { id: "pro_1y", name_ar: "365 يومًا", name_en: "365 days", amount_egp: 1800, days: 365 },
+    { id: "pro", name_ar: "شهر واحد", name_en: "1 Month", days: 30, amount_egp: 200, badge: null },
+    { id: "pro_6m", name_ar: "6 شهور", name_en: "6 Months", days: 180, amount_egp: 1000, badge: isAr ? "الأكثر طلباً ⭐" : "Most Popular ⭐" },
+    { id: "pro_1y", name_ar: "سنة كاملة", name_en: "1 Year", days: 365, amount_egp: 1800, badge: isAr ? "أكبر توفير 💎" : "Max Value 💎" },
   ].map((plan) => {
     const configured = localConfig?.plans?.find((item: any) => item.id === plan.id);
     const amount = Number(configured?.amount_egp ?? plan.amount_egp);
     const days = Number(configured?.days ?? plan.days);
     const monthlyEquivalent = Math.round((amount / days) * 30);
-    return { ...plan, amount_egp: amount, days, monthlyEquivalent, savingsPct: monthlyPrice > 0 ? Math.max(0, Math.round((1 - monthlyEquivalent / monthlyPrice) * 100)) : 0 };
+    return {
+      ...plan,
+      amount_egp: amount,
+      days,
+      monthlyEquivalent,
+      savingsPct: monthlyPrice > 0 ? Math.max(0, Math.round((1 - monthlyEquivalent / monthlyPrice) * 100)) : 0,
+    };
   });
-  const selectedPlanDetails = paidPlans.find((plan: any) => plan.id === selectedPlan) || paidPlans[0];
-  const proPrice = selectedPlanDetails?.amount_egp ?? 200;
+
+  const selectedPlanDetails = paidPlans.find((plan: any) => plan.id === selectedPlan) || paidPlans[1];
+  const proPrice = selectedPlanDetails?.amount_egp ?? 1000;
   const selectedMethod = easyKashMethods.find((method) => method.id === paymentMethod) || easyKashMethods[0];
-  const isCardMethod = paymentMethod === "cards" || paymentMethod === "meeza" || paymentMethod === "apple-pay";
-  const methodExplanation = isCardMethod
-      ? (isAr ? "بيانات البطاقة أو Apple Pay تُدخل على صفحة EasyKash الآمنة فقط؛ لا نطلبها هنا." : "Enter card or Apple Pay details only on EasyKash's secure page; we never collect them here.")
+
+  const methodExplanation =
+    paymentMethod === "cards" || paymentMethod === "meeza" || paymentMethod === "apple-pay"
+      ? isAr
+        ? "بيانات بطاقتك تُدخل بأمان كامل على بوابة EasyKash المشفرة بـ SSL 256-bit؛ لا نحفظ أي أرقام كروت."
+        : "Card and Apple Pay details are securely processed directly on EasyKash 256-bit SSL gateway."
       : paymentMethod === "mobile-wallet"
-        ? (isAr ? "اختار Mobile Wallet داخل EasyKash، ثم اتبع خطوات تأكيد الدفع من محفظتك." : "Select Mobile Wallet on EasyKash, then follow the wallet confirmation steps.")
-        : (isAr ? "اختار طريقة السداد النقدي المتاحة داخل EasyKash واتبع تعليمات أو كود السداد اللي هيظهر لك." : "Choose an available cash method on EasyKash and follow its voucher or payment instructions.");
+      ? isAr
+        ? "اختار Mobile Wallet على صفحة EasyKash، ادخل رقم محفظتك وأكّد السداد من تطبيق محفظتك فوراً."
+        : "Select Mobile Wallet on EasyKash, enter your wallet number and confirm payment in your wallet app."
+      : isAr
+      ? "سيظهر لك كود سداد فوري أو أمان؛ ادفع في أي منفذ وسيتفعل اشتراكك تلقائياً خلال دقائق."
+      : "You'll receive a Fawry or Aman reference code to pay at any store; Pro activates automatically.";
 
   const freeFeatures = [
-    {
-      icon: <Zap className="w-4 h-4" />,
-      text: isAr ? "تأخير الإشارات 15 يوماً" : "Signals delayed 15 days",
-      included: true,
-    },
-    {
-      icon: <MessageSquare className="w-4 h-4" />,
-      text: isAr ? "50 رسالة شات بوت / شهر" : "50 chatbot messages / month",
-      included: true,
-    },
-    {
-      icon: <BarChart3 className="w-4 h-4" />,
-      text: isAr ? "حتى 5 أسهم في المحفظة" : "Up to 5 portfolio stocks",
-      included: true,
-    },
-    {
-      icon: <ShieldCheck className="w-4 h-4" />,
-      text: isAr ? "تحليلات متقدمة" : "Advanced analytics",
-      included: false,
-    },
+    { icon: <Zap className="w-4 h-4" />, text: isAr ? "تأخير الإشارات 15 يوماً" : "Signals delayed 15 days", included: true },
+    { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? "50 رسالة شات بوت / شهر" : "50 chatbot messages / month", included: true },
+    { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? "حتى 5 أسهم في المحفظة" : "Up to 5 portfolio stocks", included: true },
+    { icon: <ShieldCheck className="w-4 h-4" />, text: isAr ? "قناة VIP على تليجرام" : "VIP Telegram Channel", included: false },
+    { icon: <Sparkles className="w-4 h-4" />, text: isAr ? "توصيات ونماذج الذكاء الاصطناعي لحظياً" : "Live AI models & intraday signals", included: false },
   ];
 
   const proFeatures = [
-    {
-      icon: <Zap className="w-4 h-4" />,
-      text: isAr ? "إشارات يومية فورية" : "Daily instant signals",
-      included: true,
-    },
-    {
-      icon: <MessageSquare className="w-4 h-4" />,
-      text: isAr ? "350 رسالة شات بوت / شهر" : "350 chatbot messages / month",
-      included: true,
-    },
-    {
-      icon: <BarChart3 className="w-4 h-4" />,
-      text: isAr ? "حتى 10 أسهم في المحفظة" : "Up to 10 portfolio stocks",
-      included: true,
-    },
-    {
-      icon: <ShieldCheck className="w-4 h-4" />,
-      text: isAr ? "تحليلات متقدمة" : "Advanced analytics",
-      included: true,
-    },
+    { icon: <Zap className="w-4 h-4" />, text: isAr ? "إشارات وتوصيات يومية فورية ولحظية" : "Daily real-time instant signals", included: true },
+    { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? "350 رسالة شات بوت ذكي شهرياً" : "350 smart chatbot messages / month", included: true },
+    { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? "حتى 10 أسهم نشطة في المحفظة" : "Up to 10 active portfolio stocks", included: true },
+    { icon: <ShieldCheck className="w-4 h-4" />, text: isAr ? "رابط دخول خاص لقناة VIP على تليجرام" : "Private invite to VIP Telegram channel", included: true },
+    { icon: <Sparkles className="w-4 h-4" />, text: isAr ? "نماذج الذكاء الاصطناعي (EGX Booster & King)" : "Full AI models (EGX Booster & King)", included: true },
   ];
 
-  // ── Submitted ────────────────────────────────────────────────────────────
+  // ── STEP 3: SUBMITTED / PAYMENT RESULT ─────────────────────────────────────
   if (step === "submitted") {
     return (
-      <div className="min-h-[70vh] flex items-center justify-center py-12 px-4">
-        <div className="max-w-md w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] p-8 space-y-6 text-center">
+      <div className="min-h-[75vh] flex items-center justify-center py-12 px-4" dir={isAr ? "rtl" : "ltr"}>
+        <div className="max-w-xl w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 sm:p-8 space-y-6 text-center shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_#10b981]">
+          {/* Status Icon */}
           <div className="flex justify-center">
-          <div className={`h-20 w-20 border-4 ${orderStatus === "failed" ? "border-red-500 bg-red-50 text-red-500" : "border-emerald-500 bg-emerald-50 text-emerald-500"} flex items-center justify-center`}>
-              {orderStatus === "failed" ? <X className="h-10 w-10" /> : <CheckCircle2 className="h-10 w-10" />}
+            <div
+              className={`h-20 w-20 border-4 border-black dark:border-white flex items-center justify-center shadow-[4px_4px_0px_rgba(0,0,0,1)] ${
+                orderStatus === "failed"
+                  ? "bg-red-500 text-white"
+                  : orderStatus === "approved"
+                  ? "bg-emerald-500 text-white"
+                  : "bg-amber-400 text-zinc-950 animate-pulse"
+              }`}
+            >
+              {orderStatus === "failed" ? (
+                <X className="h-10 w-10" />
+              ) : orderStatus === "approved" ? (
+                <CheckCircle2 className="h-10 w-10" />
+              ) : (
+                <Clock className="h-10 w-10 animate-spin" />
+              )}
             </div>
           </div>
+
+          {/* Heading */}
           <div className="space-y-2">
-            <h2 className="text-2xl font-black text-black dark:text-white">
-              {orderStatus === "failed" ? (isAr ? "لم يكتمل الدفع ❌" : "Payment was not completed ❌") : orderStatus === "approved" ? (isAr ? "تم تفعيل Pro بنجاح ✅" : "Pro activated successfully ✅") : (isAr ? "في انتظار تأكيد الدفع ⏳" : "Waiting for payment confirmation ⏳")}
+            <span
+              className={`inline-block border-2 border-black dark:border-white px-3 py-1 text-xs font-black uppercase tracking-widest ${
+                orderStatus === "failed"
+                  ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300"
+                  : orderStatus === "approved"
+                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                  : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+              }`}
+            >
+              {orderStatus === "failed"
+                ? isAr ? "فشلت العملية" : "Payment Incomplete"
+                : orderStatus === "approved"
+                ? isAr ? "تم التفعيل بنجاح" : "Pro Activated"
+                : isAr ? "جاري التحقق من الدفع" : "Verifying Payment"}
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-black text-zinc-950 dark:text-white">
+              {orderStatus === "failed"
+                ? isAr ? "لم تكتمل عملية الدفع" : "Payment was not completed"
+                : orderStatus === "approved"
+                ? isAr ? "أهلاً بك في EGX BOTS Pro! 🎉" : "Welcome to EGX BOTS Pro! 🎉"
+                : isAr ? "في انتظار إشعار تأكيد الدفع ⏳" : "Awaiting payment confirmation ⏳"}
             </h2>
-            <p className="text-sm font-bold text-zinc-600 dark:text-zinc-300 leading-relaxed">
-              {isAr
-                ? orderStatus === "failed" ? "لم يصل تأكيد دفع مكتمل. يمكنك اختيار الخطة والمحاولة مرة أخرى." : orderStatus === "approved" ? `تم تأكيد الدفع وتفعيل حساب Pro لمدة ${selectedPlanDetails?.days || 30} يومًا.` : "طلب الدفع جاهز؛ سنحدّث الحالة تلقائيًا بعد تأكيد EasyKash."
-                : orderStatus === "failed" ? "Payment was not completed. Choose a plan and try again." : orderStatus === "approved" ? `Your Pro plan is active for ${selectedPlanDetails?.days || 30} days.` : "Checkout started. We will update this status after EasyKash confirms payment."}
+            <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 leading-relaxed max-w-md mx-auto">
+              {orderStatus === "failed"
+                ? isAr
+                  ? "لم نتلقَ تأكيد إتمام الدفع من EasyKash. يمكنك المحاولة مجددًا باختيار وسيلة أخرى أو التواصل معنا للمساعدة."
+                  : "We didn't receive payment confirmation from EasyKash. You can try again or reach out to our team."
+                : orderStatus === "approved"
+                ? isAr
+                  ? `تم تأكيد اشتراكك في باقة Pro لمدة ${selectedPlanDetails?.days || 30} يوماً بنجاح. حسابك نشط الآن بكامل الصلاحيات!`
+                  : `Your Pro plan is now active for ${selectedPlanDetails?.days || 30} days with full benefits!`
+                : isAr
+                ? "تم استلام طلبك وجاري انتظار تأكيد السداد من EasyKash تلقائياً. الصفحة ستُحدّث الحالة فور وصول الإشعار."
+                : "Checkout initiated. We are listening for EasyKash confirmation and will update automatically."}
             </p>
           </div>
+
+          {/* Order Reference Box */}
           {localOrder && (
-            <div className="border-2 border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 p-3">
-              <p className="text-xs font-black text-zinc-500 uppercase tracking-widest mb-1">
-                Order ID
-              </p>
-              <p className="text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300 break-all">
-                {localOrder}
-              </p>
+            <div className="border-2 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-3.5 flex items-center justify-between gap-3 text-start">
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500 block">
+                  {isAr ? "رقم مرجع الطلب (Order ID)" : "Order Reference"}
+                </span>
+                <span className="font-mono font-bold text-xs text-zinc-900 dark:text-zinc-100 break-all">
+                  {localOrder}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={copyOrderId}
+                className="shrink-0 p-2 border-2 border-black dark:border-white bg-white dark:bg-zinc-800 hover:bg-zinc-100 text-xs font-bold"
+                title={isAr ? "نسخ" : "Copy"}
+              >
+                {copiedOrder ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+              </button>
             </div>
           )}
-          {orderStatus === "failed" && <div className="flex flex-col gap-2"><button onClick={() => setStep("plans")} className="w-full h-11 border-4 border-black bg-emerald-500 text-white font-black">{isAr ? "اختيار خطة والمحاولة مجددًا" : "Choose a plan and try again"}</button><a href="https://wa.me/201024359109" target="_blank" rel="noreferrer" className="text-sm font-black text-emerald-600 underline">{isAr ? "محتاج مساعدة؟ كلمنا على واتساب" : "Need help? Contact us on WhatsApp"}</a></div>}
-          {orderStatus === "approved" && <div className="space-y-3"><p className="font-black text-emerald-600">{subscriptionEnd ? (isAr ? `صالح حتى ${new Date(subscriptionEnd).toLocaleDateString("ar-EG")}` : `Valid until ${new Date(subscriptionEnd).toLocaleDateString()}`) : ""}</p>{telegramProUrl ? <a href={telegramProUrl} target="_blank" rel="noreferrer" className="block border-4 border-black bg-indigo-600 px-4 py-3 text-sm font-black text-white shadow-[3px_3px_0px_rgba(0,0,0,1)]">{isAr ? "انضم إلى قناة VIP على تليجرام" : "Join VIP Telegram Channel"}<span className="block text-[10px] font-bold mt-1 opacity-80">{isAr ? `الرابط صالح حتى ${subscriptionEnd ? new Date(subscriptionEnd).toLocaleDateString("ar-EG") : "نهاية الاشتراك"}` : `Invite valid through ${subscriptionEnd ? new Date(subscriptionEnd).toLocaleDateString() : "subscription end"}`}</span></a> : <p className="text-xs font-bold text-amber-600">{isAr ? "جاري إنشاء رابط دعوة قناة VIP... حدّث الصفحة بعد لحظات." : "Creating your VIP invite link... refresh in a moment."}</p>}</div>}
-          <a href="https://wa.me/201024359109" target="_blank" rel="noreferrer" className="block text-sm font-black text-emerald-600 underline">{isAr ? "محتاج مساعدة؟ كلمنا على واتساب" : "Need help? Contact us on WhatsApp"}</a>
-        </div>
-      </div>
-    );
-  }
 
-  // ── Payment step ─────────────────────────────────────────────────────────
-  if (step === "payment") {
-    return (
-      <div className="relative min-h-[70vh] overflow-hidden bg-slate-50 px-4 py-8 dark:bg-[#0c1220] sm:py-12" dir={isAr ? "rtl" : "ltr"}>
-        <div className="pointer-events-none absolute inset-0 opacity-30 [background-image:linear-gradient(to_right,#94a3b81c_1px,transparent_1px),linear-gradient(to_bottom,#94a3b81c_1px,transparent_1px)] [background-size:32px_32px]" />
-        <div className="relative mx-auto max-w-6xl">
-          <header className="mb-6 flex flex-col gap-4 border-4 border-zinc-950 bg-white p-4 text-zinc-950 shadow-[5px_5px_0px_#18181b] dark:border-white dark:bg-zinc-950 dark:text-white dark:shadow-[5px_5px_0px_#fafafa33] sm:p-6 md:flex-row md:items-center md:justify-between">
-            <div className="flex min-w-0 items-start gap-3 sm:gap-4"><div className="shrink-0 border-2 border-zinc-950 bg-white p-1.5 dark:border-white"><Image src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={40} height={40} className="h-8 w-8 object-contain sm:h-10 sm:w-10" /></div><div><p className="mb-2 inline-flex border-2 border-zinc-950 bg-amber-300 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-zinc-950">EGX BOTS × EASYKASH</p><h1 className="text-2xl font-black leading-tight sm:text-3xl">{isAr ? "إتمام الاشتراك" : "Complete your subscription"}</h1><p className="mt-2 text-xs font-semibold leading-6 text-zinc-600 dark:text-zinc-300 sm:text-sm">{isAr ? "اختر وسيلة الدفع، راجع متطلباتها، ثم انتقل لصفحة EasyKash الآمنة." : "Choose a payment method, review its requirements, then continue to secure EasyKash checkout."}</p></div></div>
-            <button type="button" onClick={() => { setStep("plans"); setLocalOrder(null); }} className="inline-flex shrink-0 items-center gap-2 self-start border-2 border-zinc-950 bg-white px-4 py-2.5 text-sm font-black text-zinc-950 shadow-[3px_3px_0px_#10b981] transition-transform hover:-translate-y-0.5 dark:border-white dark:bg-zinc-900 dark:text-white">{isAr ? <ArrowRight className="h-4 w-4" /> : <ArrowLeft className="h-4 w-4" />}{isAr ? "تغيير الخطة" : "Change plan"}</button>
-          </header>
-
-          <div dir="ltr" className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start">
-            <section dir={isAr ? "rtl" : "ltr"} className="order-1 min-w-0 border-4 border-zinc-950 bg-white shadow-[6px_6px_0px_#10b981] dark:border-white dark:bg-zinc-950 lg:order-2" aria-label={isAr ? "اختيار طريقة الدفع" : "Choose payment method"}>
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-zinc-950 bg-emerald-400 px-5 py-3 text-zinc-950 dark:border-white sm:px-7">
-                <span className="text-xs font-black uppercase tracking-[0.14em]">{isAr ? "01 / وسيلة الدفع" : "01 / PAYMENT METHOD"}</span>
-                <span className="flex items-center gap-1 text-xs font-black"><ShieldCheck className="h-4 w-4" aria-hidden="true" />{isAr ? "دفع آمن عبر EasyKash" : "Secure EasyKash checkout"}</span>
-              </div>
-              <div className="space-y-7 p-5 sm:p-7">
-                <EasyKashMethods isAr={isAr} selected={paymentMethod} onSelect={setPaymentMethod} />
-
-                <div aria-live="polite" className="border-2 border-zinc-900 bg-zinc-50 p-4 dark:border-zinc-500 dark:bg-zinc-900 sm:p-5">
-                  <div className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" /><h3 className="text-base font-black text-zinc-950 dark:text-white">{isAr ? `متطلبات ${selectedMethod.ar}` : `What you need for ${selectedMethod.en}`}</h3></div>
-                  <p className="mt-2 text-sm font-medium leading-6 text-zinc-700 dark:text-zinc-200">{methodExplanation}</p>
-                  <p className="mt-2 text-xs font-bold leading-5 text-amber-700 dark:text-amber-300">{isAr ? "داخل EasyKash اضغط على الوسيلة الظاهرة لتحديدها، وبعدها اضغط Pay Now." : "On EasyKash, select the displayed method before pressing Pay Now."}</p>
+          {/* Approved VIP Actions */}
+          {orderStatus === "approved" && (
+            <div className="space-y-4 pt-2">
+              {subscriptionEnd && (
+                <p className="text-xs font-black text-emerald-600 dark:text-emerald-400">
+                  {isAr
+                    ? `تاريخ انتهاء الاشتراك: ${new Date(subscriptionEnd).toLocaleDateString("ar-EG")}`
+                    : `Valid until: ${new Date(subscriptionEnd).toLocaleDateString()}`}
+                </p>
+              )}
+              {telegramProUrl ? (
+                <a
+                  href={telegramProUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-center gap-2 border-4 border-black dark:border-white bg-indigo-600 hover:bg-indigo-700 text-white font-black py-3.5 px-6 uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:-translate-y-0.5 active:translate-y-0 transition-all text-sm"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  {isAr ? "انضم الآن إلى قناة VIP على تليجرام" : "Join VIP Telegram Channel Now"}
+                </a>
+              ) : (
+                <div className="p-3 border-2 border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-xs font-bold text-amber-800 dark:text-amber-200">
+                  {isAr ? "جاري توليد رابط الدعوة الخاص بقناة VIP... أعد تحميل الصفحة بعد ثوانٍ." : "Generating your VIP invite link... refresh in a few seconds."}
                 </div>
+              )}
+              <button
+                type="button"
+                onClick={() => router.push("/profile")}
+                className="w-full border-2 border-black dark:border-white bg-white dark:bg-zinc-900 py-3 text-xs font-black hover:bg-zinc-100 transition-all"
+              >
+                {isAr ? "الانتقال إلى الملف الشخصي والكوتا ←" : "Go to Profile & Quota Dashboard →"}
+              </button>
+            </div>
+          )}
 
-                <div className="space-y-4 border-t-2 border-zinc-200 pt-6 dark:border-zinc-800">
-                  <div><h3 className="text-lg font-black text-zinc-950 dark:text-white">{isAr ? "بيانات التواصل المشتركة" : "Contact details"}</h3><p className="mt-1 text-xs font-medium leading-5 text-zinc-600 dark:text-zinc-300">{isAr ? "EasyKash تطلب رقم موبايل مصري للمشتري مع كل وسائل الدفع، حتى البطاقة. مش لازم يكون عليه محفظة." : "EasyKash requires an Egyptian buyer phone number for every method, including cards. It does not need a wallet."}</p></div>
-                  {user?.email && <div className="flex flex-wrap items-center justify-between gap-2 border-2 border-zinc-200 bg-zinc-50 px-4 py-3 text-xs dark:border-zinc-700 dark:bg-zinc-900"><span className="font-black text-zinc-600 dark:text-zinc-300">{isAr ? "البريد الإلكتروني" : "Email"}</span><span dir="ltr" className="break-all font-bold text-zinc-950 dark:text-white">{user.email}</span></div>}
-                  <div className="space-y-2"><label htmlFor="easykash-contact-mobile" className="block text-sm font-black text-zinc-900 dark:text-white">{isAr ? "رقم الموبايل للتواصل" : "Contact mobile number"}</label><div className="flex items-center gap-3 border-2 border-zinc-400 bg-white px-4 py-3 focus-within:border-emerald-600 dark:border-zinc-600 dark:bg-zinc-950 dark:focus-within:border-emerald-400"><Smartphone className="h-5 w-5 shrink-0 text-emerald-600" aria-hidden="true" /><input id="easykash-contact-mobile" type="tel" inputMode="tel" autoComplete="tel-national" value={customerMobile} onChange={(event) => setCustomerMobile(event.target.value)} placeholder="01012345678" aria-invalid={customerMobile.length > 0 && !isMobileValid} aria-describedby="easykash-mobile-help" className="w-full bg-transparent text-lg font-bold text-zinc-950 outline-none placeholder:text-zinc-400 dark:text-white" dir="ltr" /></div><p id="easykash-mobile-help" className={`text-xs font-semibold ${isMobileValid ? "text-emerald-700 dark:text-emerald-400" : "text-zinc-500 dark:text-zinc-400"}`}>{isMobileValid ? (isAr ? "✓ الرقم صحيح" : "✓ Valid number") : (isAr ? "رقم من أي شبكة: 010 أو 011 أو 012 أو 015" : "Any network: 010, 011, 012 or 015")}</p></div>
-                </div>
+          {/* Failed Retry */}
+          {orderStatus === "failed" && (
+            <div className="space-y-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setStep("plans")}
+                className="w-full border-4 border-black dark:border-white bg-emerald-500 hover:bg-emerald-600 text-white font-black py-3.5 px-6 uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:-translate-y-0.5 active:translate-y-0 transition-all text-sm"
+              >
+                {isAr ? "اختيار باقة والمحاولة مجددًا" : "Choose a Plan & Try Again"}
+              </button>
+            </div>
+          )}
 
-                <button type="button" onClick={() => startEasyKashPayment()} disabled={busy || (!!user && !isMobileValid)} className="flex w-full items-center justify-center gap-2 border-2 border-zinc-950 bg-emerald-500 px-5 py-4 text-sm font-black text-zinc-950 shadow-[4px_4px_0px_#18181b] transition-transform hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-700 dark:border-white dark:shadow-[4px_4px_0px_#fafafa] dark:disabled:bg-zinc-800 dark:disabled:text-zinc-200">{busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <><LockKeyhole className="h-4 w-4" aria-hidden="true" />{!user ? (isAr ? "سجّل الدخول للمتابعة" : "Sign in to continue") : (isAr ? "المتابعة إلى EasyKash" : "Continue to EasyKash")}</>}</button>
-                <p className="text-center text-xs font-medium leading-5 text-zinc-500 dark:text-zinc-400">{isAr ? "لن نطلب بيانات البطاقة أو الرقم السري على EGX BOTS." : "EGX BOTS never asks for your card details or PIN."}</p>
-              </div>
-            </section>
-
-            <aside dir={isAr ? "rtl" : "ltr"} className="order-2 border-4 border-zinc-950 bg-zinc-950 p-5 text-white shadow-[6px_6px_0px_#10b981] dark:border-white sm:p-6 lg:order-1 lg:sticky lg:top-24">
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-400">{isAr ? "ملخص الاشتراك" : "Subscription summary"}</p>
-              <div className="mt-5 border-b border-zinc-700 pb-5"><p className="text-2xl font-black">EGX BOTS Pro</p><p className="mt-1 text-sm font-semibold text-zinc-300">{isAr ? selectedPlanDetails.name_ar : selectedPlanDetails.name_en}</p></div>
-              <div className="space-y-3 border-b border-zinc-700 py-5 text-sm"><div className="flex justify-between gap-3"><span className="text-zinc-400">{isAr ? "الخطة" : "Plan"}</span><span className="font-bold">Pro</span></div><div className="flex justify-between gap-3"><span className="text-zinc-400">{isAr ? "المدة" : "Duration"}</span><span className="font-bold">{selectedPlanDetails.days} {isAr ? "يوم" : "days"}</span></div><div className="flex justify-between gap-3"><span className="text-zinc-400">{isAr ? "وسيلة الدفع" : "Method"}</span><span className="font-bold">{isAr ? selectedMethod.ar : selectedMethod.en}</span></div></div>
-              <div className="flex items-end justify-between gap-3 py-5"><span className="text-sm font-black">{isAr ? "الإجمالي" : "Total"}</span><span className="text-3xl font-black text-emerald-400">{proPrice} <span className="text-sm">EGP</span></span></div>
-              <div className="border-s-4 border-emerald-400 bg-white/10 p-3 text-xs font-semibold leading-6 text-zinc-200">{isAr ? "بيانات الدفع تُدخل على EasyKash، والاشتراك يتفعل بعد تأكيد عملية الدفع." : "Payment details stay on EasyKash. Your plan activates after payment confirmation."}</div>
-            </aside>
+          {/* Support Hotline */}
+          <div className="border-t-2 border-zinc-200 dark:border-zinc-800 pt-4">
+            <a
+              href="https://wa.me/201024359109"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-black text-emerald-600 dark:text-emerald-400 hover:underline"
+            >
+              <HelpCircle className="w-4 h-4" />
+              {isAr ? "تحتاج مساعدة بخصوص الدفع؟ تواصل معنا عبر واتساب" : "Need help with payment? Contact us on WhatsApp"}
+            </a>
           </div>
         </div>
       </div>
     );
   }
 
-  // ── Plans page (default) ─────────────────────────────────────────────────
+  // ── STEP 2: CHECKOUT / PAYMENT FORM ────────────────────────────────────────
+  if (step === "payment") {
+    return (
+      <div className="min-h-[75vh] py-8 sm:py-12 px-4 relative" dir={isAr ? "rtl" : "ltr"}>
+        <div className="max-w-6xl mx-auto space-y-6">
+          {/* Top Bar Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-4 sm:p-6 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_#10b981]">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="shrink-0 border-2 border-black dark:border-white bg-white p-1.5 shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+                <Image src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={36} height={36} className="h-8 w-8 object-contain" />
+              </div>
+              <div>
+                <span className="inline-block border-2 border-black bg-amber-300 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-black">
+                  SECURE CHECKOUT · EASYKASH
+                </span>
+                <h1 className="text-xl sm:text-2xl font-black text-zinc-950 dark:text-white">
+                  {isAr ? "إتمام وتأكيد الاشتراك" : "Complete Your Subscription"}
+                </h1>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setStep("plans");
+                setLocalOrder(null);
+              }}
+              className="inline-flex items-center justify-center gap-2 border-2 border-black dark:border-white bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 px-4 py-2 text-xs font-black text-zinc-950 dark:text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] transition-transform active:translate-y-0.5 self-start sm:self-auto"
+            >
+              {isAr ? <ArrowRight className="h-4 w-4" /> : <ArrowLeft className="h-4 w-4" />}
+              {isAr ? "تغيير الخطة" : "Change Plan"}
+            </button>
+          </div>
+
+          {/* 2-Column Responsive Layout */}
+          <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
+            {/* Form Column (Main) */}
+            <div className="lg:col-span-8 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-5 sm:p-8 space-y-6 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_#10b981]">
+              {/* Step 1 Title */}
+              <div className="border-b-2 border-zinc-200 dark:border-zinc-800 pb-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                    {isAr ? "01 / وسيلة الدفع المناسبة" : "01 / PAYMENT METHOD"}
+                  </span>
+                  <span className="flex items-center gap-1.5 text-xs font-black text-zinc-600 dark:text-zinc-300">
+                    <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                    {isAr ? "دفع رسمي ومعتمد" : "Official & Certified"}
+                  </span>
+                </div>
+                <h2 className="text-xl font-black text-zinc-950 dark:text-white mt-1">
+                  {isAr ? "اختر طريقة السداد المفضلة" : "Select Your Payment Method"}
+                </h2>
+              </div>
+
+              {/* Methods Grid */}
+              <div className="grid gap-3 sm:grid-cols-2">
+                {easyKashMethods.map((method) => {
+                  const Icon = method.icon;
+                  const isSelected = paymentMethod === method.id;
+                  return (
+                    <button
+                      key={method.id}
+                      type="button"
+                      onClick={() => setPaymentMethod(method.id)}
+                      className={`group flex items-start gap-3.5 border-3 p-4 text-start transition-all relative ${
+                        isSelected
+                          ? "border-black dark:border-white bg-emerald-50 dark:bg-emerald-950/40 shadow-[4px_4px_0px_#10b981]"
+                          : "border-zinc-300 dark:border-zinc-700 bg-zinc-50/70 dark:bg-zinc-900 hover:border-black dark:hover:border-zinc-400"
+                      }`}
+                    >
+                      <div
+                        className={`w-10 h-10 border-2 flex items-center justify-center shrink-0 ${
+                          isSelected
+                            ? "border-black dark:border-white bg-emerald-500 text-white"
+                            : "border-zinc-400 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200"
+                        }`}
+                      >
+                        <Icon className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-1 mb-0.5">
+                          <span className="font-black text-sm text-zinc-950 dark:text-white leading-tight">
+                            {isAr ? method.ar : method.en}
+                          </span>
+                          <span
+                            className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                              isSelected ? "border-emerald-600 bg-emerald-500 text-white" : "border-zinc-400"
+                            }`}
+                          >
+                            {isSelected && <Check className="w-3 h-3" />}
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 block leading-tight">
+                          {isAr ? method.arHint : method.enHint}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Dynamic Guidance Note */}
+              <div className="border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900/80 p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <h3 className="text-xs font-black uppercase text-zinc-900 dark:text-white">
+                    {isAr ? `إرشادات الدفع عبر ${selectedMethod.ar}` : `Instructions for ${selectedMethod.en}`}
+                  </h3>
+                </div>
+                <p className="text-xs font-semibold leading-relaxed text-zinc-700 dark:text-zinc-300">
+                  {methodExplanation}
+                </p>
+              </div>
+
+              {/* Contact Phone & Email */}
+              <div className="border-t-2 border-zinc-200 dark:border-zinc-800 pt-5 space-y-4">
+                <div>
+                  <span className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                    {isAr ? "02 / بيانات المشتري" : "02 / BUYER CONTACT"}
+                  </span>
+                  <h3 className="text-lg font-black text-zinc-950 dark:text-white mt-0.5">
+                    {isAr ? "رقم الموبايل للتأكيد" : "Mobile Number for Confirmation"}
+                  </h3>
+                  <p className="text-xs font-semibold text-zinc-500 mt-1">
+                    {isAr
+                      ? "رقم موبايل مصري لتلقي كود ورسالة التأكيد من بوابة الدفع."
+                      : "Egyptian mobile number to receive confirmation code."}
+                  </p>
+                </div>
+
+                {user?.email && (
+                  <div className="flex items-center justify-between border-2 border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-3.5 py-2.5 text-xs font-bold">
+                    <span className="text-zinc-500">{isAr ? "حساب المستخدم:" : "Account:"}</span>
+                    <span className="text-zinc-900 dark:text-white font-mono break-all">{user.email}</span>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <label htmlFor="mobile-input" className="block text-xs font-black text-zinc-800 dark:text-zinc-200">
+                    {isAr ? "رقم الموبايل المصري (11 رقم)" : "Egyptian Mobile (11 digits)"}
+                  </label>
+                  <div className="flex items-center gap-3 border-3 border-black dark:border-white bg-white dark:bg-zinc-900 px-4 py-3 focus-within:ring-2 focus-within:ring-emerald-500">
+                    <Smartphone className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <input
+                      id="mobile-input"
+                      type="tel"
+                      value={customerMobile}
+                      onChange={(e) => setCustomerMobile(e.target.value)}
+                      placeholder="01012345678"
+                      className="w-full bg-transparent font-mono text-base font-black outline-none placeholder:text-zinc-400 text-zinc-950 dark:text-white"
+                      dir="ltr"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-xs font-bold pt-0.5">
+                    <span className={isMobileValid ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-500"}>
+                      {isMobileValid
+                        ? isAr ? "✓ رقم مصري صحيح" : "✓ Valid Egyptian number"
+                        : isAr ? "مقبول: 010 أو 011 أو 012 أو 015" : "Accepted: 010, 011, 012 or 015"}
+                    </span>
+                    <span className="text-[10px] text-zinc-400 font-mono">
+                      {customerMobile.length > 0 ? `${customerMobile.length} / 11` : ""}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Submit Button */}
+              <div className="pt-2 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => startEasyKashPayment()}
+                  disabled={busy || (!!user && !isMobileValid)}
+                  className="w-full flex items-center justify-center gap-3 border-4 border-black dark:border-white bg-emerald-500 hover:bg-emerald-600 text-zinc-950 dark:text-black font-black text-base py-4 px-6 uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_#ffffff] hover:-translate-y-0.5 active:translate-y-0 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {busy ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <>
+                      <LockKeyhole className="w-5 h-5" />
+                      {!user
+                        ? isAr ? "سجّل الدخول للمتابعة" : "Sign in to Continue"
+                        : isAr ? `المتابعة للدفع الآمن (${proPrice} ج.م) 🔒` : `Proceed to Secure Checkout (${proPrice} EGP) 🔒`}
+                    </>
+                  )}
+                </button>
+                <div className="flex items-center justify-center gap-3 text-[11px] font-bold text-zinc-500">
+                  <span className="flex items-center gap-1">
+                    <Shield className="w-3.5 h-3.5 text-emerald-500" />
+                    {isAr ? "دفع آمن 256-bit" : "256-bit SSL"}
+                  </span>
+                  <span>•</span>
+                  <span>{isAr ? "تفعيل فوري للاشتراك" : "Instant Activation"}</span>
+                  <span>•</span>
+                  <span>{isAr ? "دعم فني 24/7" : "24/7 Support"}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Sidebar Summary Column */}
+            <div className="lg:col-span-4 border-4 border-black dark:border-white bg-zinc-950 text-white p-6 space-y-6 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_#10b981] lg:sticky lg:top-24">
+              <div className="border-b border-zinc-800 pb-4">
+                <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 block mb-1">
+                  {isAr ? "فاتورة الاشتراك" : "ORDER INVOICE"}
+                </span>
+                <h3 className="text-2xl font-black">EGX BOTS Pro</h3>
+                <p className="text-xs font-semibold text-zinc-400 mt-1">
+                  {isAr ? selectedPlanDetails.name_ar : selectedPlanDetails.name_en}
+                </p>
+              </div>
+
+              {/* Items Breakdown */}
+              <div className="space-y-3 border-b border-zinc-800 pb-4 text-xs font-bold">
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">{isAr ? "الخطة:" : "Plan:"}</span>
+                  <span className="font-black text-emerald-400">Pro VIP</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">{isAr ? "فترة الاشتراك:" : "Duration:"}</span>
+                  <span className="font-mono">{selectedPlanDetails.days} {isAr ? "يوماً" : "days"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">{isAr ? "وسيلة الدفع:" : "Method:"}</span>
+                  <span>{isAr ? selectedMethod.ar : selectedMethod.en}</span>
+                </div>
+                {selectedPlanDetails.savingsPct > 0 && (
+                  <div className="flex justify-between text-emerald-400">
+                    <span>{isAr ? "نسبة التوفير:" : "Savings:"}</span>
+                    <span>{isAr ? `وفرت ${selectedPlanDetails.savingsPct}%` : `${selectedPlanDetails.savingsPct}% OFF`}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Total */}
+              <div className="flex items-baseline justify-between border-b border-zinc-800 pb-5">
+                <span className="text-sm font-black">{isAr ? "المبلغ الإجمالي:" : "Total Amount:"}</span>
+                <div className="text-end">
+                  <span className="text-3xl font-black text-emerald-400">{proPrice}</span>
+                  <span className="text-xs font-bold text-zinc-400 ms-1">ج.م</span>
+                </div>
+              </div>
+
+              {/* Included Benefits List */}
+              <div className="space-y-2 text-xs font-bold">
+                <span className="text-[10px] font-black uppercase text-zinc-400 tracking-wider block">
+                  {isAr ? "الميزات المشمولة فوراً:" : "INCLUDED WITH PRO:"}
+                </span>
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>{isAr ? "قناة VIP على تليجرام فور التفعيل" : "Instant VIP Telegram Channel Invite"}</span>
+                </div>
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>{isAr ? "إشارات وتوصيات يومية بدون تأخير" : "Zero-delay real-time signals"}</span>
+                </div>
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>{isAr ? "350 رسالة ذكاء اصطناعي شهرياً" : "350 monthly AI chat messages"}</span>
+                </div>
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>{isAr ? "محفظة تداول حتى 10 أسهم" : "10 active portfolio stock slots"}</span>
+                </div>
+              </div>
+
+              {/* Secure Notice */}
+              <div className="p-3 border-2 border-emerald-500/50 bg-emerald-950/30 text-[11px] font-semibold text-zinc-300 leading-relaxed">
+                {isAr
+                  ? "تتم المعاملة عبر بوابة EasyKash المرخصة. يُفعّل اشتراكك آلياً فور السداد دون الحاجة لتدخل يدوي."
+                  : "Processed through certified EasyKash gateway. Account activates automatically upon payment."}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── STEP 1: PLANS COMPARISON GRID (DEFAULT) ────────────────────────────────
   return (
-    <div className="min-h-[70vh] py-10 sm:py-14 px-4 relative overflow-hidden">
-      <div className="pointer-events-none absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-emerald-400/10 blur-3xl motion-safe:animate-pulse" />
+    <div className="min-h-[75vh] py-10 sm:py-14 px-4 relative overflow-hidden" dir={isAr ? "rtl" : "ltr"}>
       <div className="max-w-6xl mx-auto space-y-10 relative">
-        {/* Title */}
-        <div className="text-center space-y-3 animate-in fade-in slide-in-from-top-3 duration-700">
-          <p className="text-xs font-black uppercase tracking-[0.28em] text-emerald-600 dark:text-emerald-400">EGX BOTS PRO</p>
-          <h1 className="text-3xl sm:text-4xl font-black text-black dark:text-white">
-            {isAr ? "اختر خطتك" : "Choose your plan"}
+        {/* Main Header */}
+        <div className="text-center space-y-3">
+          <span className="inline-block border-2 border-black dark:border-white bg-amber-300 px-3 py-1 text-xs font-black uppercase tracking-widest text-black shadow-[3px_3px_0px_rgba(0,0,0,1)]">
+            EGX BOTS PRO · خطط واشتراكات
+          </span>
+          <h1 className="text-3xl sm:text-5xl font-black text-zinc-950 dark:text-white tracking-tight">
+            {isAr ? "اختر خطتك الاستثمارية" : "Choose Your Investment Plan"}
           </h1>
-          <p className="text-zinc-500 font-bold">
+          <p className="text-sm sm:text-base font-bold text-zinc-600 dark:text-zinc-300 max-w-2xl mx-auto leading-relaxed">
             {isAr
-              ? "مزايا واضحة تناسب طريقة تداولك"
-              : "Clear features that fit your trading style"}
+              ? "تحليلات كمية، وتوصيات مبنية على الذكاء الاصطناعي، وقناة VIP حصرية لتداول البورصة المصرية بثقة."
+              : "Quantitative analysis, AI-driven stock signals, and VIP channel access for the Egyptian Stock Exchange."}
           </p>
         </div>
 
-        {/* Plans grid */}
-        <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-6">
-          {/* ── Free ── */}
-          <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] p-6 space-y-6 flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-black text-black dark:text-white">
+        {/* Plans Grid */}
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
+          {/* ── 01. Free Plan Card ── */}
+          <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,0.2)] p-6 space-y-6 flex flex-col justify-between">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-black text-zinc-950 dark:text-white">
                   {isAr ? "مجاني" : "Free"}
-                </h2>
-                <span className="text-xs font-black bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 px-3 py-1 border-2 border-zinc-200 dark:border-zinc-700">
-                  {isPro ? (isAr ? "متاحة" : "Available") : (isAr ? "الخطة الحالية" : "Current plan")}
+                </h3>
+                <span className="text-[10px] font-black uppercase px-2.5 py-1 border-2 border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
+                  {isPro ? (isAr ? "متاحة" : "Available") : isAr ? "الخطة الحالية" : "Current"}
                 </span>
               </div>
-              <div className="flex items-end gap-1 mb-1">
-                <span className="text-4xl font-black text-black dark:text-white">EGP 0</span>
+
+              <div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-4xl font-black text-zinc-950 dark:text-white">0</span>
+                  <span className="text-xs font-bold text-zinc-500">ج.م / للأبد</span>
+                </div>
+                <p className="text-xs font-semibold text-zinc-500 mt-1">
+                  {isAr ? "مناسبة للتجربة واستكشاف المنصة" : "Good for exploring the basics"}
+                </p>
               </div>
-              <p className="text-xs font-bold text-zinc-400">
-                {isAr ? "مجاناً للأبد" : "Free forever"}
-              </p>
+
+              <div className="border-t-2 border-zinc-200 dark:border-zinc-800 pt-4">
+                <ul className="space-y-3">
+                  {freeFeatures.map((f, i) => (
+                    <li
+                      key={i}
+                      className={`flex items-start gap-2.5 text-xs font-bold leading-tight ${
+                        f.included ? "text-zinc-700 dark:text-zinc-300" : "text-zinc-400 dark:text-zinc-600 line-through"
+                      }`}
+                    >
+                      <span className="shrink-0 mt-0.5">{f.included ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <X className="w-3.5 h-3.5 text-zinc-400" />}</span>
+                      <span>{f.text}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
 
-            <ul className="space-y-3 flex-1">
-              {freeFeatures.map((f, i) => (
-                <li
-                  key={i}
-                  className={`flex items-center gap-3 text-sm font-bold ${
-                    f.included
-                      ? "text-zinc-700 dark:text-zinc-300"
-                      : "text-zinc-400 dark:text-zinc-600 line-through"
-                  }`}
-                >
-                  {f.included ? (
-                    <Check className="w-4 h-4 text-emerald-500 shrink-0" />
-                  ) : (
-                    <X className="w-4 h-4 text-zinc-300 shrink-0" />
-                  )}
-                  <span className="flex items-center gap-1.5">
-                    {f.icon}
-                    {f.text}
-                  </span>
-                </li>
-              ))}
-            </ul>
-
             <button
+              type="button"
               disabled
-              className="w-full h-12 border-4 border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-400 font-black uppercase tracking-widest disabled:cursor-not-allowed"
+              className="w-full border-3 border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 text-zinc-400 dark:text-zinc-600 py-3 text-xs font-black uppercase tracking-wider cursor-not-allowed"
             >
               {isAr ? "خطتك الحالية" : "Current Plan"}
             </button>
           </div>
 
-          {paidPlans.map((plan: any, planIndex) => {
-            const isSelected = selectedPlan === plan.id;
-            const planName = isAr ? plan.name_ar : plan.name_en;
+          {/* ── 02, 03, 04. Paid Pro Plans ── */}
+          {paidPlans.map((plan) => {
+            const isFeatured = plan.id === "pro_6m";
+            const isMax = plan.id === "pro_1y";
             return (
-              <div key={plan.id} style={{ animationDelay: `${(planIndex + 1) * 100}ms` }} className={`border-4 border-black dark:border-white ${isSelected ? "bg-emerald-50 dark:bg-emerald-950/30 ring-4 ring-emerald-400" : "bg-white dark:bg-zinc-900"} shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] p-6 space-y-5 flex flex-col relative animate-in fade-in slide-in-from-bottom-4 duration-700`}>
-                {plan.id === "pro_6m" && <div className="absolute -top-4 left-1/2 -translate-x-1/2"><span className="bg-emerald-500 text-white text-xs font-black px-4 py-1 border-2 border-black dark:border-white uppercase tracking-widest">{isAr ? "الأكثر طلبًا" : "Best value"}</span></div>}
-                <button type="button" onClick={() => setSelectedPlan(plan.id)} className="text-left pt-1">
-                  <div className="flex items-center justify-between mb-4 gap-2">
-                    <h2 className="text-xl font-black text-black dark:text-white">Pro · {planName}</h2>
-                    <span className="text-[10px] font-black bg-emerald-500 text-white px-2 py-1 border-2 border-black dark:border-white">PRO</span>
+              <div
+                key={plan.id}
+                className={`border-4 border-black dark:border-white p-6 space-y-6 flex flex-col justify-between relative transition-all ${
+                  isFeatured
+                    ? "bg-emerald-50/70 dark:bg-emerald-950/30 ring-4 ring-emerald-500 shadow-[6px_6px_0px_#10b981]"
+                    : "bg-white dark:bg-zinc-950 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_#10b981]"
+                }`}
+              >
+                {/* Top Badge */}
+                {plan.badge && (
+                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
+                    <span className="border-2 border-black dark:border-white bg-emerald-500 text-white text-[10px] font-black uppercase px-3 py-0.5 tracking-wider shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+                      {plan.badge}
+                    </span>
                   </div>
-                  <div className="flex items-end gap-1 mb-1"><span className="text-3xl font-black text-black dark:text-white">EGP {plan.amount_egp}</span><span className="text-xs font-bold text-zinc-500 mb-1">/{plan.days} {isAr ? "يوم" : "days"}</span></div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-bold text-zinc-500">
-                    <span>{isAr ? `ما يعادله ${plan.monthlyEquivalent} ج.م شهريًا` : `EGP ${plan.monthlyEquivalent}/month equivalent`}</span>
-                    {plan.savingsPct > 0 && <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400">{isAr ? `توفير ${plan.savingsPct}%` : `${plan.savingsPct}% saved`}</span>}
+                )}
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xl font-black text-zinc-950 dark:text-white">
+                        Pro · {isAr ? plan.name_ar : plan.name_en}
+                      </h3>
+                      <span className="text-[11px] font-bold text-zinc-500">
+                        {plan.days} {isAr ? "يوماً كاملة" : "days access"}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-black border-2 border-black dark:border-white bg-emerald-500 text-white px-2 py-0.5">
+                      PRO
+                    </span>
                   </div>
-                </button>
-                <ul className="space-y-3 flex-1">
-                  {proFeatures.map((f, i) => <li key={i} className="flex items-center gap-3 text-sm font-bold text-zinc-700 dark:text-zinc-200"><Check className="w-4 h-4 text-emerald-500 shrink-0" /><span className="flex items-center gap-1.5">{f.icon}{f.text}</span></li>)}
-                </ul>
-                <button onClick={() => { setSelectedPlan(plan.id); setStep("payment"); }} disabled={busy} className="w-full h-12 flex items-center justify-center gap-2 border-4 border-black dark:border-white bg-emerald-500 text-white font-black uppercase tracking-widest shadow-[3px_3px_0px_rgba(0,0,0,1)] disabled:opacity-60 transition-all">
-                  {busy && isSelected ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Smartphone className="h-4 w-4" />{isPro ? (isAr ? "جدّد اشتراكك" : "Renew subscription") : !user ? (isAr ? "سجّل الدخول للاشتراك" : "Sign in to subscribe") : (isAr ? "اشترك الآن" : "Subscribe Now")}</>}
+
+                  <div>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-4xl font-black text-zinc-950 dark:text-white">{plan.amount_egp}</span>
+                      <span className="text-xs font-bold text-zinc-500">ج.م</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">
+                        {isAr ? `ما يعادل ${plan.monthlyEquivalent} ج.م / شهر` : `EGP ${plan.monthlyEquivalent}/mo`}
+                      </span>
+                      {plan.savingsPct > 0 && (
+                        <span className="border border-emerald-600/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 text-[10px] font-black rounded">
+                          {isAr ? `توفير ${plan.savingsPct}%` : `${plan.savingsPct}% OFF`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="border-t-2 border-zinc-200 dark:border-zinc-800 pt-4">
+                    <ul className="space-y-3">
+                      {proFeatures.map((f, i) => (
+                        <li key={i} className="flex items-start gap-2.5 text-xs font-bold leading-tight text-zinc-800 dark:text-zinc-200">
+                          <span className="shrink-0 mt-0.5 text-emerald-500"><Check className="w-3.5 h-3.5" /></span>
+                          <span>{f.text}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPlan(plan.id);
+                    setStep("payment");
+                  }}
+                  className={`w-full flex items-center justify-center gap-2 border-4 border-black dark:border-white py-3.5 px-4 text-xs font-black uppercase tracking-wider shadow-[3px_3px_0px_rgba(0,0,0,1)] hover:-translate-y-0.5 active:translate-y-0 transition-all ${
+                    isFeatured
+                      ? "bg-emerald-500 hover:bg-emerald-600 text-zinc-950 dark:text-black font-black"
+                      : "bg-zinc-900 hover:bg-black text-white dark:bg-white dark:text-black dark:hover:bg-zinc-100"
+                  }`}
+                >
+                  <LockKeyhole className="w-3.5 h-3.5" />
+                  {isPro
+                    ? isAr ? "تجديد الباقة" : "Renew Plan"
+                    : isAr ? "اشترك في هذه الخطة" : "Subscribe to Plan"}
                 </button>
               </div>
             );
           })}
         </div>
 
-        <div className="mx-auto max-w-2xl border-2 border-zinc-300 bg-white p-4 text-center text-sm font-bold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 sm:p-5">
-          {isAr ? "البطاقات، المحافظ والدفع النقدي — اختار الوسيلة المناسبة بعد تحديد الخطة." : "Cards, wallets and cash — choose your method after selecting a plan."}
+        {/* Guarantee Banner */}
+        <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_#10b981]">
+          <div className="grid sm:grid-cols-3 gap-6 text-center">
+            <div className="space-y-1.5">
+              <div className="w-10 h-10 border-2 border-black dark:border-white bg-amber-300 text-black flex items-center justify-center mx-auto shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <h4 className="text-sm font-black text-zinc-950 dark:text-white">
+                {isAr ? "دفع رسمي ومعتمد" : "Certified Gateway"}
+              </h4>
+              <p className="text-xs font-semibold text-zinc-500">
+                {isAr ? "عبر بوابة EasyKash المشفرة برخصة البنك المركزي" : "Licensed 256-bit encrypted checkout"}
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="w-10 h-10 border-2 border-black dark:border-white bg-emerald-500 text-white flex items-center justify-center mx-auto shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+                <Zap className="w-5 h-5" />
+              </div>
+              <h4 className="text-sm font-black text-zinc-950 dark:text-white">
+                {isAr ? "تفعيل تلقائي ولحظي" : "Instant Activation"}
+              </h4>
+              <p className="text-xs font-semibold text-zinc-500">
+                {isAr ? "يتم فتح الصلاحيات وتوليد رابط VIP فور اكتمال الدفع" : "Pro perks unlock instantly upon payment"}
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="w-10 h-10 border-2 border-black dark:border-white bg-sky-400 text-black flex items-center justify-center mx-auto shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+                <HelpCircle className="w-5 h-5" />
+              </div>
+              <h4 className="text-sm font-black text-zinc-950 dark:text-white">
+                {isAr ? "دعم مستمر عبر واتساب" : "WhatsApp Support"}
+              </h4>
+              <p className="text-xs font-semibold text-zinc-500">
+                {isAr ? "فريقنا متواجد للإجابة على أي استفسارات 01024359109" : "Direct human assistance anytime"}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>

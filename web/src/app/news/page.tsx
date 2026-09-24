@@ -20,6 +20,7 @@ import {
 import { useLanguage } from "@/contexts/LanguageContext";
 import StockLogo from "@/components/StockLogo";
 import NewsStats from "@/components/NewsStats";
+import BrandedPageHeader from "@/components/BrandedPageHeader";
 
 interface NewsItem {
     id: number;
@@ -217,20 +218,13 @@ export default function NewsPage() {
 
     return (
         <div className="w-full" dir={isAr ? "rtl" : "ltr"}>
-            {/* Header section */}
-            <div className="mb-8 p-6 rounded-none border-4 border-black dark:border-white bg-[#FFE600] text-black shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
-                <div className="flex items-center gap-3 mb-2">
-                    <Brain className="w-8 h-8" />
-                    <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tight">
-                        {isAr ? "نبض الأخبار ومشاعر الـ AI" : "AI News & Sentiment Pulse"}
-                    </h1>
-                </div>
-                <p className="text-sm font-bold opacity-90 max-w-3xl">
-                    {isAr 
-                        ? "تغطية ذكية ولحظية لأخبار البورصة المصرية ومسحها بالذكاء الاصطناعي لتحديد توجهات المتداولين وحظر التوصيات الخطرة." 
-                        : "Real-time AI analysis of EGX stock news to detect market sentiment, prioritize opportunities, and gate risky recommendations."}
-                </p>
-            </div>
+            <BrandedPageHeader
+                eyebrow={isAr ? "أخبار وذكاء السوق" : "AI NEWS & INTELLIGENCE"}
+                title={isAr ? "نبض الأخبار ومشاعر الذكاء الاصطناعي" : "AI News & Sentiment Pulse"}
+                description={isAr
+                    ? "تغطية ذكية لأخبار البورصة المصرية وتحليل المشاعر لتوضيح اتجاهات السوق ومخاطر الأخبار."
+                    : "AI-assisted coverage of EGX news and sentiment to surface market trends and event risks."}
+            />
 
             {/* News stats & charts dashboard */}
             <NewsStats 

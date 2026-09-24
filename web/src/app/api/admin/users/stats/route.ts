@@ -12,32 +12,101 @@ export async function GET(req: NextRequest) {
     if (auth instanceof Response) return auth;
     const supabase = getSupabaseClient();
     const now = new Date();
+    const snapshotAt = now.toISOString();
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
-    const [profilesRes, subscriptionsRes, botSubsRes, eventsRes, chatMessagesRes, chatSessionsRes] = await Promise.all([
-      supabase.from("profiles").select("id,language,telegram_chat_id,notification_channel,created_at"),
+    const [profilesRes, subscriptionsRes, botSubsRes, eventsRes, chatMessagesRes, chatSessionsRes, paymentsRes, kashierRes, positionsRes] = await Promise.all([
+      supabase.from("profiles").select("id,language,telegram_chat_id,notification_channel,created_at", { count: "exact" }).range(0, 999),
       supabase.from("subscriptions").select("user_id,plan_id,status,current_period_end,created_at"),
       supabase.from("bot_subscriptions").select("service_type,notifications_enabled"),
-      // This table is introduced by 20260923_user_activity_events. Missing it
-      // must not break the existing users tab during a rolling deployment.
-      supabase.from("user_activity_events").select("user_id,event_name,path,created_at").gte("created_at", ninetyDaysAgo).limit(100000),
-      supabase.from("ai_chat_messages").select("user_id,role,created_at").gte("created_at", ninetyDaysAgo).limit(100000),
+      supabase.from("user_activity_events").select("id,user_id,event_name,path,created_at", { count: "exact" }).gte("created_at", ninetyDaysAgo).lte("created_at", snapshotAt).order("created_at", { ascending: false }).order("id", { ascending: false }).range(0, 999),
+      supabase.from("ai_chat_messages").select("id,user_id,role,created_at", { count: "exact" }).gte("created_at", ninetyDaysAgo).lte("created_at", snapshotAt).order("created_at", { ascending: false }).order("id", { ascending: false }).range(0, 999),
       supabase.from("ai_chat_sessions").select("id,user_id,created_at,updated_at").limit(100000),
+      supabase.from("local_payment_orders").select("user_id,amount_egp,status,provider,payment_review_status,created_at").order("created_at", { ascending: false }).limit(500),
+      supabase.from("kashier_payments").select("user_id,amount_paid,status,created_at").order("created_at", { ascending: false }).limit(500),
+      supabase.from("positions").select("user_id,symbol,status").eq("status", "open").limit(10000),
     ]);
 
     if (profilesRes.error) return NextResponse.json({ detail: profilesRes.error.message }, { status: 500 });
     const allProfiles = profilesRes.data || [];
+    const totalProfileCount = profilesRes.count ?? allProfiles.length;
+    for (let offset = allProfiles.length; offset < totalProfileCount; offset += 1000) {
+      const pageRes = await supabase
+        .from("profiles")
+        .select("id,language,telegram_chat_id,notification_channel,created_at")
+        .range(offset, Math.min(offset + 999, totalProfileCount - 1));
+      if (pageRes.error) return NextResponse.json({ detail: pageRes.error.message }, { status: 500 });
+      allProfiles.push(...(pageRes.data || []));
+    }
     const subscriptions = subscriptionsRes.data || [];
     const botSubs = botSubsRes.data || [];
-    const events = eventsRes.error ? [] : (eventsRes.data || []);
-    const chatMessages = chatMessagesRes.error ? [] : (chatMessagesRes.data || []);
+    const events = eventsRes.error ? [] : [...(eventsRes.data || [])];
+    const chatMessages = chatMessagesRes.error ? [] : [...(chatMessagesRes.data || [])];
+    let eventsComplete = !eventsRes.error;
+    let chatMessagesComplete = !chatMessagesRes.error;
+    if (!eventsRes.error) {
+      for (let offset = events.length; offset < (eventsRes.count ?? events.length); offset += 1000) {
+        const pageRes = await supabase
+          .from("user_activity_events")
+          .select("id,user_id,event_name,path,created_at")
+          .gte("created_at", ninetyDaysAgo)
+          .lte("created_at", snapshotAt)
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false })
+          .range(offset, Math.min(offset + 999, (eventsRes.count ?? events.length) - 1));
+        if (pageRes.error) {
+          eventsComplete = false;
+          break;
+        }
+        events.push(...(pageRes.data || []));
+      }
+    }
+    if (!chatMessagesRes.error) {
+      for (let offset = chatMessages.length; offset < (chatMessagesRes.count ?? chatMessages.length); offset += 1000) {
+        const pageRes = await supabase
+          .from("ai_chat_messages")
+          .select("id,user_id,role,created_at")
+          .gte("created_at", ninetyDaysAgo)
+          .lte("created_at", snapshotAt)
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false })
+          .range(offset, Math.min(offset + 999, (chatMessagesRes.count ?? chatMessages.length) - 1));
+        if (pageRes.error) {
+          chatMessagesComplete = false;
+          break;
+        }
+        chatMessages.push(...(pageRes.data || []));
+      }
+    }
     const chatSessions = chatSessionsRes.error ? [] : (chatSessionsRes.data || []);
+    const paymentOrders = paymentsRes.error ? [] : (paymentsRes.data || []);
+    const kashierPayments = kashierRes.error ? [] : (kashierRes.data || []);
+    const positions = positionsRes.error ? [] : (positionsRes.data || []);
+
+    let emailDomains: Record<string, number> = {};
+    try {
+      const authRes = await supabase.auth.admin.listUsers({ page: 1, perPage: 2000 });
+      for (const user of authRes.data?.users || []) {
+        const email = String(user.email || "");
+        const atIdx = email.indexOf("@");
+        if (atIdx > 0) {
+          const domain = email.slice(atIdx + 1).toLowerCase();
+          emailDomains[domain] = (emailDomains[domain] || 0) + 1;
+        }
+      }
+    } catch { /* auth users unavailable */ }
+
     const analytics = buildUserAnalytics({
       profiles: allProfiles,
+      totalProfileCount,
       subscriptions,
       events,
       chatMessages,
       chatSessions,
+      paymentOrders,
+      kashierPayments,
+      positions,
+      emailDomains,
       now,
     });
 
@@ -78,7 +147,7 @@ export async function GET(req: NextRequest) {
 
     const planMap = analytics.plans;
     return NextResponse.json({
-      totalUsers: allProfiles.length,
+      totalUsers: totalProfileCount,
       newUsers30Days,
       newUsers7Days,
       withTelegram,
@@ -90,6 +159,8 @@ export async function GET(req: NextRequest) {
       activeProUsers: analytics.activeProUsers,
       activeUsers30Days: analytics.activeUsers30Days,
       activeUsers7Days: analytics.activeUsers7Days,
+      activeUsers30DaysRate: analytics.activeUsers30DaysRate,
+      activeUsers7DaysRate: analytics.activeUsers7DaysRate,
       chatUsers30Days: analytics.chatUsers30Days,
       pageUsers30Days: analytics.pageUsers30Days,
       proActiveUsers30Days: analytics.proActiveUsers30Days,
@@ -105,6 +176,21 @@ export async function GET(req: NextRequest) {
       topPages: analytics.topPages,
       proTopPages: analytics.proTopPages,
       activityTelemetryAvailable: !eventsRes.error,
+      engagementDataComplete: eventsComplete && chatMessagesComplete,
+      totalRevenue: analytics.totalRevenue,
+      totalPaidOrders: analytics.totalPaidOrders,
+      pendingOrders: analytics.pendingOrders,
+      rejectedOrders: analytics.rejectedOrders,
+      avgOrderValue: analytics.avgOrderValue,
+      recentOrders: analytics.recentOrders,
+      portfolioUsers: analytics.portfolioUsers,
+      totalOpenPositions: analytics.totalOpenPositions,
+      topStocks: analytics.topStocks,
+      dau: analytics.dau,
+      dauRate: analytics.dauRate,
+      newUsers14Days: analytics.newUsers14Days,
+      retentionRate: analytics.retentionRate,
+      emailDomains: analytics.emailDomains,
     });
   } catch (error) {
     console.error("[admin/users/stats] failed:", error);

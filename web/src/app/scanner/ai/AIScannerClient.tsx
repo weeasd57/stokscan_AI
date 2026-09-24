@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useChat } from "@/contexts/ChatContext";
 import { useLanguage } from "@/contexts/LanguageContext";
+import BrandedPageHeader from "@/components/BrandedPageHeader";
 import {
   Brain,
-  Sparkles,
   Zap,
   TrendingUp,
   ShieldCheck,
@@ -53,30 +53,20 @@ export default function AIScannerClient() {
 
   return (
     <main dir={isAr ? "rtl" : "ltr"} className="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-yellow-400 selection:text-black">
-      {/* Hero Section */}
-      <section className="relative overflow-hidden border-b border-zinc-800 bg-gradient-to-b from-zinc-900/60 via-zinc-950 to-zinc-950 px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.15),rgba(255,255,255,0))]" />
-        
-        <div className="relative mx-auto max-w-5xl text-center">
-          {/* Badge */}
-          <div className="inline-flex items-center gap-2 rounded-full border border-yellow-400/40 bg-yellow-400/10 px-4 py-1.5 text-xs font-semibold text-yellow-400 sm:text-sm">
-            <Sparkles className="h-4 w-4 animate-pulse" />
-            <span>EGX AI Analyzer & Quantitative Engine</span>
-          </div>
+      <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <BrandedPageHeader
+          dir={isAr ? "rtl" : "ltr"}
+          eyebrow={isAr ? "محرك الذكاء الاصطناعي الكمي" : "EGX AI ANALYZER & QUANTITATIVE ENGINE"}
+          title={isAr ? "محلل الأسهم المصرية بالذكاء الاصطناعي" : "EGX AI Stock Analyzer"}
+          description={isAr
+            ? "يفحص النظام أكثر من 270 سهمًا مصريًا باستخدام نماذج كمية وبيانات تاريخية لتقديم تقييمات وإشارات تحليلية، لا أسعار لحظية."
+            : "Quantitative models review 270+ Egyptian stocks using historical data to provide analytical scores and signals, not live quotes."}
+        />
+      </div>
 
-          {/* Heading */}
-          <h1 className="mt-6 text-3xl font-extrabold tracking-tight text-white sm:text-5xl lg:text-6xl">
-            محلل الأسهم المصرية بالذكاء الاصطناعي
-            <span className="block mt-2 bg-gradient-to-r from-yellow-400 via-amber-300 to-orange-400 bg-clip-text text-transparent">
-              EGX AI Stock Analyzer
-            </span>
-          </h1>
-
-          {/* Subtitle */}
-          <p className="mx-auto mt-6 max-w-3xl text-base leading-relaxed text-zinc-400 sm:text-lg lg:text-xl">
-            نظام التحليل الكمّي الأحدث للبورصة المصرية. خوارزميات ذكاء اصطناعي تفحص أكثر من 270+ سهم مصري يومياً، 
-            لحساب تقييمات دقيقة من 1 إلى 10، كشف مستويات السيولة، وتقديم إشارات استرشادية مدعومة بالبيانات التاريخية.
-          </p>
+      {/* Hero actions and metrics */}
+      <section className="border-b border-zinc-800 bg-zinc-950 px-4 pb-10 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-5xl text-center">
 
           {/* Primary CTAs */}
           <div className="mt-10 flex flex-wrap items-center justify-center gap-4">

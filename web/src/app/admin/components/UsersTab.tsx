@@ -28,8 +28,13 @@ import {
     AlertCircle,
     SlidersHorizontal,
     ArrowUpRight,
+    DollarSign,
+    Clock,
+    Target,
+    Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface UserRow {
     id: string;
@@ -90,6 +95,8 @@ interface UserStats {
     activeProUsers: number;
     activeUsers30Days: number;
     activeUsers7Days: number;
+    activeUsers30DaysRate: number;
+    activeUsers7DaysRate: number;
     chatUsers30Days: number;
     pageUsers30Days: number;
     proActiveUsers30Days: number;
@@ -105,6 +112,21 @@ interface UserStats {
     topPages: { path: string; views: number; users: number }[];
     proTopPages: { path: string; views: number; users: number }[];
     activityTelemetryAvailable: boolean;
+    engagementDataComplete: boolean;
+    totalRevenue: number;
+    totalPaidOrders: number;
+    pendingOrders: number;
+    rejectedOrders: number;
+    avgOrderValue: number;
+    recentOrders: { user_id: string; amount_egp: number; status: string; provider: string; payment_review_status: string | null; created_at: string }[];
+    portfolioUsers: number;
+    totalOpenPositions: number;
+    topStocks: { symbol: string; count: number }[];
+    dau: number;
+    dauRate: number;
+    newUsers14Days: number;
+    retentionRate: number;
+    emailDomains: { domain: string; count: number }[];
 }
 
 const SERVICE_LABELS: Record<string, string> = {
@@ -113,8 +135,16 @@ const SERVICE_LABELS: Record<string, string> = {
     technical_scanner: "Tech Scanner",
     ai_bot: "AI Bot",
 };
+const SERVICE_LABELS_AR: Record<string, string> = {
+    stock_score: "تقييم الأسهم",
+    historical_similarity: "التشابه التاريخي",
+    technical_scanner: "الماسح الفني",
+    ai_bot: "بوت الذكاء الاصطناعي",
+};
 
 export default function UsersTab() {
+    const { language } = useLanguage();
+    const isAr = language === "ar";
     const [users, setUsers] = useState<UserRow[]>([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(0);
@@ -156,15 +186,16 @@ export default function UsersTab() {
         setLoading(true);
         try {
             const res = await fetch(`/api/admin/users?page=${page}&page_size=${pageSize}&plan=${planFilter}&search=${encodeURIComponent(search)}`);
+            if (!res.ok) throw new Error("User list request failed");
             const data = await res.json();
             setUsers(data.users || []);
             setTotal(data.total || 0);
         } catch (e) {
-            toast.error("Failed to load users");
+            toast.error(isAr ? "تعذر تحميل قائمة المستخدمين" : "Failed to load users");
         } finally {
             setLoading(false);
         }
-    }, [page, pageSize, search, planFilter]);
+    }, [page, pageSize, search, planFilter, isAr]);
 
     const fetchStats = useCallback(async () => {
         setStatsLoading(true);
@@ -173,13 +204,16 @@ export default function UsersTab() {
             if (res.ok) {
                 const data = await res.json();
                 setStats(data);
+            } else {
+                toast.error(isAr ? "تعذر تحميل التحليلات" : "Failed to load analytics");
             }
         } catch (e) {
             console.error("Failed to load user stats", e);
+            toast.error(isAr ? "تعذر الاتصال لتحميل التحليلات" : "Unable to connect to load analytics");
         } finally {
             setStatsLoading(false);
         }
-    }, []);
+    }, [isAr]);
 
     useEffect(() => { 
         fetchUsers();
@@ -268,13 +302,13 @@ export default function UsersTab() {
     };
 
     const runSubscriptionAction = async (userId: string, action: "mark_payment_reviewed" | "cancel_subscription") => {
-        if (action === "cancel_subscription" && !confirm("إلغاء اشتراك Pro وسحب رابط وعضوية قناة VIP لهذا المستخدم؟")) return;
+        if (action === "cancel_subscription" && !confirm(isAr ? "إلغاء اشتراك برو وسحب رابط وعضوية قناة VIP لهذا المستخدم؟" : "Cancel this user's Pro subscription and revoke their VIP channel link and membership?")) return;
         setSubscriptionActionLoading(true);
         try {
             const res = await fetch(`/api/admin/users/${userId}/subscription`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.detail || "Subscription update failed");
-            toast.success(action === "mark_payment_reviewed" ? "تمت مراجعة الدفع" : "تم إلغاء Pro وسحب رابط VIP");
+            toast.success(action === "mark_payment_reviewed" ? "تمت مراجعة الدفع" : isAr ? "تم إلغاء برو وسحب رابط VIP" : "Pro cancelled and VIP link revoked");
             fetchUsers();
             if (selectedUser?.profile?.id === userId) fetchDetail(userId);
         } catch (error: any) { toast.error(error.message || "فشل تحديث الاشتراك"); }
@@ -289,171 +323,283 @@ export default function UsersTab() {
 
 
     return (
-        <div className="p-4 md:p-6 space-y-6">
+        <div dir={isAr ? "rtl" : "ltr"} className="p-4 md:p-6 space-y-6">
             {/* ─── SMART ANALYTICS DASHBOARD ─── */}
             <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,1)]">
                 <div className="flex items-center justify-between gap-4 mb-6">
                     <h2 className="text-xl font-black uppercase tracking-widest flex items-center gap-3">
                         <BarChart3 className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-                        USER ANALYTICS & INSIGHTS
+                        {isAr ? "تحليلات المستخدمين والرؤى" : "USER ANALYTICS & INSIGHTS"}
                     </h2>
                     <button
                         onClick={() => { loadAnalytics(); fetchUsers(); }}
                         className="h-9 px-3 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 font-black text-xs uppercase tracking-wider hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]"
                     >
                         <RefreshCw className={`w-3.5 h-3.5 ${statsLoading ? "animate-spin" : ""}`} />
-                        {analyticsLoaded ? "REFRESH ANALYTICS" : "LOAD ANALYTICS"}
+                        {analyticsLoaded ? (isAr ? "تحديث التحليلات" : "REFRESH ANALYTICS") : (isAr ? "تحميل التحليلات" : "LOAD ANALYTICS")}
                     </button>
                 </div>
 
                 {!analyticsLoaded ? (
                     <div className="mb-6 border-2 border-dashed border-zinc-400 p-4 text-sm text-zinc-500">
-                        Advanced analytics is loaded only when requested to avoid large user, chat, and activity queries on every Admin visit.
+                        {isAr ? "لا تُحمّل التحليلات المتقدمة إلا عند الطلب لتجنب استعلامات كبيرة للمستخدمين والمحادثات والنشاط والمدفوعات في كل زيارة للأدمن." : "Advanced analytics is loaded only when requested to avoid large user, chat, activity, and payment queries on every Admin visit."}
                     </div>
                 ) : <>
-                {/* KPI Cards Grid */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    <div className="border-4 border-black dark:border-white bg-blue-50 dark:bg-blue-950/40 p-4 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
+                {/* KPI Cards — Revenue · Pro · MAU · Growth */}
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 mb-6">
+                    <div className="border-4 border-black dark:border-white bg-emerald-50 dark:bg-emerald-950/40 p-4 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
                         <div className="flex items-center justify-between text-zinc-500 mb-1">
-                            <span className="font-black text-[10px] uppercase tracking-wider">Total Registered</span>
-                            <UsersIcon className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                            <span className="font-black text-[10px] uppercase tracking-wider">{isAr ? "إجمالي الإيرادات" : "Total Revenue"}</span>
+                            <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                         </div>
                         <div className="text-3xl font-black text-black dark:text-white font-mono">
-                            {statsLoading ? "..." : stats?.totalUsers || 0}
+                            {statsLoading ? "..." : `${(stats?.totalRevenue || 0).toLocaleString()}`}
                         </div>
-                        <div className="text-[10px] font-bold text-blue-600 dark:text-blue-400 mt-1 flex items-center gap-1">
-                            <ArrowUpRight className="w-3 h-3" /> All-time accounts
+                        <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1">
+                            <ArrowUpRight className="w-3 h-3" /> {isAr ? `ج.م · ${stats?.totalPaidOrders || 0} طلب مدفوع` : `EGP · ${stats?.totalPaidOrders || 0} paid orders`}
                         </div>
                     </div>
 
-                    <div className="border-4 border-black dark:border-white bg-emerald-50 dark:bg-emerald-950/40 p-4 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
+                    <div className="border-4 border-black dark:border-white bg-indigo-50 dark:bg-indigo-950/40 p-4 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
                         <div className="flex items-center justify-between text-zinc-500 mb-1">
-                            <span className="font-black text-[10px] uppercase tracking-wider">New (Last 30 Days)</span>
-                            <UserPlus className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                            <span className="font-black text-[10px] uppercase tracking-wider">{isAr ? "مشتركو برو النشطون" : "Active Pro"}</span>
+                            <Crown className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                         </div>
                         <div className="text-3xl font-black text-black dark:text-white font-mono">
-                            {statsLoading ? "..." : stats?.newUsers30Days || 0}
+                            {statsLoading ? "..." : stats?.activeProUsers || 0}
                         </div>
-                        <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1">
-                            +{stats?.newUsers7Days || 0} in last 7 days
+                        <div className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 mt-1">
+                            {stats?.paidConversionRate || 0}% {isAr ? "نسبة التحويل" : "conversion rate"}
+                        </div>
+                    </div>
+
+                    <div className="border-4 border-black dark:border-white bg-blue-50 dark:bg-blue-950/40 p-4 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
+                        <div className="flex items-center justify-between text-zinc-500 mb-1">
+                            <span className="font-black text-[10px] uppercase tracking-wider">{isAr ? "النشطون شهريًا" : "Monthly Active"}</span>
+                            <Activity className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                        </div>
+                        <div className="text-3xl font-black text-black dark:text-white font-mono">
+                            {statsLoading ? "..." : `${stats && !stats.engagementDataComplete ? "≥ " : ""}${stats?.activeUsers30Days || 0}`}
+                        </div>
+                        <div className="text-[10px] font-bold text-blue-600 dark:text-blue-400 mt-1">
+                            {isAr ? `النشطون اليوم: ${stats && !stats.engagementDataComplete ? "≥ " : ""}${stats?.dau || 0} · النشطون شهريًا من الكل: ${stats && !stats.engagementDataComplete ? "≥ " : ""}${stats?.activeUsers30DaysRate || 0}%` : `DAU: ${stats && !stats.engagementDataComplete ? "≥ " : ""}${stats?.dau || 0} · MAU share: ${stats && !stats.engagementDataComplete ? "≥ " : ""}${stats?.activeUsers30DaysRate || 0}%`}
                         </div>
                     </div>
 
                     <div className="border-4 border-black dark:border-white bg-cyan-50 dark:bg-cyan-950/40 p-4 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
                         <div className="flex items-center justify-between text-zinc-500 mb-1">
-                            <span className="font-black text-[10px] uppercase tracking-wider">Telegram Linked</span>
-                            <MessageSquare className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+                            <span className="font-black text-[10px] uppercase tracking-wider">{isAr ? "النمو (30 يومًا)" : "Growth (30d)"}</span>
+                            <UserPlus className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
                         </div>
                         <div className="text-3xl font-black text-black dark:text-white font-mono">
-                            {statsLoading ? "..." : `${stats?.telegramRate || 0}%`}
+                            {statsLoading ? "..." : `+${stats?.newUsers30Days || 0}`}
                         </div>
                         <div className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 mt-1">
-                            {stats?.withTelegram || 0} active chat IDs
+                            {isAr ? `متوسط ${stats?.newUsers7Days ? Math.round(stats.newUsers7Days / 7) : 0} يوميًا · الإجمالي: ${stats?.totalUsers || 0}` : `~${stats?.newUsers7Days ? Math.round(stats.newUsers7Days / 7) : 0}/day (7d avg) · Total: ${stats?.totalUsers || 0}`}
                         </div>
                     </div>
-
-                    <div className="border-4 border-black dark:border-white bg-amber-50 dark:bg-amber-950/40 p-4 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
+                    <div className="border-4 border-black dark:border-white bg-violet-50 dark:bg-violet-950/40 p-4 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
                         <div className="flex items-center justify-between text-zinc-500 mb-1">
-                            <span className="font-black text-[10px] uppercase tracking-wider">Bot Services Active</span>
-                            <Bot className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                            <span className="font-black text-[10px] uppercase tracking-wider">{isAr ? "إجمالي المستخدمين" : "Total Users"}</span>
+                            <UsersIcon className="w-4 h-4 text-violet-600 dark:text-violet-400" />
                         </div>
                         <div className="text-3xl font-black text-black dark:text-white font-mono">
-                            {statsLoading ? "..." : Object.values(stats?.botServices || {}).reduce((a, b) => a + b, 0)}
+                            {statsLoading ? "..." : (stats?.totalUsers || 0).toLocaleString(isAr ? "ar-EG" : "en-US")}
                         </div>
-                        <div className="text-[10px] font-bold text-amber-600 dark:text-amber-400 mt-1">
-                            Active bot subscriptions
+                        <div className="text-[10px] font-bold text-violet-600 dark:text-violet-400 mt-1">{isAr ? "إجمالي الحسابات المسجلة" : "Registered accounts"}</div>
+                    </div>
+                </div>
+
+                {/* Growth Chart */}
+                <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4 mb-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2">
+                            <Activity className="w-4 h-4 text-blue-500" />
+                            {isAr ? "نمو تسجيل المستخدمين (كل الفترات)" : "USER REGISTRATION TREND (ALL TIME)"}
+                        </h3>
+                        <span className="text-[10px] font-bold font-mono text-zinc-400">{isAr ? "التسجيلات اليومية" : "DAILY SIGNUPS"}</span>
+                    </div>
+                    {statsLoading ? (
+                        <div className="h-44 flex items-center justify-center text-xs font-bold text-zinc-400">Loading chart...</div>
+                    ) : (
+                        <div className="h-44 w-full pt-4">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={stats?.signupGrowth || []} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                                    <defs>
+                                        <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#52525b" opacity={0.2} />
+                                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a' }} minTickGap={15} />
+                                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a' }} allowDecimals={false} />
+                                    <RechartsTooltip contentStyle={{ backgroundColor: '#000', border: '1px solid #fff', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }} itemStyle={{ color: '#fff' }} labelStyle={{ color: '#a1a1aa', marginBottom: '4px' }} cursor={{ stroke: '#52525b', strokeWidth: 1, strokeDasharray: '3 3' }} />
+                                    <Area type="monotone" dataKey="count" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" activeDot={{ r: 5, strokeWidth: 0, fill: '#fff' }} />
+                                </AreaChart>
+                            </ResponsiveContainer>
+                        </div>
+                    )}
+                </div>
+
+                {/* Revenue & Payments + Activity & Engagement */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    {/* Revenue & Payments */}
+                    <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4">
+                        <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2 mb-3">
+                            <DollarSign className="w-4 h-4 text-emerald-500" /> {isAr ? "الإيرادات والمدفوعات" : "REVENUE & PAYMENTS"}
+                        </h3>
+                        <div className="grid grid-cols-2 gap-2 mb-3">
+                            {[
+                                [isAr ? "إجمالي الإيرادات" : "Total Revenue", `${(stats?.totalRevenue || 0).toLocaleString(isAr ? "ar-EG" : "en-US")} ${isAr ? "ج.م" : "EGP"}`],
+                                [isAr ? "الطلبات المدفوعة" : "Paid Orders", stats?.totalPaidOrders || 0],
+                                [isAr ? "متوسط الطلب" : "Avg Order", `${stats?.avgOrderValue || 0} ${isAr ? "ج.م" : "EGP"}`],
+                                [isAr ? "بانتظار المراجعة" : "Pending Review", stats?.pendingOrders || 0],
+                            ].map(([label, value]) => (
+                                <div key={String(label)} className="border-2 border-black dark:border-white bg-white dark:bg-zinc-950 p-2">
+                                    <div className="text-[9px] font-black text-zinc-500 uppercase">{label}</div>
+                                    <div className="font-black font-mono mt-1">{statsLoading ? "..." : value}</div>
+                                </div>
+                            ))}
+                        </div>
+                        {stats?.recentOrders?.length ? (
+                            <div>
+                                <div className="text-[10px] font-black uppercase text-zinc-500 mb-1">{isAr ? "أحدث الطلبات" : "Recent Orders"}</div>
+                                <div className="space-y-1">
+                                    {stats.recentOrders.slice(0, 6).map((o, i) => (
+                                        <div key={i} className="flex items-center justify-between text-[11px] font-mono bg-white dark:bg-zinc-950 px-2 py-1 border border-zinc-200 dark:border-zinc-800">
+                                            <span className="font-bold text-black dark:text-white">{o.amount_egp} EGP</span>
+                                            <span className={`font-black text-[9px] px-1.5 py-0.5 border ${o.status === "approved" || o.status === "success" ? "bg-green-100 text-green-700 border-green-400" : o.status === "pending" ? "bg-amber-100 text-amber-700 border-amber-400" : "bg-red-100 text-red-700 border-red-400"}`}>
+                                                {o.status}
+                                            </span>
+                                            <span className="text-zinc-400">{new Date(o.created_at).toLocaleDateString()}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : <div className="text-xs font-bold text-zinc-400">{isAr ? "لا توجد طلبات دفع بعد." : "No payment orders yet."}</div>}
+                        {stats?.rejectedOrders ? <div className="mt-2 text-[10px] font-black text-red-500">{stats.rejectedOrders} {isAr ? "طلب مرفوض" : "rejected order(s)"}</div> : null}
+                    </div>
+
+                    {/* Activity & Engagement */}
+                    <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4">
+                        <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2 mb-3">
+                            <Zap className="w-4 h-4 text-amber-500" /> {isAr ? "النشاط والتفاعل" : "ACTIVITY & ENGAGEMENT"}
+                        </h3>
+                        <p className="mb-3 text-[10px] font-bold text-zinc-500">
+                            {isAr ? "النشط = مستخدم مسجل فتح صفحة أو أرسل رسالة للشات. الفترات متحركة، واليوم حسب توقيت القاهرة." : "Active means a registered user viewed a page or sent a chat message. MAU/WAU are rolling windows; DAU follows Cairo time."}
+                        </p>
+                        {stats && !stats.engagementDataComplete && (
+                            <div className="mb-3 border-2 border-amber-500 bg-amber-50 dark:bg-amber-950/30 p-2 text-[10px] font-bold text-amber-800 dark:text-amber-200">
+                                {isAr ? "تنبيه: تعذر تحميل مصدر واحد للنشاط على الأقل؛ أرقام MAU/WAU/DAU المعروضة جزئية وقد تكون أقل من الحقيقة." : "Warning: at least one activity source could not be loaded; MAU/WAU/DAU are partial and may be understated."}
+                            </div>
+                        )}
+                        <div className="grid grid-cols-3 gap-2 mb-3">
+                            {[
+                                ["MAU", stats?.activeUsers30Days || 0, stats?.activeUsers30DaysRate || 0, isAr ? "آخر 30 يومًا" : "Last 30 days"],
+                                ["WAU", stats?.activeUsers7Days || 0, stats?.activeUsers7DaysRate || 0, isAr ? "آخر 7 أيام" : "Last 7 days"],
+                                ["DAU", stats?.dau || 0, stats?.dauRate || 0, isAr ? "اليوم — القاهرة" : "Today — Cairo"],
+                            ].map(([label, value, rate, sub]) => (
+                                <div key={String(label)} className="border-2 border-black dark:border-white bg-white dark:bg-zinc-950 p-2 text-center">
+                                    <div className="text-[9px] font-black text-zinc-500 uppercase">{label}</div>
+                                    <div className="text-xl font-black font-mono mt-1">{statsLoading ? "..." : `${stats && !stats.engagementDataComplete ? "≥ " : ""}${Number(value).toLocaleString(isAr ? "ar-EG" : "en-US")}`}</div>
+                                    <div className="text-[10px] font-black text-emerald-600 dark:text-emerald-400">{statsLoading ? "..." : `${stats && !stats.engagementDataComplete ? "≥ " : ""}${Number(rate)}%`}</div>
+                                    <div className="text-[9px] font-bold text-zinc-400">{String(sub)}</div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 mb-3">
+                            {[
+                                [isAr ? "مستخدمو الشات (30 يومًا)" : "Chat Users (30d)", stats?.chatUsers30Days || 0],
+                                [isAr ? "جلسات الشات" : "Chat Sessions", stats?.chatSessions || 0],
+                                [isAr ? "رسائل المستخدمين" : "User Messages", stats?.chatMessages || 0],
+                                [isAr ? "نشطون شهريًا من إجمالي المستخدمين" : "Monthly active share of all users", `${stats && !stats.engagementDataComplete ? "≥ " : ""}${stats?.activeUsers30DaysRate || 0}%`],
+                            ].map(([label, value]) => (
+                                <div key={String(label)} className="border-2 border-black dark:border-white bg-white dark:bg-zinc-950 p-2">
+                                    <div className="text-[9px] font-black text-zinc-500 uppercase">{label}</div>
+                                    <div className="font-black font-mono mt-1">{statsLoading ? "..." : value}</div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
+                            {isAr ? `تيليجرام: ${stats?.withTelegram || 0} (${stats?.telegramRate || 0}%) · اشتراكات الخدمات: ${Object.values(stats?.botServices || {}).reduce((a, b) => a + b, 0)}` : `Telegram: ${stats?.withTelegram || 0} (${stats?.telegramRate || 0}%) · Bot services: ${Object.values(stats?.botServices || {}).reduce((a, b) => a + b, 0)}`}
                         </div>
                     </div>
                 </div>
 
-                {/* Growth Chart & Breakdown Section */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* User Growth Chart (30-day Area Chart) */}
-                    <div className="lg:col-span-2 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2">
-                                <Activity className="w-4 h-4 text-blue-500" />
-                                USER REGISTRATION TREND (ALL TIME)
-                            </h3>
-                            <span className="text-[10px] font-bold font-mono text-zinc-400">DAILY SIGNUPS</span>
-                        </div>
-                        
-                        {statsLoading ? (
-                            <div className="h-44 flex items-center justify-center text-xs font-bold text-zinc-400">Loading chart...</div>
-                        ) : (
-                            <div className="h-44 w-full pt-4">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart data={stats?.signupGrowth || []} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
-                                        <defs>
-                                            <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                                            </linearGradient>
-                                        </defs>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#52525b" opacity={0.2} />
-                                        <XAxis 
-                                            dataKey="date" 
-                                            axisLine={false} 
-                                            tickLine={false} 
-                                            tick={{ fontSize: 10, fill: '#71717a' }} 
-                                            minTickGap={15}
-                                        />
-                                        <YAxis 
-                                            axisLine={false} 
-                                            tickLine={false} 
-                                            tick={{ fontSize: 10, fill: '#71717a' }} 
-                                            allowDecimals={false}
-                                        />
-                                        <RechartsTooltip 
-                                            contentStyle={{ backgroundColor: '#000', border: '1px solid #fff', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}
-                                            itemStyle={{ color: '#fff' }}
-                                            labelStyle={{ color: '#a1a1aa', marginBottom: '4px' }}
-                                            cursor={{ stroke: '#52525b', strokeWidth: 1, strokeDasharray: '3 3' }}
-                                        />
-                                        <Area 
-                                            type="monotone" 
-                                            dataKey="count" 
-                                            stroke="#3b82f6" 
-                                            strokeWidth={3}
-                                            fillOpacity={1} 
-                                            fill="url(#colorCount)" 
-                                            activeDot={{ r: 5, strokeWidth: 0, fill: '#fff' }}
-                                        />
-                                    </AreaChart>
-                                </ResponsiveContainer>
+                {/* Portfolio & Top Stocks + Email Demographics */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    {/* Portfolio & Top Stocks */}
+                    <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4">
+                        <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2 mb-3">
+                            <TrendingUp className="w-4 h-4 text-emerald-500" /> {isAr ? "المحافظ والأسهم الأكثر امتلاكًا" : "PORTFOLIO & TOP STOCKS"}
+                        </h3>
+                        <div className="grid grid-cols-2 gap-2 mb-3">
+                            <div className="border-2 border-black dark:border-white bg-white dark:bg-zinc-950 p-2">
+                                <div className="text-[9px] font-black text-zinc-500 uppercase">{isAr ? "مستخدمو المحافظ" : "Portfolio Users"}</div>
+                                <div className="text-xl font-black font-mono mt-1">{statsLoading ? "..." : stats?.portfolioUsers || 0}</div>
                             </div>
-                        )}
+                            <div className="border-2 border-black dark:border-white bg-white dark:bg-zinc-950 p-2">
+                                <div className="text-[9px] font-black text-zinc-500 uppercase">{isAr ? "المراكز المفتوحة" : "Open Positions"}</div>
+                                <div className="text-xl font-black font-mono mt-1">{statsLoading ? "..." : stats?.totalOpenPositions || 0}</div>
+                            </div>
+                        </div>
+                        {stats?.topStocks?.length ? (
+                            <div>
+                                <div className="text-[10px] font-black uppercase text-zinc-500 mb-1">{isAr ? "الأسهم الأكثر امتلاكًا" : "Most Held Stocks"}</div>
+                                <div className="space-y-1">
+                                    {stats.topStocks.slice(0, 8).map((s, i) => (
+                                        <div key={s.symbol} className="flex items-center justify-between text-[11px] font-mono bg-white dark:bg-zinc-950 px-2 py-1 border border-zinc-200 dark:border-zinc-800">
+                                            <span className="font-black text-black dark:text-white">#{i + 1}</span>
+                                            <span className="font-bold flex-1 ml-2">{s.symbol}</span>
+                                            <span className="font-black px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-400">{s.count}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : <div className="text-xs font-bold text-zinc-400">{isAr ? "لا توجد مراكز بالمحافظ بعد." : "No portfolio positions yet."}</div>}
                     </div>
 
-                    {/* Distribution Breakdown Cards */}
-                    <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4 space-y-4">
-                        <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2">
-                            <PieChart className="w-4 h-4 text-purple-500" />
-                            DEMOGRAPHICS & BOT SERVICES
+                    {/* Email Domains & Demographics */}
+                    <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4">
+                        <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2 mb-3">
+                            <Globe className="w-4 h-4 text-cyan-500" /> {isAr ? "نطاقات البريد وخصائص المستخدمين" : "EMAIL DOMAINS & DEMOGRAPHICS"}
                         </h3>
-
-                        {/* Language */}
-                        <div>
-                            <div className="text-[10px] font-black uppercase text-zinc-500 mb-1">Languages</div>
+                        {/* Languages */}
+                        <div className="mb-3">
+                            <div className="text-[10px] font-black uppercase text-zinc-500 mb-1">{isAr ? "اللغات" : "Languages"}</div>
                             <div className="flex items-center gap-2 font-mono text-xs">
                                 <div className="flex-1 bg-white dark:bg-zinc-950 p-2 border-2 border-black dark:border-white flex justify-between">
-                                    <span className="font-bold">🇬🇧 English</span>
+                                    <span className="font-bold">EN</span>
                                     <span className="font-black">{stats?.languages?.en || 0}</span>
                                 </div>
                                 <div className="flex-1 bg-white dark:bg-zinc-950 p-2 border-2 border-black dark:border-white flex justify-between">
-                                    <span className="font-bold">🇪🇬 Arabic</span>
+                                    <span className="font-bold">AR</span>
                                     <span className="font-black">{stats?.languages?.ar || 0}</span>
                                 </div>
                             </div>
                         </div>
-
-                        {/* Bot Services Breakdown */}
-                        <div>
-                            <div className="text-[10px] font-black uppercase text-zinc-500 mb-1">Bot Service Subscriptions</div>
+                        {/* Email Domains */}
+                        {stats?.emailDomains?.length ? (
+                            <div>
+                                <div className="text-[10px] font-black uppercase text-zinc-500 mb-1">{isAr ? "أكثر نطاقات البريد" : "Top Email Domains"}</div>
+                                <div className="space-y-1 font-mono text-[11px]">
+                                    {stats.emailDomains.map((d) => (
+                                        <div key={d.domain} className="flex justify-between items-center bg-white dark:bg-zinc-950 px-2 py-1 border border-zinc-200 dark:border-zinc-800">
+                                            <span className="text-zinc-600 dark:text-zinc-300 font-bold">{d.domain}</span>
+                                            <span className="font-black px-1.5 py-0.5 bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 border border-cyan-400">{d.count}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ) : <div className="text-xs font-bold text-zinc-400">{isAr ? "بيانات البريد غير متاحة." : "Email data unavailable."}</div>}
+                        {/* Bot Services */}
+                        <div className="mt-3">
+                            <div className="text-[10px] font-black uppercase text-zinc-500 mb-1">{isAr ? "اشتراكات خدمات البوت" : "Bot Service Subscriptions"}</div>
                             <div className="space-y-1 font-mono text-[11px]">
                                 {Object.entries(stats?.botServices || {}).map(([key, count]) => (
                                     <div key={key} className="flex justify-between items-center bg-white dark:bg-zinc-950 px-2 py-1 border border-zinc-200 dark:border-zinc-800">
-                                        <span className="text-zinc-600 dark:text-zinc-300 font-bold">{SERVICE_LABELS[key] || key}</span>
+                                        <span className="text-zinc-600 dark:text-zinc-300 font-bold">{(isAr ? SERVICE_LABELS_AR[key] : SERVICE_LABELS[key]) || key}</span>
                                         <span className="font-black px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-400">{count}</span>
                                     </div>
                                 ))}
@@ -461,57 +607,53 @@ export default function UsersTab() {
                         </div>
                     </div>
                 </div>
-                </>}
-            </div>
 
-            {/* ─── PRO COHORT & PRODUCT USAGE ─── */}
-            <div hidden={!analyticsLoaded} className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,1)]">
-                <div className="flex items-center justify-between gap-3 mb-4">
-                    <div>
-                        <h2 className="text-xl font-black uppercase tracking-widest flex items-center gap-3">
-                            <Crown className="w-6 h-6 text-indigo-500" /> PRO COHORT & PRODUCT USAGE
-                        </h2>
-                        <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mt-1">Which paying users use the chatbot versus the platform pages</p>
+                {/* Pro Cohort & Product Usage */}
+                <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4 mb-2">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                        <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2">
+                            <Crown className="w-4 h-4 text-indigo-500" /> {isAr ? "مشتركو برو واستخدام المنتجات" : "PRO COHORT & PRODUCT USAGE"}
+                        </h3>
+                        {stats && !stats.activityTelemetryAvailable && <span className="text-[10px] font-black text-amber-600 border-2 border-amber-500 px-2 py-1">{isAr ? "تتبع الصفحات يبدأ بعد إعداد جدول النشاط" : "PAGE TRACKING STARTS AFTER MIGRATION"}</span>}
                     </div>
-                    {stats && !stats.activityTelemetryAvailable && <span className="text-[10px] font-black text-amber-600 border-2 border-amber-500 px-2 py-1">PAGE TRACKING STARTS AFTER MIGRATION</span>}
-                </div>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-                    {[
-                        ["Active Pro", stats?.activeProUsers || 0, "users"],
-                        ["Pro using chat", `${stats?.proChatUsers || 0} (${stats?.proChatRate || 0}%)`, "of active Pro"],
-                        ["Pro using pages", `${stats?.proPageUsers || 0} (${stats?.proPageRate || 0}%)`, "tracked users"],
-                        ["Paid conversion", `${stats?.paidConversionRate || 0}%`, "registered → Pro"],
-                    ].map(([label, value, hint]) => (
-                        <div key={String(label)} className="border-4 border-black dark:border-white bg-indigo-50 dark:bg-indigo-950/30 p-3">
-                            <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{label}</div>
-                            <div className="text-2xl font-black font-mono mt-1">{statsLoading ? "..." : value}</div>
-                            <div className="text-[10px] font-bold text-indigo-600 dark:text-indigo-300 mt-1">{hint}</div>
-                        </div>
-                    ))}
-                </div>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                    <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4">
-                        <div className="flex items-center justify-between mb-3">
-                            <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2"><Globe className="w-4 h-4 text-cyan-500" /> TOP PAGES — ALL USERS</h3>
-                            <span className="text-[10px] font-bold text-zinc-500">30d users: {stats?.pageUsers30Days || 0}</span>
-                        </div>
-                        <div className="space-y-1.5">
-                            {(stats?.topPages || []).map((row) => <div key={row.path} className="flex items-center justify-between gap-2 text-xs font-mono border-b border-zinc-200 dark:border-zinc-800 pb-1"><span className="font-bold truncate">{row.path}</span><span className="text-zinc-500 shrink-0">{row.users} users · {row.views} views</span></div>)}
-                            {!stats?.topPages?.length && <div className="text-xs font-bold text-zinc-400">No page events yet.</div>}
-                        </div>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                        {[
+                            [isAr ? "مشتركو برو النشطون" : "Active Pro", stats?.activeProUsers || 0, isAr ? "مستخدم" : "users"],
+                            [isAr ? "مشتركو برو مستخدمو الشات" : "Pro using chat", `${stats?.proChatUsers || 0} (${stats?.proChatRate || 0}%)`, isAr ? "من مشتركي برو النشطين" : "of active Pro"],
+                            [isAr ? "مشتركو برو مستخدمو الصفحات" : "Pro using pages", `${stats?.proPageUsers || 0} (${stats?.proPageRate || 0}%)`, isAr ? "من المستخدمين المتتبَّعين" : "tracked users"],
+                            [isAr ? "التحويل إلى الاشتراك المدفوع" : "Paid conversion", `${stats?.paidConversionRate || 0}%`, isAr ? "من المسجلين إلى برو" : "registered → Pro"],
+                        ].map(([label, value, hint]) => (
+                            <div key={String(label)} className="border-4 border-black dark:border-white bg-indigo-50 dark:bg-indigo-950/30 p-3">
+                                <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{label}</div>
+                                <div className="text-2xl font-black font-mono mt-1">{statsLoading ? "..." : value}</div>
+                                <div className="text-[10px] font-bold text-indigo-600 dark:text-indigo-300 mt-1">{hint}</div>
+                            </div>
+                        ))}
                     </div>
-                    <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4">
-                        <div className="flex items-center justify-between mb-3">
-                            <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2"><Crown className="w-4 h-4 text-indigo-500" /> TOP PAGES — PRO ONLY</h3>
-                            <span className="text-[10px] font-bold text-zinc-500">Chat-only: {stats?.proChatOnlyUsers || 0}</span>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="bg-white dark:bg-zinc-950 border-2 border-black dark:border-white p-3">
+                            <div className="flex items-center justify-between mb-2">
+                                <h4 className="font-black text-[10px] uppercase tracking-widest flex items-center gap-1"><Globe className="w-3 h-3 text-cyan-500" /> {isAr ? "أكثر الصفحات — الجميع" : "TOP PAGES — ALL"}</h4>
+                                <span className="text-[10px] font-bold text-zinc-500">{stats?.pageUsers30Days || 0} {isAr ? "مستخدم" : "users"}</span>
+                            </div>
+                            <div className="space-y-1">
+                                {(stats?.topPages || []).slice(0, 5).map((row) => <div key={row.path} className="flex items-center justify-between gap-2 text-[11px] font-mono border-b border-zinc-200 dark:border-zinc-800 pb-1"><span className="font-bold truncate">{row.path}</span><span className="text-zinc-500 shrink-0">{row.users}u · {row.views}v</span></div>)}
+                                {!stats?.topPages?.length && <div className="text-[10px] font-bold text-zinc-400">{isAr ? "لا توجد أحداث." : "No events."}</div>}
+                            </div>
                         </div>
-                        <div className="space-y-1.5">
-                            {(stats?.proTopPages || []).map((row) => <div key={row.path} className="flex items-center justify-between gap-2 text-xs font-mono border-b border-zinc-200 dark:border-zinc-800 pb-1"><span className="font-bold truncate">{row.path}</span><span className="text-zinc-500 shrink-0">{row.users} users · {row.views} views</span></div>)}
-                            {!stats?.proTopPages?.length && <div className="text-xs font-bold text-zinc-400">No Pro page events yet.</div>}
+                        <div className="bg-white dark:bg-zinc-950 border-2 border-black dark:border-white p-3">
+                            <div className="flex items-center justify-between mb-2">
+                                <h4 className="font-black text-[10px] uppercase tracking-widest flex items-center gap-1"><Crown className="w-3 h-3 text-indigo-500" /> {isAr ? "أكثر الصفحات — برو" : "TOP PAGES — PRO"}</h4>
+                                <span className="text-[10px] font-bold text-zinc-500">{isAr ? `الشات فقط: ${stats?.proChatOnlyUsers || 0}` : `Chat-only: ${stats?.proChatOnlyUsers || 0}`}</span>
+                            </div>
+                            <div className="space-y-1">
+                                {(stats?.proTopPages || []).slice(0, 5).map((row) => <div key={row.path} className="flex items-center justify-between gap-2 text-[11px] font-mono border-b border-zinc-200 dark:border-zinc-800 pb-1"><span className="font-bold truncate">{row.path}</span><span className="text-zinc-500 shrink-0">{row.users}u · {row.views}v</span></div>)}
+                                {!stats?.proTopPages?.length && <div className="text-[10px] font-bold text-zinc-400">{isAr ? "لا توجد أحداث لمشتركي برو." : "No Pro events."}</div>}
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div className="mt-4 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">30d active users: {stats?.activeUsers30Days || 0} · Chat users: {stats?.chatUsers30Days || 0} · Page users: {stats?.pageUsers30Days || 0} · Total chat messages: {stats?.chatMessages || 0}</div>
+                </>}
             </div>
 
             {/* ─── USER MANAGEMENT TABLE ─── */}
@@ -519,33 +661,33 @@ export default function UsersTab() {
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                     <h2 className="text-xl font-black uppercase tracking-widest flex items-center gap-3">
                         <UsersIcon className="w-6 h-6" />
-                        USER DIRECTORY
+                        {isAr ? "قائمة المستخدمين" : "USER DIRECTORY"}
                     </h2>
 
                     <div className="flex flex-wrap items-center gap-3">
                         {/* Search Bar */}
                         <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                            <Search className={`absolute ${isAr ? "right-3" : "left-3"} top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400`} />
                             <input
                                 type="text"
                                 value={search}
                                 onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-                                placeholder="Search users by name..."
-                                className="h-10 pl-9 pr-4 w-60 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 font-bold text-xs uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                placeholder={isAr ? "ابحث باسم المستخدم أو البريد..." : "Search users by name..."}
+                                className={`h-10 ${isAr ? "pr-9 pl-4" : "pl-9 pr-4"} w-60 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 font-bold text-xs uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-blue-500`}
                             />
                         </div>
 
                         {/* Filter Pill Dropdown */}
                          <div className="relative flex items-center border-4 border-black dark:border-white bg-white dark:bg-zinc-900">
                              <SlidersHorizontal className="w-4 h-4 ml-2 text-zinc-400" />
-                             <button type="button" onClick={() => setPlanMenuOpen((open) => !open)} className="h-9 min-w-[155px] px-3 flex items-center justify-between gap-3 text-left text-black dark:text-white font-black text-xs uppercase tracking-wider focus:outline-none">
-                                 <span>{{ ALL: "All Users", PRO: "PRO Plan Only", FREE: "Free Plan Only", TELEGRAM: "Telegram Linked" }[planFilter]}</span>
+                             <button type="button" onClick={() => setPlanMenuOpen((open) => !open)} className="h-9 min-w-[155px] px-3 flex items-center justify-between gap-3 text-start text-black dark:text-white font-black text-xs uppercase tracking-wider focus:outline-none">
+                                 <span>{(isAr ? { ALL: "كل المستخدمين", PRO: "مشتركو برو", FREE: "الخطة المجانية", TELEGRAM: "مرتبطون بتليجرام" } : { ALL: "All Users", PRO: "PRO Plan Only", FREE: "Free Plan Only", TELEGRAM: "Telegram Linked" })[planFilter]}</span>
                                  <span className="text-zinc-400">▾</span>
                              </button>
-                             {planMenuOpen && <div className="absolute z-50 top-full left-0 right-0 mt-1 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
+                             {planMenuOpen && <div className="absolute z-50 top-full inset-x-0 mt-1 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
                                  {["ALL", "PRO", "FREE", "TELEGRAM"].map((value) => {
-                                     const labels: Record<string, string> = { ALL: "All Users", PRO: "PRO Plan Only", FREE: "Free Plan Only", TELEGRAM: "Telegram Linked" };
-                                     return <button key={value} type="button" onClick={() => { setPlanFilter(value); setPage(0); setPlanMenuOpen(false); }} className={`block w-full px-3 py-2 text-left text-xs font-black uppercase tracking-wider ${planFilter === value ? "bg-blue-600 text-white" : "bg-white dark:bg-zinc-950 text-black dark:text-white hover:bg-blue-100 dark:hover:bg-blue-950"}`}>{labels[value]}</button>;
+                                     const labels: Record<string, string> = isAr ? { ALL: "كل المستخدمين", PRO: "مشتركو برو", FREE: "الخطة المجانية", TELEGRAM: "مرتبطون بتليجرام" } : { ALL: "All Users", PRO: "PRO Plan Only", FREE: "Free Plan Only", TELEGRAM: "Telegram Linked" };
+                                     return <button key={value} type="button" onClick={() => { setPlanFilter(value); setPage(0); setPlanMenuOpen(false); }} className={`block w-full px-3 py-2 text-start text-xs font-black uppercase tracking-wider ${planFilter === value ? "bg-blue-600 text-white" : "bg-white dark:bg-zinc-950 text-black dark:text-white hover:bg-blue-100 dark:hover:bg-blue-950"}`}>{labels[value]}</button>;
                                  })}
                              </div>}
                          </div>
@@ -555,36 +697,36 @@ export default function UsersTab() {
                             className="h-10 px-4 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 font-black text-xs uppercase tracking-wider hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]"
                         >
                             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-                            REFRESH TABLE
+                            {isAr ? "تحديث القائمة" : "REFRESH TABLE"}
                         </button>
                     </div>
                 </div>
 
                 <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-3">
-                    Showing {filteredUsers.length} of {total} users • Page {page + 1} of {totalPages || 1}
+                    {isAr ? `عرض ${filteredUsers.length} من ${total} مستخدم • الصفحة ${page + 1} من ${totalPages || 1}` : `Showing ${filteredUsers.length} of ${total} users • Page ${page + 1} of ${totalPages || 1}`}
                 </div>
 
                 {loading && !users.length ? (
                     <div className="flex items-center justify-center h-40 text-zinc-400 font-bold uppercase tracking-widest">
                         <RefreshCw className="w-5 h-5 animate-spin mr-3" />
-                        Loading user directory...
+                        {isAr ? "جارٍ تحميل المستخدمين..." : "Loading user directory..."}
                     </div>
                 ) : !filteredUsers.length ? (
                     <div className="flex items-center justify-center h-40 text-zinc-400 font-bold uppercase tracking-widest">
-                        No matching users found
+                        {isAr ? "لا يوجد مستخدمون مطابقون" : "No matching users found"}
                     </div>
                 ) : (
                     <div className="overflow-x-auto -mx-2">
                         <table className="w-full text-xs font-mono">
                             <thead>
                                 <tr className="border-b-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900">
-                                    <th className="px-3 py-3 text-left uppercase tracking-widest font-black">User</th>
-                                    <th className="px-3 py-3 text-left uppercase tracking-widest font-black">Plan</th>
-                                    <th className="px-3 py-3 text-left uppercase tracking-widest font-black">Bots</th>
-                                    <th className="px-3 py-3 text-left uppercase tracking-widest font-black">Language</th>
-                                    <th className="px-3 py-3 text-left uppercase tracking-widest font-black">Telegram</th>
-                                    <th className="px-3 py-3 text-left uppercase tracking-widest font-black">Joined</th>
-                                    <th className="px-3 py-3 text-center uppercase tracking-widest font-black">Actions</th>
+                                    <th className="px-3 py-3 text-start uppercase tracking-widest font-black">{isAr ? "المستخدم" : "User"}</th>
+                                    <th className="px-3 py-3 text-start uppercase tracking-widest font-black">{isAr ? "الخطة" : "Plan"}</th>
+                                    <th className="px-3 py-3 text-start uppercase tracking-widest font-black">{isAr ? "البوتات" : "Bots"}</th>
+                                    <th className="px-3 py-3 text-start uppercase tracking-widest font-black">{isAr ? "اللغة" : "Language"}</th>
+                                    <th className="px-3 py-3 text-start uppercase tracking-widest font-black">{isAr ? "تليجرام" : "Telegram"}</th>
+                                    <th className="px-3 py-3 text-start uppercase tracking-widest font-black">{isAr ? "تاريخ التسجيل" : "Joined"}</th>
+                                    <th className="px-3 py-3 text-center uppercase tracking-widest font-black">{isAr ? "إجراءات" : "Actions"}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -612,17 +754,17 @@ export default function UsersTab() {
                                          </td>
                                          <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                                              {u.subscription?.plan_id === "pro" && u.subscription?.status === "active" ? (
-                                                 <button onClick={() => runSubscriptionAction(u.id, "cancel_subscription")} disabled={subscriptionActionLoading} className="border-2 border-red-500 bg-red-50 px-2 py-1 text-[10px] font-black text-red-700 hover:bg-red-500 hover:text-white disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300">إلغاء Pro</button>
-                                             ) : <span className="text-zinc-400 font-bold">Free</span>}
+                                                 <button onClick={() => runSubscriptionAction(u.id, "cancel_subscription")} disabled={subscriptionActionLoading} className="border-2 border-red-500 bg-red-50 px-2 py-1 text-[10px] font-black text-red-700 hover:bg-red-500 hover:text-white disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300">{isAr ? "إلغاء برو" : "Cancel Pro"}</button>
+                                             ) : <span className="text-zinc-400 font-bold">{isAr ? "مجاني" : "Free"}</span>}
                                          </td>
                                         <td className="px-3 py-2.5">
                                             {u.subscription?.plan_id ? (
                                                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 border-2 border-black dark:border-white font-black text-[10px] uppercase tracking-wider ${u.subscription.plan_id === "pro" ? "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300" : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400"}`}>
                                                     <Crown className="w-3 h-3" />
-                                                    {u.subscription.plan_id}
+                                                {isAr ? (u.subscription.plan_id.toLowerCase() === "pro" ? "برو" : u.subscription.plan_id.toLowerCase() === "free" ? "مجاني" : u.subscription.plan_id) : u.subscription.plan_id}
                                                 </span>
                                             ) : (
-                                                <span className="text-zinc-400 font-bold">Free</span>
+                                                <span className="text-zinc-400 font-bold">{isAr ? "مجاني" : "Free"}</span>
                                             )}
                                             {u.payment_review_status === "pending_review" && <span className="ml-1 inline-flex items-center gap-1 border border-amber-500 bg-amber-50 px-1.5 py-0.5 text-[9px] font-black text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"><AlertCircle className="w-3 h-3" /> مراجعة</span>}
                                         </td>
@@ -632,7 +774,7 @@ export default function UsersTab() {
                                                 <span className="font-black">{u.bot_count || (u.bot_subscriptions || []).length}</span>
                                                 {(u.bot_subscriptions || []).slice(0, 2).map((b, i) => (
                                                     <span key={i} className="text-[9px] font-bold text-zinc-600 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 px-1 border border-zinc-300 dark:border-zinc-700">
-                                                        {SERVICE_LABELS[b.service_type] || b.service_type}
+                                                        {(isAr ? SERVICE_LABELS_AR[b.service_type] : SERVICE_LABELS[b.service_type]) || b.service_type}
                                                     </span>
                                                 ))}
                                             </div>
@@ -664,21 +806,21 @@ export default function UsersTab() {
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); fetchDetail(u.id); }}
                                                     className="p-1.5 border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
-                                                    title="View Detail"
+                                                    title={isAr ? "عرض التفاصيل" : "View Detail"}
                                                 >
                                                     <Eye className="w-3.5 h-3.5" />
                                                 </button>
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); startEdit(u); }}
                                                     className="p-1.5 border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors"
-                                                    title="Edit User"
+                                                    title={isAr ? "تعديل المستخدم" : "Edit User"}
                                                 >
                                                     <Edit3 className="w-3.5 h-3.5" />
                                                 </button>
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); deleteUser(u.id); }}
                                                     className="p-1.5 border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
-                                                    title="Delete User"
+                                                    title={isAr ? "حذف المستخدم" : "Delete User"}
                                                 >
                                                     <Trash2 className="w-3.5 h-3.5 text-red-500" />
                                                 </button>
@@ -698,17 +840,17 @@ export default function UsersTab() {
                             disabled={page === 0}
                             className="h-8 px-3 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 font-black text-xs uppercase tracking-wider disabled:opacity-30 flex items-center gap-1 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]"
                         >
-                            <ChevronLeft className="w-4 h-4" /> Prev
+                            <ChevronLeft className="w-4 h-4" /> {isAr ? "السابق" : "Prev"}
                         </button>
                         <span className="text-xs font-bold font-mono text-zinc-500">
-                            Page {page + 1} of {totalPages}
+                            {isAr ? `الصفحة ${page + 1} من ${totalPages}` : `Page ${page + 1} of ${totalPages}`}
                         </span>
                         <button
                             onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
                             disabled={page >= totalPages - 1}
                             className="h-8 px-3 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 font-black text-xs uppercase tracking-wider disabled:opacity-30 flex items-center gap-1 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]"
                         >
-                            Next <ChevronRight className="w-4 h-4" />
+                            {isAr ? "التالي" : "Next"} <ChevronRight className="w-4 h-4" />
                         </button>
                     </div>
                 )}
@@ -865,7 +1007,7 @@ export default function UsersTab() {
                                             </div>
                                             <div className="mt-3 flex flex-wrap gap-2">
                                                 {(selectedUser.payments?.recent || []).some((payment: any) => payment.payment_review_status === "pending_review") && <button onClick={() => runSubscriptionAction(selectedUser.profile.id, "mark_payment_reviewed")} disabled={subscriptionActionLoading} className="inline-flex items-center gap-1 border-2 border-emerald-600 bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700 hover:bg-emerald-600 hover:text-white disabled:opacity-50 dark:bg-emerald-950/30 dark:text-emerald-300"><CheckCircle2 className="w-3 h-3" /> تمّت مراجعة الدفع</button>}
-                                                {selectedUser.subscription.status === "active" && <button onClick={() => runSubscriptionAction(selectedUser.profile.id, "cancel_subscription")} disabled={subscriptionActionLoading} className="inline-flex items-center gap-1 border-2 border-red-500 bg-red-50 px-2 py-1 text-[10px] font-black text-red-700 hover:bg-red-500 hover:text-white disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300"><X className="w-3 h-3" /> إلغاء Pro وسحب VIP</button>}
+                                                {selectedUser.subscription.status === "active" && <button onClick={() => runSubscriptionAction(selectedUser.profile.id, "cancel_subscription")} disabled={subscriptionActionLoading} className="inline-flex items-center gap-1 border-2 border-red-500 bg-red-50 px-2 py-1 text-[10px] font-black text-red-700 hover:bg-red-500 hover:text-white disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300"><X className="w-3 h-3" /> {isAr ? "إلغاء برو وسحب VIP" : "Cancel Pro and revoke VIP"}</button>}
                                             </div>
                                         </>
                                     ) : (
@@ -884,7 +1026,7 @@ export default function UsersTab() {
                                         <div className="space-y-1.5">
                                             {selectedUser.bot_subscriptions.map((b, i) => (
                                                 <div key={i} className="flex items-center justify-between text-xs font-mono px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950">
-                                                    <span className="font-bold">{SERVICE_LABELS[b.service_type] || b.service_type}</span>
+                                                    <span className="font-bold">{(isAr ? SERVICE_LABELS_AR[b.service_type] : SERVICE_LABELS[b.service_type]) || b.service_type}</span>
                                                     <span className={`font-black text-[10px] px-2 py-0.5 border ${b.notifications_enabled ? "bg-green-100 text-green-700 border-green-400" : "bg-zinc-100 text-zinc-500 border-zinc-300"}`}>
                                                         {b.notifications_enabled ? "🔔 ENABLED" : "🔕 DISABLED"}
                                                     </span>

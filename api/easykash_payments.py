@@ -159,6 +159,25 @@ def create_checkout(user_id: str, plan_id: str, email: str, name: str, mobile: s
             raise RuntimeError(f"EasyKash checkout failed ({response.status_code})")
         data = response.json()
         redirect_url = _hosted_checkout_url(data.get("redirectUrl"))
+        try:
+            from api.support_chat import send_telegram_message, load_admin_chat_id
+            admin_chat = load_admin_chat_id()
+            if admin_chat:
+                plan_days = _PLANS.get(plan_id, 30)
+                msg = (
+                    f"🛒 <b>طلب اشتراك جديد (قيد الدفع)</b>\n\n"
+                    f"<b>الخطة:</b> Pro ({plan_days} يوم)\n"
+                    f"<b>المبلغ:</b> {float(amount):,.0f} ج.م\n"
+                    f"<b>وسيلة الدفع:</b> {method_id}\n"
+                    f"<b>الموبايل:</b> <code>{mobile}</code>\n"
+                    f"<b>البريد:</b> <code>{email or '—'}</code>\n"
+                    f"<b>الاسم:</b> {name or 'عميل'}\n"
+                    f"<b>Order ID:</b> <code>{order_id}</code>\n\n"
+                    f"⏳ العميل انتقل لصفحة EasyKash لإتمام العملية."
+                )
+                send_telegram_message(admin_chat, msg)
+        except Exception as notify_err:
+            print(f"[EASYKASH] Telegram admin checkout notification error: {notify_err}")
         return {"order_id": order_id, "plan_id": plan_id, "amount_egp": float(amount), "url": redirect_url, "status": "pending"}
     except Exception:
         supabase.table("local_payment_orders").update({"status": "expired", "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", order_id).eq("status", "pending").execute()
@@ -202,6 +221,22 @@ def process_callback(payload: Dict[str, Any]) -> Dict[str, Any]:
     except (InvalidOperation, TypeError):
         return {"ok": False, "status_code": 400, "code": "invalid_amount"}
     if received != expected_amount or str(payload.get("status", "")).upper() != "PAID":
+        try:
+            from api.support_chat import send_telegram_message, load_admin_chat_id
+            admin_chat = load_admin_chat_id()
+            if admin_chat:
+                easykash_ref = str(payload.get("easykashRef") or "—")
+                failed_status = str(payload.get("status", "FAILED"))
+                msg = (
+                    f"⚠️ <b>إشعار عدم اكتمال الدفع من EasyKash</b>\n\n"
+                    f"<b>Order ID:</b> <code>{order_id}</code>\n"
+                    f"<b>حالة الدفع:</b> {failed_status}\n"
+                    f"<b>المبلغ المستلم:</b> {float(received):,.0f} ج.م (المتوقع: {float(expected_amount):,.0f} ج.م)\n"
+                    f"<b>رقم المرجع:</b> <code>{easykash_ref}</code>"
+                )
+                send_telegram_message(admin_chat, msg)
+        except Exception:
+            pass
         return {"ok": True, "code": "payment_not_paid_or_amount_mismatch"}
 
     now = datetime.now(timezone.utc).isoformat()
@@ -251,6 +286,29 @@ def process_callback(payload: Dict[str, Any]) -> Dict[str, Any]:
             ensure_pro_invite(order["user_id"], str(subscription_end))
     except Exception as exc:
         print(f"[EASYKASH] VIP invite deferred for order {order_id}: {type(exc).__name__}")
+
+    # Notify admin on Telegram about confirmed payment and Pro activation
+    try:
+        from api.support_chat import send_telegram_message, load_admin_chat_id
+        admin_chat = load_admin_chat_id()
+        if admin_chat:
+            plan_id = order.get("plan_id", "pro")
+            plan_days = _PLANS.get(plan_id, 30)
+            easykash_ref = str(payload.get("easykashRef") or "—")
+            msg = (
+                f"🎉 <b>تم تأكيد الدفع وتفعيل Pro بنجاح!</b>\n\n"
+                f"<b>الخطة:</b> Pro ({plan_days} يوم)\n"
+                f"<b>المبلغ المدفوع:</b> {float(expected_amount):,.0f} ج.م\n"
+                f"<b>رقم المرجع (EasyKash):</b> <code>{easykash_ref}</code>\n"
+                f"<b>Order ID:</b> <code>{order_id}</code>\n"
+                f"<b>User ID:</b> <code>{order['user_id']}</code>\n"
+                f"<b>نهاية الاشتراك:</b> {subscription_end or 'مفعل'}\n\n"
+                f"✅ تم تفعيل الاشتراك تلقائياً ورابط VIP متاح للمشترك."
+            )
+            send_telegram_message(admin_chat, msg)
+    except Exception as notify_err:
+        print(f"[EASYKASH] Telegram admin activation notification error: {notify_err}")
+
     return {"ok": True, "code": "payment_activated"}
 
 

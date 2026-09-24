@@ -58,7 +58,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ userId
 
     const { error: subscriptionError } = await service
       .from("subscriptions")
-      .update({ status: "cancelled", current_period_end: now, updated_at: now })
+      .update({ status: "canceled", current_period_end: now, updated_at: now })
       .eq("user_id", userId)
       .eq("plan_id", "pro")
       .eq("status", "active");

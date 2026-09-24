@@ -101,7 +101,7 @@ begin
   end if;
 
   update public.subscriptions
-  set status = 'cancelled', updated_at = v_now
+  set status = 'canceled', updated_at = v_now
   where user_id = p_user_id and status = 'active' and plan_id <> p_plan_id;
 
   return v_end;

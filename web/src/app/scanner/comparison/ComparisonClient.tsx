@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Search, ArrowLeftRight, Activity, TrendingUp, LogIn } from "lucide-react";
+import { Plus, Search, Activity, TrendingUp, LogIn } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { useAppState } from "@/contexts/AppStateContext";
@@ -11,9 +11,11 @@ import CompareTableView from "@/components/CompareTableView";
 import CountrySymbolDialog from "@/components/CountrySymbolDialog";
 import IndicatorStatistics from "@/components/IndicatorStatistics";
 import ChartDialog from "@/components/ChartDialog";
+import BrandedPageHeader from "@/components/BrandedPageHeader";
 
 export default function ComparisonScannerPage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
+    const isAr = language === "ar";
     const {
         state,
         addSymbolsToCompare,
@@ -71,22 +73,14 @@ export default function ComparisonScannerPage() {
 
     return (
         <div className="comparison-shell app-page-shell flex flex-col gap-10 max-w-[1600px] mx-auto pb-20 p-4 md:p-8">
-            {/* Header Section */}
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-                <div className="space-y-2">
-                    <div className="flex items-center gap-3">
-                        <div className="p-3 rounded-2xl bg-blue-600 shadow-xl shadow-blue-600/20">
-                            <ArrowLeftRight className="h-6 w-6 text-white" />
-                        </div>
-                        <h1 className="text-3xl font-black tracking-tight text-white uppercase italic">
-                            Comparison <span className="text-blue-500">Scanner</span>
-                        </h1>
-                    </div>
-                    <p className="text-sm text-zinc-500 font-medium max-w-lg">
-                        Analyze and compare technical indicator performance and AI win rates across multiple assets simultaneously.
-                    </p>
-                </div>
-            </div>
+            <BrandedPageHeader
+                dir={isAr ? "rtl" : "ltr"}
+                eyebrow={isAr ? "مقارنة الأسهم" : "STOCK COMPARISON"}
+                title={isAr ? "قارن أداء الأسهم والمؤشرات" : "Compare stocks and indicators"}
+                description={isAr
+                    ? "قارن المؤشرات الفنية ونتائج النماذج بين عدة أسهم في شاشة واحدة."
+                    : "Compare technical indicators and model results across multiple stocks in one view."}
+            />
 
 
             {/* Indicator Statistics Section */}

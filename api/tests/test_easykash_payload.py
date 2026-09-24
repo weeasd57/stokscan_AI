@@ -84,7 +84,9 @@ class EasyKashPayloadTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "pending")
         self.assertEqual(result["url"], "https://www.easykash.net/DirectPayV1/test")
-        self.assertEqual(request.call_args.kwargs["json"]["paymentOptions"], [2, 35])
+        # The checkout call is sent before the optional admin notification,
+        # which can issue a second HTTP POST in the same test.
+        self.assertEqual(request.call_args_list[0].kwargs["json"]["paymentOptions"], [2, 35])
 
     def test_callback_signature_uses_easykash_documented_field_order(self):
         secret = "unit-test-secret"

@@ -89,8 +89,6 @@ def handle_customer_message(session_id: str, content: str, user_name: Optional[s
 
 def handle_telegram_update(data: dict):
     if data.get("callback_query"):
-        from api.local_payments import handle_callback
-        handle_callback(data["callback_query"])
         return
     if data.get("chat_member") or data.get("my_chat_member"):
         from api.telegram_pro_invites import handle_chat_member_update

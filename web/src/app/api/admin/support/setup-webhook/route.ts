@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         url: webhookUrl,
-        allowed_updates: ["message", "callback_query", "chat_member", "my_chat_member"],
+        allowed_updates: ["message", "chat_member", "my_chat_member"],
       }),
       signal: AbortSignal.timeout(10000)
     });
