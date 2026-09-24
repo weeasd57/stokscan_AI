@@ -76,6 +76,7 @@ web/public/favicon_io/*.png
 # Models and scratch
 api/models/*.pkl
 api/models/*.bin
+!api/models/vhagar.pkl
 scratch/
 symbols_data/*.json
 .vercel
