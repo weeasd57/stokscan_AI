@@ -60,16 +60,25 @@ class StrictQualityLabeler(TripleBarrierLabeler):
         out["entry_price"] = out[open_col].shift(-1)
         
         if "ATR_14" not in out.columns:
-            out["ATR_14"] = out[close_col].rolling(14).std().bfill()
-        shifted_atr = out["ATR_14"].shift(-1)
+            prev_close = out[close_col].shift(1)
+            true_range = pd.concat(
+                [out[high_col] - out[low_col],
+                 (out[high_col] - prev_close).abs(),
+                 (out[low_col] - prev_close).abs()],
+                axis=1,
+            ).max(axis=1)
+            out["ATR_14"] = true_range.rolling(14, min_periods=14).mean()
+        # The signal is formed at this session's close. Do not use the next
+        # session's ATR (which includes post-entry prices) to set its barriers.
+        signal_atr = out["ATR_14"]
         
         # Calculate barriers (Requirement 1.4, 1.5)
         if self.params.barrier_mode == "percent":
             out["tp_barrier"] = out["entry_price"] * (1 + self.params.target_pct)
             out["sl_barrier"] = out["entry_price"] * (1 - self.params.stop_loss_pct)
         else:
-            out["tp_barrier"] = out["entry_price"] + (shifted_atr * self.params.target_pct)
-            out["sl_barrier"] = out["entry_price"] - (shifted_atr * self.params.stop_loss_pct)
+            out["tp_barrier"] = out["entry_price"] + (signal_atr * self.params.target_pct)
+            out["sl_barrier"] = out["entry_price"] - (signal_atr * self.params.stop_loss_pct)
             
         # Volume MA 20
         volume_ma_20 = out[volume_col].rolling(20).mean()
@@ -129,7 +138,7 @@ class StrictQualityLabeler(TripleBarrierLabeler):
         # that arrive between day 8-15 and were previously discarded.
         look_forward_days = min(15, self.params.look_forward_days)
         
-        for i in range(len(out) - self.params.look_forward_days - 1):
+        for i in range(max(0, len(out) - self.params.look_forward_days)):
             if not (np.isfinite(tp_vals[i]) and np.isfinite(sl_vals[i])):
                 continue
                 

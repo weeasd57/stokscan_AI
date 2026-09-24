@@ -1730,11 +1730,18 @@ def get_stock_data_eodhd(
     except Exception as ex:
         print(f"DEBUG: Bulk cache lookup failed for {ticker}: {ex}")
 
-    # 1. Try Supabase per-symbol (paginated)
+    # 1. Read EGX history from the canonical HF snapshot and overlay only the
+    # recent operational tail. Other exchanges retain the database path.
     _init_supabase()
     if supabase:
         try:
             s, e = _infer_symbol_exchange(ticker, exchange)
+            history_snapshot = pd.DataFrame()
+            history_tail_start = None
+            if e.upper() == "EGX":
+                from api.hf_history_cache import load_symbol_history_snapshot, tail_start_date
+                history_snapshot = load_symbol_history_snapshot(e, s)
+                history_tail_start = tail_start_date(history_snapshot)
             
             # Supabase has a default limit of 1000 rows, so we need to paginate
             # to get all historical data for stocks with long history
@@ -1743,15 +1750,15 @@ def get_stock_data_eodhd(
             offset = 0
             
             while True:
-                res = (
+                query = (
                     supabase.table("stock_prices")
                     .select("date,open,high,low,close,volume")
                     .eq("symbol", s)
                     .eq("exchange", e)
-                    .order("date", desc=False)
-                    .range(offset, offset + page_size - 1)
-                    .execute()
                 )
+                if history_tail_start:
+                    query = query.gte("date", history_tail_start)
+                res = query.order("date", desc=False).range(offset, offset + page_size - 1).execute()
                 
                 if not res.data:
                     break
@@ -1764,13 +1771,15 @@ def get_stock_data_eodhd(
                     
                 offset += page_size
             
-            if all_data:
-                df = pd.DataFrame(all_data)
-                try:
-                    from api.archive_reader import merge_with_archive
-                    df = merge_with_archive(supabase, s, df)
-                except Exception as e:
-                    print(f"Archive reader error: {e}")
+            if all_data or not history_snapshot.empty:
+                if not history_snapshot.empty:
+                    from api.hf_history_cache import merge_snapshot_with_live
+                    df = merge_snapshot_with_live(history_snapshot, [
+                        {**row, "symbol": s, "exchange": e} for row in all_data
+                    ])
+                    df = df[df["symbol"] == s.upper()].copy()
+                else:
+                    df = pd.DataFrame(all_data)
                 if not df.empty:
                     # Convert to standard format
                     df['date'] = pd.to_datetime(df['date'])

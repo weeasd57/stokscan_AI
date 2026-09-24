@@ -186,7 +186,8 @@ class TripleBarrierLabeler:
         Args:
             entry_price: Price at which position is entered
             atr: ATR value for barrier calculation
-            bars_ahead: List of bars with 'high', 'low', 'close', 'volume'
+            bars_ahead: Entry-session bar first, then subsequent bars; each
+                bar may have 'open', 'high', 'low', 'close', and 'volume'.
             max_bars: Maximum bars to hold (defaults to look_forward_days)
             volume_ma_20: 20-bar average volume (for volume confirmation)
             
@@ -202,30 +203,21 @@ class TripleBarrierLabeler:
             max_bars = self.params.look_forward_days
         
         tp, sl = self.calculate_barriers(entry_price, atr)
-        
-        for bar_idx, bar in enumerate(bars_ahead):
-            # Timeout: exceeded look-forward period
-            if bar_idx >= max_bars:
-                exit_price = bar.get("close", entry_price)
-                pnl_pct = ((exit_price - entry_price) / entry_price) * 100
-                return TradeOutcome(
-                    outcome="TIMEOUT",
-                    exit_price=exit_price,
-                    exit_bars=bar_idx,
-                    pnl_pct=pnl_pct,
-                    exit_reason=f"Exceeded {max_bars} bar limit"
-                )
-            
+        usable_bars = bars_ahead[:max(0, int(max_bars))]
+        for bar_idx, bar in enumerate(usable_bars):
             high = bar.get("high", 0)
             low = bar.get("low", 0)
-            close = bar.get("close", entry_price)
-            
+            bar_open = bar.get("open")
+
             # Check SL first (more urgent)
             if low <= sl:
-                pnl_pct = ((sl - entry_price) / entry_price) * 100
+                # A stop can gap through its level. Fill at the worse opening
+                # price when that price is available.
+                exit_price = min(float(bar_open), sl) if bar_open is not None else sl
+                pnl_pct = ((exit_price - entry_price) / entry_price) * 100
                 return TradeOutcome(
                     outcome="SL_HIT",
-                    exit_price=sl,
+                    exit_price=exit_price,
                     exit_bars=bar_idx,
                     pnl_pct=pnl_pct,
                     exit_reason="Stop loss triggered"
@@ -251,14 +243,16 @@ class TripleBarrierLabeler:
                     exit_reason="Take profit hit"
                 )
         
-        # Fallback if no bars (shouldn't happen)
-        return TradeOutcome(
-            outcome="HOLD",
-            exit_price=entry_price,
-            exit_bars=0,
-            pnl_pct=0.0,
-            exit_reason="No bars to process"
-        )
+        if usable_bars:
+            exit_price = float(usable_bars[-1].get("close", entry_price))
+            pnl_pct = ((exit_price - entry_price) / entry_price) * 100
+            return TradeOutcome(
+                outcome="TIMEOUT", exit_price=exit_price,
+                exit_bars=len(usable_bars) - 1, pnl_pct=pnl_pct,
+                exit_reason=f"Closed at final available close after {len(usable_bars)} bars",
+            )
+        return TradeOutcome(outcome="HOLD", exit_price=entry_price, exit_bars=0,
+                            pnl_pct=0.0, exit_reason="No bars to process")
     
     def label_training_data(
         self,
@@ -299,18 +293,26 @@ class TripleBarrierLabeler:
         out["entry_price"] = out[open_col].shift(-1)
         
         if "ATR_14" not in out.columns:
-            # Simple fallback ATR
-            out["ATR_14"] = out[close_col].rolling(14).std().bfill()
-        
-        shifted_atr = out["ATR_14"].shift(-1)
+            # Causal fallback ATR: only current and prior OHLC bars contribute.
+            prev_close = out[close_col].shift(1)
+            true_range = pd.concat(
+                [out[high_col] - out[low_col],
+                 (out[high_col] - prev_close).abs(),
+                 (out[low_col] - prev_close).abs()],
+                axis=1,
+            ).max(axis=1)
+            out["ATR_14"] = true_range.rolling(14, min_periods=14).mean()
+
+        # At signal time only ATR through the signal close is known.
+        signal_atr = out["ATR_14"]
         
         # Calculate barriers
         if self.params.barrier_mode == "percent":
             out["tp_barrier"] = out["entry_price"] * (1 + self.params.target_pct)
             out["sl_barrier"] = out["entry_price"] * (1 - self.params.stop_loss_pct)
         else:
-            out["tp_barrier"] = out["entry_price"] + (shifted_atr * self.params.target_pct)
-            out["sl_barrier"] = out["entry_price"] - (shifted_atr * self.params.stop_loss_pct)
+            out["tp_barrier"] = out["entry_price"] + (signal_atr * self.params.target_pct)
+            out["sl_barrier"] = out["entry_price"] - (signal_atr * self.params.stop_loss_pct)
         
         # Initialize labels
         targets = np.zeros(len(out), dtype=int)

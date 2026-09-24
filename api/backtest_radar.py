@@ -580,6 +580,7 @@ def run_radar_simulation(
 
     # Accept either lowercase (close/high/low) or the more common OHLCV casing (Close/High/Low)
     close_col = "close" if "close" in df.columns else ("Close" if "Close" in df.columns else None)
+    open_col = "open" if "open" in df.columns else ("Open" if "Open" in df.columns else None)
     high_col = "high" if "high" in df.columns else ("High" if "High" in df.columns else None)
     low_col = "low" if "low" in df.columns else ("Low" if "Low" in df.columns else None)
     if close_col is None or high_col is None or low_col is None:
@@ -631,8 +632,12 @@ def run_radar_simulation(
         # Track pre-council if radar passes
         if passes_radar:
             score = council_score # Use consensus as the final "score" for the log
-            entry_price = closes[i]
-            entry_date = dates[i]
+            next_open_entry = str(params.entry_mode).lower() == "next_open"
+            entry_idx = i + 1 if next_open_entry else i
+            if entry_idx >= len(df) or (next_open_entry and open_col is None):
+                continue
+            entry_price = float(df[open_col].iloc[entry_idx]) if next_open_entry else closes[i]
+            entry_date = dates[entry_idx]
             symbol = symbols[i]
 
             try:
@@ -687,10 +692,11 @@ def run_radar_simulation(
 
             # Construct the bars_ahead list for subsequent prices
             bars_ahead = []
-            for days_fwd in range(1, hold_max + 1):
-                idx = i + days_fwd
+            for days_fwd in range(hold_max):
+                idx = entry_idx + days_fwd
                 if idx >= len(df): break
                 bars_ahead.append({
+                    "open": float(df[open_col].values[idx]) if open_col else float(closes[idx]),
                     "high": float(highs[idx]),
                     "low": float(lows[idx]),
                     "close": float(closes[idx]),
@@ -744,7 +750,8 @@ def run_radar_simulation(
             }
             outcome = outcome_mapping.get(outcome_obj.outcome, outcome_obj.outcome)
             pnl_pct = outcome_obj.pnl_pct / 100.0
-            exit_idx = min(len(df) - 1, i + outcome_obj.exit_bars)
+            # exit_bars is the zero-based offset from the entry session.
+            exit_idx = min(len(df) - 1, entry_idx + int(outcome_obj.exit_bars))
             exit_date = dates[exit_idx]
             exit_price = outcome_obj.exit_price
 
@@ -1610,6 +1617,7 @@ def run_enhanced_radar_simulation(
     # Prepare data columns
     dates = df.index
     close_col = "close" if "close" in df.columns else ("Close" if "Close" in df.columns else None)
+    open_col = "open" if "open" in df.columns else ("Open" if "Open" in df.columns else None)
     high_col = "high" if "high" in df.columns else ("High" if "High" in df.columns else None)
     low_col = "low" if "low" in df.columns else ("Low" if "Low" in df.columns else None)
     
@@ -1646,7 +1654,12 @@ def run_enhanced_radar_simulation(
             continue
 
         symbol = symbols[i]
-        entry_price = closes[i]
+        next_open_entry = str(params.entry_mode).lower() == "next_open"
+        entry_idx = i + 1 if next_open_entry else i
+        if entry_idx >= len(df) or (next_open_entry and open_col is None):
+            continue
+        entry_price = float(df[open_col].iloc[entry_idx]) if next_open_entry else float(closes[i])
+        entry_date = pd.to_datetime(dates[entry_idx])
         
         # Skip if date filters don't match
         if sim_start_dt and current_date < sim_start_dt:
@@ -1695,9 +1708,10 @@ def run_enhanced_radar_simulation(
 
         # Calculate exit levels
         bars_ahead = []
-        for days_fwd in range(1, min(HOLD_MAX_BARS + 1, len(df) - i)):
-            idx = i + days_fwd
+        for days_fwd in range(min(HOLD_MAX_BARS, len(df) - entry_idx)):
+            idx = entry_idx + days_fwd
             bars_ahead.append({
+                "open": float(df[open_col].iloc[idx]) if open_col else float(closes[idx]),
                 "high": float(highs[idx]),
                 "low": float(lows[idx]),
                 "close": float(closes[idx])
@@ -1718,15 +1732,19 @@ def run_enhanced_radar_simulation(
             days_held = outcome_obj.exit_bars
             
         except Exception as e:
-            # Fallback simple simulation
-            exit_price = entry_price * (1 + np.random.normal(0, 0.02))  # Random walk
-            exit_reason = "TIMEOUT"
-            days_held = min(5, len(bars_ahead))
+            print(f"Skipping {symbol} on {current_date}: trade simulation failed: {e}")
+            all_trades.append({
+                "Date": current_date.strftime("%Y-%m-%d"), "Symbol": symbol,
+                "Entry": entry_price, "Score": round(float(radar_score), 4),
+                "Council_Score": round(float(council_score), 4),
+                "Status": "Simulation Error", "Reason": str(e), "PnL_Pct": None,
+            })
+            continue
 
         # Open the position
         success, message = portfolio.open_position(
             symbol=symbol,
-            entry_date=current_date,
+            entry_date=entry_date,
             entry_price=entry_price,
             regime_multiplier=regime_multiplier,
             max_hold_days=HOLD_MAX_BARS,
@@ -1737,7 +1755,7 @@ def run_enhanced_radar_simulation(
             continue
 
         # Simulate position closure after calculated days
-        exit_date = current_date + pd.Timedelta(days=days_held)
+        exit_date = pd.to_datetime(dates[min(len(df) - 1, entry_idx + int(days_held))])
         success, message, trade_record = portfolio.close_position(
             symbol=symbol,
             exit_date=exit_date,
@@ -1748,8 +1766,8 @@ def run_enhanced_radar_simulation(
         if success and trade_record:
             # Convert to existing format for compatibility
             trade_data = {
-                "Date": current_date.strftime("%d/%m/%Y"),
-                "Entry_Date": current_date.strftime("%Y-%m-%d"),
+                "Date": entry_date.strftime("%d/%m/%Y"),
+                "Entry_Date": entry_date.strftime("%Y-%m-%d"),
                 "Exit_Date": exit_date.strftime("%Y-%m-%d"),
                 "Symbol": symbol,
                 "Entry": entry_price,

@@ -117,9 +117,11 @@ def test_backtest_simulation_consistency_with_labeler():
     
     entry_price = df["open"].iloc[111]  # entry_mode = next_open
     bars_ahead = []
-    for f in range(1, params.look_forward_days + 1):
+    # Entry is at session 111 open; barriers can be hit during that session.
+    for f in range(params.look_forward_days):
         idx = 111 + f
         bars_ahead.append({
+            "open": df["open"].iloc[idx],
             "high": df["high"].iloc[idx],
             "low": df["low"].iloc[idx],
             "close": df["close"].iloc[idx],

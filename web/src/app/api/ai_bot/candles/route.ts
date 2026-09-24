@@ -4,6 +4,18 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function getBackendBaseUrl() {
+  return (
+    process.env.PYTHON_BACKEND_URL ||
+    process.env.TRADING_SIGNALS_API_URL ||
+    process.env.BACKEND_URL ||
+    process.env.API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_BACKEND_URL ||
+    "http://127.0.0.1:8000"
+  ).replace(/\/$/, "");
+}
+
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
@@ -18,6 +30,28 @@ export async function GET(req: NextRequest) {
 
     if (exchange.toUpperCase() !== "EGX") {
       return NextResponse.json({ candles: [], markers: [], error: "Only EGX market data is available." }, { status: 410 });
+    }
+
+    // The backend owns the canonical HF-history + Supabase-tail merge. Keep
+    // this route as a same-origin proxy so browser clients never receive the
+    // HF credential and chart data matches scanner/training data exactly.
+    try {
+      const backendUrl = new URL(`${getBackendBaseUrl()}/bot/candles`);
+      backendUrl.searchParams.set("symbol", symbol);
+      backendUrl.searchParams.set("exchange", "EGX");
+      backendUrl.searchParams.set("limit", String(limit));
+      backendUrl.searchParams.set("bot_id", bot_id);
+      const backendResponse = await fetch(backendUrl, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(30000),
+      });
+      if (backendResponse.ok) {
+        return NextResponse.json(await backendResponse.json(), {
+          headers: { "Cache-Control": "private, max-age=60" },
+        });
+      }
+    } catch (error) {
+      console.warn("Unified candle backend unavailable; using live-table fallback:", error);
     }
 
     const supabase = getSupabaseClient();

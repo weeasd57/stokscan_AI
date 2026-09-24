@@ -1419,6 +1419,14 @@ class ModelTrainer:
                     if ex in ["CC", "CA"]:
                         ex = "EGX"
 
+                index_snapshot = pd.DataFrame()
+                index_tail_start = None
+                if ex == "INDX":
+                    from api.hf_history_cache import load_history_snapshot, tail_start_date
+                    all_indices = load_history_snapshot("INDX")
+                    index_snapshot = all_indices[all_indices["symbol"] == sym].copy()
+                    index_tail_start = tail_start_date(index_snapshot)
+
                 offset = 0
                 limit = 1000
                 all_data = []
@@ -1430,6 +1438,8 @@ class ModelTrainer:
                     )
                     if ex:
                         query = query.eq("exchange", ex)
+                    if index_tail_start:
+                        query = query.gte("date", index_tail_start)
                     idx_res = (
                         query.order("date", desc=False)
                         .range(offset, offset + limit - 1)
@@ -1442,8 +1452,18 @@ class ModelTrainer:
                         break
                     offset += limit
 
-                if all_data and len(all_data) > 200:
-                    df = pd.DataFrame(all_data)
+                if all_data or not index_snapshot.empty:
+                    if not index_snapshot.empty:
+                        from api.hf_history_cache import merge_snapshot_with_live
+                        live_index = [
+                            {**row, "symbol": sym, "exchange": ex} for row in all_data
+                        ]
+                        df = merge_snapshot_with_live(index_snapshot, live_index)[["date", "close"]]
+                    else:
+                        df = pd.DataFrame(all_data)
+                else:
+                    df = pd.DataFrame()
+                if len(df) > 200:
                     df["date"] = pd.to_datetime(df["date"])
                     df = df.set_index("date").sort_index()
                     df["atr"] = df["close"].pct_change().rolling(20).std().fillna(0)
@@ -1455,7 +1475,7 @@ class ModelTrainer:
                     self.market_index_symbol = idx_sym
                     self.market_index_loaded = True
                     self._progress(
-                        f"Successfully loaded market context from {idx_sym} (DB) - Total rows: {len(all_data)}"
+                        f"Successfully loaded market context from {idx_sym} - Total rows: {len(df)}"
                     )
                     break
             except Exception as e:
@@ -1581,16 +1601,34 @@ class ModelTrainer:
 
         self._progress(f"Loading price data for exchange {self.exchange}...")
 
+        # A versioned HF snapshot is the canonical source for older bars.  Only
+        # the recent Supabase tail is fetched, so training, scanning and charts
+        # can agree on one historical series without making the live table a
+        # second archive.
+        history_snapshot = pd.DataFrame()
+        history_tail_start = None
+        if self.exchange.upper() == "EGX":
+            try:
+                from api.hf_history_cache import load_history_snapshot, tail_start_date
+                history_snapshot = load_history_snapshot(self.exchange)
+                history_tail_start = tail_start_date(
+                    history_snapshot,
+                    days=int(os.getenv("HF_HISTORY_LIVE_TAIL_DAYS", "45")),
+                )
+            except Exception as exc:
+                self._progress(f"HF history unavailable; using Supabase only: {exc}")
+
         # 1. Get total count
         rows_total = None
         try:
-            count_res = (
+            count_query = (
                 self.supabase.table("stock_prices")
                 .select("symbol", count="exact")
                 .eq("exchange", self.exchange)
-                .limit(1)
-                .execute()
             )
+            if history_tail_start:
+                count_query = count_query.gte("date", history_tail_start)
+            count_res = count_query.limit(1).execute()
             rows_total = count_res.count
         except Exception as e:
             print(f"Warning: Failed to fetch total row count: {e}")
@@ -1599,15 +1637,16 @@ class ModelTrainer:
         def _fetch_page(off, retries=3):
             for attempt in range(retries):
                 try:
-                    res = (
+                    query = (
                         self.supabase.table("stock_prices")
                         .select("symbol, date, open, high, low, close, volume")
                         .eq("exchange", self.exchange)
-                        .order("symbol", desc=False)
-                        .order("date", desc=False)
-                        .range(off, off + page_size - 1)
-                        .execute()
                     )
+                    if history_tail_start:
+                        query = query.gte("date", history_tail_start)
+                    res = query.order("symbol", desc=False).order("date", desc=False).range(
+                        off, off + page_size - 1
+                    ).execute()
                     return res.data or []
                 except Exception as e:
                     time.sleep((attempt + 1) * 2)
@@ -1615,9 +1654,9 @@ class ModelTrainer:
 
         all_rows = []
         first_page = _fetch_page(0)
-        if not first_page:
+        if not first_page and history_snapshot.empty:
             return pd.DataFrame()
-        all_rows.extend(first_page)
+        all_rows.extend(first_page or [])
 
         if rows_total and rows_total > page_size:
             offsets = range(page_size, rows_total, page_size)
@@ -1636,7 +1675,14 @@ class ModelTrainer:
                             {"rows_loaded": len(all_rows), "rows_total": rows_total},
                         )
 
-        df = pd.DataFrame(all_rows)
+        if not history_snapshot.empty:
+            from api.hf_history_cache import merge_snapshot_with_live
+            df = merge_snapshot_with_live(history_snapshot, all_rows)
+        else:
+            df = pd.DataFrame(all_rows)
+        if not df.empty:
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
+            df = df.dropna(subset=["date"]).sort_values(["symbol", "date"])
         self._progress(
             f"Loaded {len(df):,} rows for {len(df['symbol'].unique()):,} symbols."
         )
@@ -1662,6 +1708,11 @@ class ModelTrainer:
 
             # Check data readiness
             manager = FeatureEngineeringManager(t_params)
+            # Keep the actual exchange session as the index throughout feature
+            # engineering and labeling. The HF snapshot's date is a column.
+            df_sym = df_sym.copy()
+            df_sym["date"] = pd.to_datetime(df_sym["date"], errors="coerce")
+            df_sym = df_sym.dropna(subset=["date"]).sort_values("date").set_index("date")
             report = manager.check_data_ready(df_sym, extra_checks=True)
             StructuredLogger("training").log_data_readiness(sym, report)
             if not report.is_ready:
@@ -1719,6 +1770,8 @@ class ModelTrainer:
             if len(df) < 10:
                 return None
             df["symbol"] = sym
+            # Keep the exchange session attached after indicators and labels.
+            df["Date"] = pd.to_datetime(df.index, errors="coerce")
             return df
         except Exception as e:
             print(f"Error processing {params[0]}: {e}")
@@ -1752,7 +1805,9 @@ class ModelTrainer:
             stop_loss_pct=stop_loss_pct,
             min_history_needed=self.min_history_needed,
             warmup_bars=self.min_history_needed,
-            require_volume_confirmation=(self.exchange == "EGX"),
+            # StrictQualityLabeler uses volume as a soft feature. A hard
+            # execution filter would describe a different target at backtest.
+            require_volume_confirmation=False,
             min_volume_ratio=0.8 if (self.exchange == "EGX") else 0.3,
         )
         self.struct_logger = StructuredLogger("training")
@@ -1761,12 +1816,22 @@ class ModelTrainer:
         # Merge fundamentals
         start_time = time.time()
 
-        # Merge fundamentals
+        # Merge only relatively stable classifications. Current valuation and
+        # financial statement fields are not point-in-time and would leak back
+        # into historical rows if copied across every date.
         df_funds = fetch_fundamentals_for_exchange(self.supabase, self.exchange)
         self.fundamentals_loaded = bool(df_funds is not None and (not df_funds.empty))
         if df_funds is not None and (not df_funds.empty):
-            df_all = df_all.merge(df_funds, on="symbol", how="left")
+            safe_fundamentals = df_funds[[c for c in ("symbol", "sector", "industry") if c in df_funds.columns]]
+            df_all = df_all.merge(safe_fundamentals, on="symbol", how="left", suffixes=("", "_fund"))
             for cat_col in ["sector", "industry"]:
+                fund_col = f"{cat_col}_fund"
+                if fund_col in df_all.columns:
+                    if cat_col not in df_all.columns:
+                        df_all[cat_col] = df_all[fund_col]
+                    else:
+                        df_all[cat_col] = df_all[cat_col].fillna(df_all[fund_col])
+                    df_all.drop(columns=[fund_col], inplace=True)
                 if cat_col in df_all.columns:
                     df_all[cat_col] = (
                         df_all[cat_col].fillna("Unknown").astype("category")
@@ -1784,10 +1849,10 @@ class ModelTrainer:
                 df_all["stock_daily_return"] = (
                     df_all.groupby("symbol")["close"].pct_change().fillna(0.0)
                 )
-                sector_avg_ret = df_all.groupby(["date", "sector"], observed=False)[
-                    "stock_daily_return"
-                ].transform("mean")
-                df_all["sector_avg_return"] = sector_avg_ret.fillna(0.0)
+                sector_avg_ret = df_all.groupby(["date", "sector"], observed=False)["stock_daily_return"].mean()
+                lagged_sector_avg = sector_avg_ret.groupby(level="sector", observed=False).shift(1)
+                df_all = df_all.join(lagged_sector_avg.rename("sector_avg_return"), on=["date", "sector"])
+                df_all["sector_avg_return"] = df_all["sector_avg_return"].fillna(0.0)
             except Exception as e:
                 print(
                     f"Warning: Failed to calculate sector average returns during training data prep: {e}"
@@ -1828,6 +1893,8 @@ class ModelTrainer:
             raise ValueError("No valid data collected for training")
 
         df_train = pd.concat(combined_data)
+        df_train["Date"] = pd.to_datetime(df_train.get("Date"), errors="coerce")
+        df_train = df_train.dropna(subset=["Date"]).sort_values(["Date", "symbol"]).reset_index(drop=True)
 
         # Ensure categorical dtypes exist post-parallel concat (workers may coerce types)
         for cat_col in ["sector", "industry"]:
@@ -1892,13 +1959,10 @@ class ModelTrainer:
             "feat_sector_rel_strength",
         ]
         # Dynamically append fundamental features to extended list if they are in df
-        for f_feat in ["marketCap", "peRatio", "eps", "dividendYield", "fund_score"]:
-            if f_feat in df.columns and f_feat not in extended:
-                extended.append(f_feat)
+        # Current fundamentals are not point-in-time historical data.
         # Dynamically append macro features to extended list if they are in df
-        for m_feat in ["feat_usd_egp", "feat_usd_egp_change", "feat_cbe_interest_rate"]:
-            if m_feat in df.columns and m_feat not in extended:
-                extended.append(m_feat)
+        # The FX/rate context currently comes from coarse hard-coded values,
+        # not a date-stamped historical series, so it is intentionally excluded.
         max_p = extended + [
             "ATR_14",
             "ADX_14",
@@ -1919,7 +1983,11 @@ class ModelTrainer:
                 ["Target", "Date", "Symbol", "Open", "High", "Low", "Close", "Volume"]
             )
             numeric_cols = df.select_dtypes(include=[np.number]).columns
-            self.predictors = [c for c in numeric_cols if c not in exclude]
+            unsafe = {
+                "marketCap", "peRatio", "eps", "dividendYield", "fund_score",
+                "feat_usd_egp", "feat_usd_egp_change", "feat_cbe_interest_rate",
+            }
+            self.predictors = [c for c in numeric_cols if c not in exclude and c not in unsafe]
             # Ensure core features are kept even if logic above misses them (unlikely)
             for c in core:
                 if c in df.columns and c not in self.predictors:
@@ -1947,15 +2015,41 @@ class ModelTrainer:
 
     def get_walk_forward_splits(self, df: pd.DataFrame, n_splits: int = 5):
         """
-        Generate walk-forward validation splits for time-series data.
-        Uses TimeSeriesSplit to prevent lookahead bias / future data leakage.
+        Generate walk-forward splits on market sessions, never arbitrary rows.
+
+        The training frame contains many symbols per session. Splitting rows
+        can put one symbol's Tuesday bar in train and another's Tuesday bar in
+        validation, which leaks market-wide features.  Split the unique dates,
+        then map those date groups back to row indexes.
         """
         from sklearn.model_selection import TimeSeriesSplit
+        if "Date" in df.columns:
+            date_series = df["Date"]
+        elif isinstance(df.index, pd.DatetimeIndex):
+            # Support callers that carry sessions as a named DatetimeIndex.
+            date_series = pd.Series(df.index, index=df.index)
+        else:
+            raise ValueError("Walk-forward validation requires a Date column or DatetimeIndex")
+        sessions = pd.to_datetime(date_series, errors="coerce").dt.normalize()
+        unique_sessions = np.array(sorted(sessions.dropna().unique()))
+        if len(unique_sessions) <= n_splits:
+            return []
         tscv = TimeSeriesSplit(n_splits=n_splits)
+        purge_sessions = max(0, int(getattr(getattr(self, "params", None), "look_forward_days", 0)))
         
         splits = []
-        for train_idx, val_idx in tscv.split(df):
-            splits.append((train_idx.tolist(), val_idx.tolist()))
+        for train_dates_idx, val_dates_idx in tscv.split(unique_sessions):
+            # Labels near the boundary inspect forward bars, so remove those
+            # sessions from train before validating on the next period.
+            safe_train_dates = unique_sessions[train_dates_idx]
+            if purge_sessions:
+                safe_train_dates = safe_train_dates[:-purge_sessions]
+            if len(safe_train_dates) == 0:
+                continue
+            train_idx = np.flatnonzero(sessions.isin(safe_train_dates).to_numpy())
+            val_idx = np.flatnonzero(sessions.isin(unique_sessions[val_dates_idx]).to_numpy())
+            if len(train_idx) and len(val_idx):
+                splits.append((train_idx.tolist(), val_idx.tolist()))
             
         self._progress(
             f"📊 Generated {len(splits)} TimeSeriesSplit splits (proper time-series validation)"
@@ -1991,13 +2085,22 @@ class ModelTrainer:
         X = self._clean_dataset(X)
         y = df_train["Target"]
 
-        # Use walk-forward splits instead of random split
-        splits = self.get_walk_forward_splits(df_train, n_splits=5)
+        # Hyperparameter selection must not inspect the final lockbox period.
+        date_values = pd.to_datetime(df_train["Date"], errors="coerce").dt.normalize()
+        sessions = np.array(sorted(date_values.dropna().unique()))
+        if len(sessions) < 10:
+            self._progress("Too few sessions for safe hyperparameter selection; using defaults.")
+            return {}
+        dev_cutoff = sessions[int(len(sessions) * 0.8) - 1]
+        dev_frame = df_train.loc[date_values <= dev_cutoff]
+        dev_dates = pd.to_datetime(dev_frame["Date"], errors="coerce").dt.normalize()
+        dev_sessions = np.array(sorted(dev_dates.dropna().unique()))
+        X = self._clean_dataset(dev_frame[self.predictors])
+        y = dev_frame["Target"]
+        splits = self.get_walk_forward_splits(dev_frame, n_splits=5)
         if not splits:
-            # Fallback to simple split
-            train_idx = list(range(int(len(X) * 0.8)))
-            val_idx = list(range(int(len(X) * 0.8), len(X)))
-            splits = [(train_idx, val_idx)]
+            self._progress("No purged date-based folds available; skipping hyperparameter search.")
+            return {}
 
         def objective(trial):
             # 1. Constrained Search Space
@@ -2050,31 +2153,9 @@ class ModelTrainer:
 
                 y_prob = model.predict_proba(X_val_s)[:, 1]
 
-                from sklearn.metrics import precision_recall_curve
-
-                precisions, recalls, thresholds = precision_recall_curve(
-                    y_val_s, y_prob
-                )
-
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    f1_scores = (
-                        2
-                        * (precisions[:-1] * recalls[:-1])
-                        / (precisions[:-1] + recalls[:-1])
-                    )
-                f1_scores = np.nan_to_num(f1_scores)
-
-                valid_indices = precisions[:-1] >= 0.50
-                if valid_indices.any():
-                    valid_f1 = np.where(valid_indices, f1_scores, -1)
-                    best_idx = np.argmax(valid_f1)
-                else:
-                    best_idx = np.argmax(f1_scores)
-
-                optimal_threshold = (
-                    thresholds[best_idx] if best_idx < len(thresholds) else 0.5
-                )
-                preds = (y_prob >= optimal_threshold).astype(int)
+                # Hyperparameter folds compare probabilities at a fixed
+                # operating point; never optimize a threshold on its own fold.
+                preds = (y_prob >= 0.5).astype(int)
 
                 if len(np.unique(preds)) < 2:
                     scores.append(0.0)
@@ -2188,18 +2269,38 @@ class ModelTrainer:
             f"Training LightGBM model (samples={len(X)}, target_pos={y.sum()})..."
         )
 
-        # --- CRITICAL: Time series split BEFORE any fitting/transformation ---
-        # 3-way split to prevent threshold optimization bias:
-        # 60% for training, 20% for threshold tuning, 20% for final testing
-        split_idx_train = int(len(df_train) * 0.6)
-        split_idx_tune = int(len(df_train) * 0.8)
+        # --- CRITICAL: Market-date split BEFORE any fitting/transformation ---
+        # Four chronological regions: fit, early-stop, threshold selection,
+        # and a final lockbox. Keep every symbol from a session together and
+        # purge signal dates whose forward-label horizon crosses a boundary.
+        dates = pd.to_datetime(df_train.get("Date"), errors="coerce")
+        if dates.isna().any():
+            raise ValueError("Training samples are missing market dates; refusing a non-temporal split")
+        market_dates = np.array(sorted(dates.dt.normalize().unique()))
+        if len(market_dates) < 5:
+            raise ValueError("Not enough distinct market sessions for temporal train/tune/test split")
+        purge_sessions = max(0, int(getattr(self.params, "look_forward_days", 0)))
+        fit_cut = int(len(market_dates) * 0.60)
+        early_cut = int(len(market_dates) * 0.70)
+        threshold_cut = int(len(market_dates) * 0.80)
+        train_safe_end = max(0, fit_cut - purge_sessions - 1)
+        early_start = min(len(market_dates) - 1, fit_cut)
+        early_end = max(early_start, early_cut - purge_sessions - 1)
+        tune_start = min(len(market_dates) - 1, early_cut)
+        tune_safe_end = max(tune_start, threshold_cut - purge_sessions - 1)
+        test_start = min(len(market_dates) - 1, threshold_cut)
+        norm_dates = dates.dt.normalize()
+        train_mask = norm_dates <= market_dates[train_safe_end]
+        early_mask = (norm_dates >= market_dates[early_start]) & (norm_dates <= market_dates[early_end])
+        tune_mask = (norm_dates >= market_dates[tune_start]) & (norm_dates <= market_dates[tune_safe_end])
+        test_mask = norm_dates >= market_dates[test_start]
+        if not train_mask.any() or not early_mask.any() or not tune_mask.any() or not test_mask.any():
+            raise ValueError("Temporal split produced an empty fit, early-stop, threshold, or test segment")
 
-        X_train_full = X.iloc[:split_idx_train]
-        y_train_full = y.iloc[:split_idx_train]
-        X_tune = X.iloc[split_idx_train:split_idx_tune]
-        y_tune = y.iloc[split_idx_train:split_idx_tune]
-        X_test = X.iloc[split_idx_tune:]
-        y_test = y.iloc[split_idx_tune:]
+        X_train_full, y_train_full = X.loc[train_mask], y.loc[train_mask]
+        X_early, y_early = X.loc[early_mask], y.loc[early_mask]
+        X_tune, y_tune = X.loc[tune_mask], y.loc[tune_mask]
+        X_test, y_test = X.loc[test_mask], y.loc[test_mask]
 
         # --- QUANTITATIVE PIPELINE: PCA on Correlated Momentum (FIT ON TRAIN ONLY) ---
         # Group highly correlated momentum/oscillator features
@@ -2229,7 +2330,9 @@ class ModelTrainer:
             X_train_scaled = scaler.fit_transform(X_train_mom)
             X_train_pca = pca.fit_transform(X_train_scaled)
 
-            # TRANSFORM tune and test sets using fitted scaler/PCA
+            # Transform early-stop, threshold-tuning, and test sets only.
+            X_early_mom = X_early[momentum_features].fillna(0)
+            X_early_pca = pca.transform(scaler.transform(X_early_mom))
             X_tune_mom = X_tune[momentum_features].fillna(0)
             X_tune_scaled = scaler.transform(X_tune_mom)
             X_tune_pca = pca.transform(X_tune_scaled)
@@ -2240,6 +2343,7 @@ class ModelTrainer:
 
             # Drop raw momentum features and add PCA components
             X_train_full = X_train_full.drop(columns=momentum_features).copy()
+            X_early = X_early.drop(columns=momentum_features).copy()
             X_tune = X_tune.drop(columns=momentum_features).copy()
             X_test = X_test.drop(columns=momentum_features).copy()
 
@@ -2251,6 +2355,7 @@ class ModelTrainer:
 
             for i in range(X_train_pca.shape[1]):
                 X_train_full[f"PCA_Momentum_{i}"] = X_train_pca[:, i]
+                X_early[f"PCA_Momentum_{i}"] = X_early_pca[:, i]
                 X_tune[f"PCA_Momentum_{i}"] = X_tune_pca[:, i]
                 X_test[f"PCA_Momentum_{i}"] = X_test_pca[:, i]
                 df_train[f"PCA_Momentum_{i}"] = df_train_pca[:, i]
@@ -2272,15 +2377,6 @@ class ModelTrainer:
 
         # Optional: Run Purged CV for more reliable estimation
         avg_purged_f1 = None
-        # Note: CV uses original df_train, not the split versions
-        cv_scores = self.purged_cross_val(df_train, n_splits=3)
-        if cv_scores:
-            avg_purged_f1 = np.mean([s["f1"] for s in cv_scores])
-            self._progress(f"Average Purged CV F1: {avg_purged_f1:.4f}")
-
-        # Calculate optimal class weights instead of using is_unbalance=True
-        # This gives more control and prevents model from predicting all 1s
-        class_weight = calculate_optimal_class_weight(y_train, max_ratio=10.0)
 
         params = {
             "n_estimators": n_estimators,
@@ -2290,7 +2386,9 @@ class ModelTrainer:
             "random_state": 42,
             "n_jobs": -1,
             "verbose": -1,
-            "class_weight": class_weight,  # Use calculated weights instead of is_unbalance
+            # The positive class is not rare enough to justify inverse-frequency
+            # weighting, which distorts probabilities and makes thresholds brittle.
+            "class_weight": None,
             **(extra_params or {}),
             **(optimized_params or {}),
         }
@@ -2308,7 +2406,7 @@ class ModelTrainer:
         model.fit(
             X_train,
             y_train,
-            eval_set=[(X_tune, y_tune)],
+            eval_set=[(X_early, y_early)],
             eval_metric=eval_metric,
             # Use 'auto' - LightGBM will detect category dtype columns automatically
             # This avoids errors when column names are passed but dtype isn't category
@@ -2340,7 +2438,22 @@ class ModelTrainer:
                 )
 
         # Evaluate on TEST SET only (not the set used for threshold tuning)
-        metrics = self.calculate_validation_metrics(model, X_test, y_test)
+        optimal_threshold = self.select_operating_threshold(model, X_tune, y_tune)
+        metrics = self.calculate_validation_metrics(model, X_test, y_test, optimal_threshold)
+        metrics.update({
+            "train_start_date": str(pd.to_datetime(dates.loc[train_mask]).min().date()),
+            "train_end_date": str(pd.to_datetime(dates.loc[train_mask]).max().date()),
+            "early_stop_start_date": str(pd.to_datetime(dates.loc[early_mask]).min().date()),
+            "early_stop_end_date": str(pd.to_datetime(dates.loc[early_mask]).max().date()),
+            "tune_start_date": str(pd.to_datetime(dates.loc[tune_mask]).min().date()),
+            "tune_end_date": str(pd.to_datetime(dates.loc[tune_mask]).max().date()),
+            "test_start_date": str(pd.to_datetime(dates.loc[test_mask]).min().date()),
+            "test_end_date": str(pd.to_datetime(dates.loc[test_mask]).max().date()),
+            "train_samples_actual": int(train_mask.sum()),
+            "early_stop_samples": int(early_mask.sum()),
+            "tune_samples": int(tune_mask.sum()),
+            "test_samples": int(test_mask.sum()),
+        })
 
         # Check for training issues and alert
         monitor.check_metrics(metrics)
@@ -2368,18 +2481,14 @@ class ModelTrainer:
 
         # Use purged cross-validation to get the *true* performance metrics instead of just the last 20%
         # This prevents regime overfitting and gives hedge-fund grade validation
-        if avg_purged_f1 is not None and avg_purged_f1 > 0.0:
-            self._progress(
-                f"Replacing end-of-time validation F1 with Purged CV F1: {avg_purged_f1:.2%}"
-            )
-            metrics["f1"] = avg_purged_f1
             # We can also trust the CV recall and precision if we tracked them, but F1 is the main summary.
 
         # Calculate walk-forward split validation metrics
-        self._progress("Calculating walk-forward validation splits metrics...")
+        self._progress("Calculating development-period walk-forward diagnostics...")
         self.wf_splits_results = []
         try:
-            wf_splits = self.get_walk_forward_splits(df_train, n_splits=5)
+            # Keep the final lockbox completely out of diagnostic fold reporting.
+            wf_splits = self.get_walk_forward_splits(df_train.loc[dates.dt.normalize() < market_dates[test_start]], n_splits=5)
             for split_i, (train_idx, test_idx) in enumerate(wf_splits):
                 df_split_train = df_train.iloc[train_idx]
                 df_split_test = df_train.iloc[test_idx]
@@ -2391,10 +2500,10 @@ class ModelTrainer:
                     continue
 
                 # Extract date ranges for documentation
-                train_start_date = df_split_train.index[0].strftime("%Y-%m-%d") if hasattr(df_split_train.index[0], 'strftime') else str(df_split_train.index[0])
-                train_end_date = df_split_train.index[-1].strftime("%Y-%m-%d") if hasattr(df_split_train.index[-1], 'strftime') else str(df_split_train.index[-1])
-                test_start_date = df_split_test.index[0].strftime("%Y-%m-%d") if hasattr(df_split_test.index[0], 'strftime') else str(df_split_test.index[0])
-                test_end_date = df_split_test.index[-1].strftime("%Y-%m-%d") if hasattr(df_split_test.index[-1], 'strftime') else str(df_split_test.index[-1])
+                train_start_date = df_split_train["Date"].min().strftime("%Y-%m-%d")
+                train_end_date = df_split_train["Date"].max().strftime("%Y-%m-%d")
+                test_start_date = df_split_test["Date"].min().strftime("%Y-%m-%d")
+                test_end_date = df_split_test["Date"].max().strftime("%Y-%m-%d")
 
                 X_s_train = self._clean_dataset(df_split_train[self.predictors])
                 y_s_train = df_split_train["Target"]
@@ -2415,9 +2524,7 @@ class ModelTrainer:
                 )
                 split_model.fit(X_s_train, y_s_train)
 
-                split_metrics = self.calculate_validation_metrics(
-                    split_model, X_s_test, y_s_test
-                )
+                split_metrics = self.calculate_validation_metrics(split_model, X_s_test, y_s_test, 0.5)
                 
                 # Enhanced walk-forward split result with detailed metadata
                 split_result = {
@@ -2442,11 +2549,35 @@ class ModelTrainer:
 
         return model, metrics, avg_purged_f1, df_train
 
+    def select_operating_threshold(
+        self, model, X_tune: pd.DataFrame, y_tune: pd.Series
+    ) -> float:
+        """Choose a supported threshold on a dedicated period (never final test)."""
+        from sklearn.metrics import precision_recall_curve
+        if len(np.unique(y_tune)) < 2:
+            return 0.5
+        probabilities = model.predict_proba(X_tune)[:, 1]
+        precision, recall, thresholds = precision_recall_curve(y_tune, probabilities)
+        if not len(thresholds):
+            return 0.5
+        with np.errstate(divide="ignore", invalid="ignore"):
+            f1 = 2 * precision[:-1] * recall[:-1] / (precision[:-1] + recall[:-1])
+        f1 = np.nan_to_num(f1)
+        support = np.array([(probabilities >= t).sum() for t in thresholds])
+        min_support = max(30, int(np.ceil(len(y_tune) * 0.005)))
+        min_precision = max(0.35, float(y_tune.mean()) + 0.05)
+        valid = (support >= min_support) & (precision[:-1] >= min_precision)
+        # If no threshold meets both quality constraints, prefer a supported
+        # threshold with positive lift over one that predicts only a handful.
+        if not valid.any():
+            valid = support >= min_support
+        best_idx = int(np.argmax(np.where(valid, f1, -1))) if valid.any() else int(np.argmax(f1))
+        return float(thresholds[best_idx] if best_idx < len(thresholds) else 0.5)
+
     def calculate_validation_metrics(
-        self, model, X_test: pd.DataFrame, y_test: pd.Series
+        self, model, X_test: pd.DataFrame, y_test: pd.Series, threshold: float = 0.5
     ) -> Dict[str, float]:
-        """Calculate final metrics on the TEST split with Dynamic Threshold Optimization."""
-        # X_test and y_test are already the final test set (never used for training or threshold tuning)
+        """Calculate final metrics using a threshold fixed before the test period."""
         y_val = y_test
 
         if len(np.unique(y_val)) < 2:
@@ -2455,103 +2586,25 @@ class ModelTrainer:
         # Get Probabilities from test set
         y_prob = model.predict_proba(X_test)[:, 1]
 
-        # --- Threshold Optimization Logic ---
-        from sklearn.metrics import precision_recall_curve
-
-        precisions, recalls, thresholds = precision_recall_curve(y_val, y_prob)
-
-        # Calculate F1 for all thresholds
-        with np.errstate(divide="ignore", invalid="ignore"):
-            f1_scores = (
-                2 * (precisions[:-1] * recalls[:-1]) / (precisions[:-1] + recalls[:-1])
-            )
-        f1_scores = np.nan_to_num(f1_scores)
-
-        # Strategy: Find best threshold where Precision >= 60% AND Recall >= 10%
-        # This targets the sweet spot: accurate enough to trust, frequent enough to be useful.
-        target_p = 0.60
-        target_r = 0.10
-        valid_indices = (precisions[:-1] >= target_p) & (recalls[:-1] >= target_r)
-
-        if valid_indices.any():
-            # Among valid thresholds, pick the one with the highest F1
-            valid_f1 = np.where(valid_indices, f1_scores, -1)
-            best_idx = np.argmax(valid_f1)
-        else:
-            # Fallback 1: relax to P >= 55% only
-            fallback_indices = precisions[:-1] >= 0.55
-            if fallback_indices.any():
-                self._progress("⚠️ No threshold achieves P>=60% & R>=10%, relaxing to P>=55%.")
-                valid_f1 = np.where(fallback_indices, f1_scores, -1)
-                best_idx = np.argmax(valid_f1)
-            else:
-                # Fallback 2: best F1 regardless of precision
-                self._progress("⚠️ No threshold achieves P>=55%, falling back to best F1.")
-                best_idx = np.argmax(f1_scores)
-
-        optimal_threshold = thresholds[best_idx] if best_idx < len(thresholds) else 0.5
-
-        # CRITICAL: Apply optimal threshold to TEST SET (independent data)
-        # This threshold was NOT used during training, ensuring unbiased evaluation
-        y_pred = (y_prob >= optimal_threshold).astype(int)
-
-        # --- Regime-specific Threshold Branching Optimization ---
-        def _optimize_subset_threshold(y_val_sub, y_prob_sub, default_thresh=0.5):
-            if len(np.unique(y_val_sub)) < 2:
-                return default_thresh
-            sub_p, sub_r, sub_t = precision_recall_curve(y_val_sub, y_prob_sub)
-            with np.errstate(divide="ignore", invalid="ignore"):
-                sub_f1 = 2 * (sub_p[:-1] * sub_r[:-1]) / (sub_p[:-1] + sub_r[:-1])
-            sub_f1 = np.nan_to_num(sub_f1)
-            
-            sub_valid = (sub_p[:-1] >= 0.60) & (sub_r[:-1] >= 0.10)
-            if sub_valid.any():
-                sub_best_idx = np.argmax(np.where(sub_valid, sub_f1, -1))
-            else:
-                sub_fallback = sub_p[:-1] >= 0.55
-                if sub_fallback.any():
-                    sub_best_idx = np.argmax(np.where(sub_fallback, sub_f1, -1))
-                else:
-                    sub_best_idx = np.argmax(sub_f1)
-            return float(sub_t[sub_best_idx] if sub_best_idx < len(sub_t) else default_thresh)
-
-        regimes = np.ones(len(X_test))
-        if self.market_df is not None and not self.market_df.empty:
-            try:
-                mkt_df_sorted = self.market_df.sort_index()
-                close_col = "close" if "close" in mkt_df_sorted.columns else ("Close" if "Close" in mkt_df_sorted.columns else None)
-                if close_col:
-                    mkt_close = mkt_df_sorted[close_col]
-                    mkt_sma50 = mkt_close.rolling(50, min_periods=1).mean()
-                    regime_map = (mkt_close >= mkt_sma50).astype(int)
-                    regimes = X_test.index.map(regime_map).fillna(1).values
-            except Exception as e:
-                print(f"Warning: Failed to map market regimes during validation using self.market_df: {e}")
-
-        bull_mask = regimes == 1
-        bear_mask = regimes == 0
-
-        bull_threshold = 0.55
-        bear_threshold = 0.65
-
-        if bull_mask.any() and len(np.unique(y_val[bull_mask])) >= 2:
-            bull_threshold = _optimize_subset_threshold(y_val[bull_mask], y_prob[bull_mask], default_thresh=0.55)
-        if bear_mask.any() and len(np.unique(y_val[bear_mask])) >= 2:
-            bear_threshold = _optimize_subset_threshold(y_val[bear_mask], y_prob[bear_mask], default_thresh=0.65)
+        y_pred = (y_prob >= threshold).astype(int)
 
         metrics = {
             "precision": float(precision_score(y_val, y_pred, zero_division=0)),
             "recall": float(recall_score(y_val, y_pred, zero_division=0)),
             "f1": float(f1_score(y_val, y_pred, zero_division=0)),
             "auc": float(roc_auc_score(y_val, y_prob)),
-            "optimal_threshold": float(optimal_threshold),
-            "optimal_threshold_by_regime": {
-                "bull": bull_threshold,
-                "bear": bear_threshold
-            }
+            "optimal_threshold": float(threshold),
+            "predicted_positive_rate": float(np.mean(y_pred)),
+            "test_positive_rate": float(np.mean(y_val)),
         }
+        try:
+            from sklearn.metrics import average_precision_score, brier_score_loss
+            metrics["average_precision"] = float(average_precision_score(y_val, y_prob))
+            metrics["brier_score"] = float(brier_score_loss(y_val, y_prob))
+        except Exception:
+            pass
 
-        self._progress(f"Optimal Threshold Found: {optimal_threshold:.3f} (Regime Bull: {bull_threshold:.3f}, Bear: {bear_threshold:.3f})")
+        self._progress(f"Tuning-set threshold: {threshold:.3f}")
         self._progress(
             f"Metrics @ Threshold: P={metrics['precision']:.1%}, R={metrics['recall']:.1%}, F1={metrics['f1']:.1%}"
         )
@@ -2823,7 +2876,22 @@ class ModelTrainer:
                         "recall": metadata.get("recall"),
                         "f1": metadata.get("f1"),
                         "auc": metadata.get("auc"),
+                        "average_precision": metadata.get("average_precision"),
+                        "brier_score": metadata.get("brier_score"),
+                        "predicted_positive_rate": metadata.get("predicted_positive_rate"),
+                        "test_positive_rate": metadata.get("test_positive_rate"),
                     },
+                    "train_start_date": metadata.get("train_start_date"),
+                    "train_end_date": metadata.get("train_end_date"),
+                    "tune_start_date": metadata.get("tune_start_date"),
+                    "tune_end_date": metadata.get("tune_end_date"),
+                    "test_start_date": metadata.get("test_start_date"),
+                    "test_end_date": metadata.get("test_end_date"),
+                    "threshold": metadata.get("optimal_threshold"),
+                    "train_samples_actual": metadata.get("train_samples_actual"),
+                    "early_stop_samples": metadata.get("early_stop_samples"),
+                    "tune_samples": metadata.get("tune_samples"),
+                    "test_samples": metadata.get("test_samples"),
                 },
                 "data_inputs": {
                     "uses_exchange_index_json": uses_exchange_index_json,
@@ -3065,7 +3133,7 @@ class ModelTrainer:
                     "fundamentals_loaded": bool(self.fundamentals_loaded),
                 },
                 "capabilities": {
-                    "has_meta_labeling": True,
+                    "has_meta_labeling": bool(metadata.get("has_meta_labeling", False)),
                     "meta_threshold": float(meta_threshold),
                 },
                 "walk_forward_splits_results": getattr(self, "wf_splits_results", []),
@@ -3194,7 +3262,7 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
     if not filename.endswith(".pkl"):
         filename += ".pkl"
 
-    use_meta_labeling = bool(kwargs.get("use_meta_labeling", True))
+    use_meta_labeling = bool(kwargs.get("use_meta_labeling", False))
     meta_threshold = float(kwargs.get("meta_threshold", 0.3))
 
     actual_model = model.model if hasattr(model, "model") else model
@@ -3215,8 +3283,8 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
         "best_iteration": best_it,
         "bestIteration": best_it,
         "learning_rate": kwargs.get("learning_rate"),
-        "training_samples": len(df_train),
-        "trainingSamples": len(df_train),
+        "training_samples": int(val_metrics.get("train_samples_actual", len(df_train))),
+        "trainingSamples": int(val_metrics.get("train_samples_actual", len(df_train))),
         "use_intraday": use_intraday,
         "timeframe": timeframe,
         "training_strategy": training_strategy,
@@ -3237,18 +3305,16 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
                 "Warning: xgboost not installed; falling back to LightGBM for meta-labeling."
             )
 
-        X_primary = df_train[trainer.predictors].copy()
-        y_primary = df_train["Target"].astype(int).copy()
-
-        try:
-            primary_probs = model.predict_proba(X_primary)[:, 1]
-            primary_preds = (primary_probs >= 0.5).astype(int)
-        except Exception:
-            primary_preds = model.predict(X_primary)
-            try:
-                primary_probs = model.predict_proba(X_primary)[:, 1]
-            except Exception:
-                primary_probs = primary_preds.astype(float)
+        # The primary model has never been trained on the tuning period, so
+        # these are genuinely out-of-sample probabilities for meta training.
+        meta_mask_dates = pd.to_datetime(df_train["Date"], errors="coerce").dt.normalize()
+        tune_start_date = metadata.get("tune_start_date")
+        tune_end_date = metadata.get("tune_end_date")
+        tune_mask = (meta_mask_dates >= pd.Timestamp(tune_start_date)) & (meta_mask_dates <= pd.Timestamp(tune_end_date))
+        X_primary = df_train.loc[tune_mask, trainer.predictors].copy()
+        y_primary = df_train.loc[tune_mask, "Target"].astype(int).copy()
+        primary_probs = model.predict_proba(X_primary)[:, 1]
+        primary_preds = (primary_probs >= float(metadata.get("optimal_threshold", 0.5))).astype(int)
 
         meta_feature_names = []
         for c in trainer.predictors:
@@ -3259,7 +3325,7 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
                     meta_feature_names.append(c)
             except Exception:
                 continue
-        X_meta_base = df_train[meta_feature_names].copy()
+        X_meta_base = df_train.loc[tune_mask, meta_feature_names].copy()
         X_meta_base = X_meta_base.replace([np.inf, -np.inf], np.nan).fillna(0)
 
         mask = primary_preds == 1
@@ -3268,7 +3334,7 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
 
         X_meta = X_meta_base.loc[mask].copy()
         X_meta["primary_prob"] = np.asarray(primary_probs)[mask]
-        y_meta = y_primary.loc[mask].values
+        y_meta = y_primary.iloc[np.flatnonzero(mask)].values
 
         if len(np.unique(y_meta)) < 2:
             raise ValueError(
@@ -3347,7 +3413,7 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
         "bestIteration": (int(best_iteration) if best_iteration is not None else None),
         "featurePreset": kwargs.get("feature_preset", "extended"),
         "numFeatures": len(trainer.predictors),
-        "trainingSamples": len(df_train),
+        "trainingSamples": int(val_metrics.get("train_samples_actual", len(df_train))),
         "rawRows": int(len(df_raw)),
         "symbolsUsed": symbols_used,
         "useIntraday": bool(use_intraday),
@@ -3355,7 +3421,7 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
         "trainingStrategy": training_strategy,
         "metrics": val_metrics,
         "features_count": len(trainer.predictors),
-        "samples": len(df_train),
+        "samples": int(val_metrics.get("train_samples_actual", len(df_train))),
         "has_meta_labeling": bool(use_meta_labeling),
         "meta_threshold": float(meta_threshold),
         "hasMetaLabeling": bool(use_meta_labeling),
@@ -3370,6 +3436,7 @@ if __name__ == "__main__":
         "--exchange", default="EGX", help="Target exchange (default: EGX)"
     )
     parser.add_argument("--learning_rate", type=float, default=0.05)
+    parser.add_argument("--model-name", default=None, help="Output artifact name; use a separate name for experiments")
     parser.add_argument(
         "--optimize", action="store_true", help="Use Optuna to tune hyperparameters"
     )
@@ -3401,6 +3468,7 @@ if __name__ == "__main__":
 
     train_model(
         exchange=args.exchange,
+        model_name=args.model_name,
         supabase_url=os.getenv("NEXT_PUBLIC_SUPABASE_URL"),
         supabase_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
         learning_rate=args.learning_rate,

@@ -1300,10 +1300,16 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150, exchange
                 return cached_data
 
         _init_supabase()
-        if not stock_ai.supabase:
+        if not stock_ai.supabase and (exchange or "").upper() != "EGX":
             raise HTTPException(status_code=503, detail="Supabase not available")
 
-        bot = get_bot_or_404(bot_id)
+        # EGX historical prices are available even when no virtual bot exists.
+        bot = None
+        try:
+            bot = get_bot_or_404(bot_id)
+        except HTTPException:
+            if (exchange or "").upper() != "EGX":
+                raise
 
         # Try to resolve normalized symbol (e.g. BATUSD -> BAT/USD) using bot config
         if bot and hasattr(bot.config, "coins") and bot.config.coins:
@@ -1347,18 +1353,53 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150, exchange
             raw_candles = load_crypto_bars_local(db_symbol, timeframe, limit=limit)
             # Already chronological
         elif exchange == "EGX":
-            # For EGX stocks, query from stock_prices daily table
-            def fetch_prices(sb):
-                return sb.table("stock_prices") \
+            # The HF Dataset holds the versioned historical series; Supabase
+            # only supplies a small correction tail.  This is deliberately the
+            # same merge policy used by the scanner and training pipeline.
+            def fetch_prices(sb, candidate_symbol=db_symbol):
+                query = sb.table("stock_prices") \
                     .select("date,open,high,low,close,volume") \
-                    .eq("symbol", db_symbol) \
-                    .eq("exchange", "EGX") \
-                    .order("date", desc=True) \
-                    .limit(limit) \
-                    .execute()
+                    .eq("symbol", candidate_symbol) \
+                    .eq("exchange", "EGX")
+                try:
+                    from api.hf_history_cache import load_symbol_history_snapshot, tail_start_date
+                    snapshot = load_symbol_history_snapshot("EGX", candidate_symbol)
+                    tail_start = tail_start_date(snapshot, days=int(os.getenv("HF_HISTORY_LIVE_TAIL_DAYS", "45")))
+                    if tail_start:
+                        query = query.gte("date", tail_start)
+                    live_response = query.order("date", desc=True).limit(1000).execute()
+                    from api.hf_history_cache import merge_snapshot_with_live
+                    live_rows = [
+                        {**row, "symbol": candidate_symbol.upper(), "exchange": "EGX"}
+                        for row in (live_response.data or [])
+                    ]
+                    merged = merge_snapshot_with_live(snapshot, live_rows)
+                    symbol_history = merged.tail(limit)
+                    return symbol_history.assign(date=symbol_history["date"].dt.strftime("%Y-%m-%d")).to_dict("records")
+                except Exception as history_error:
+                    print(f"[HF-HISTORY] Candle merge unavailable: {history_error}")
+                    return query.order("date", desc=True).limit(limit).execute()
 
-            prices_resp = _supabase_read_with_retry(fetch_prices, table_name="stock_prices")
-            raw_candles = prices_resp.data or [] if prices_resp else []
+            def hf_only_rows(candidate_symbol):
+                from api.hf_history_cache import load_symbol_history_snapshot
+                rows = load_symbol_history_snapshot("EGX", candidate_symbol).tail(limit).copy()
+                if rows.empty:
+                    return []
+                rows["date"] = rows["date"].astype(str).str[:10]
+                return rows.to_dict("records")
+
+            if stock_ai.supabase:
+                try:
+                    prices_resp = _supabase_read_with_retry(fetch_prices, table_name="stock_prices")
+                    raw_candles = (
+                        prices_resp if isinstance(prices_resp, list)
+                        else (prices_resp.data or [] if prices_resp else [])
+                    )
+                except Exception as history_error:
+                    print(f"[HF-HISTORY] Live candle overlay unavailable: {history_error}")
+                    raw_candles = hf_only_rows(db_symbol)
+            else:
+                raw_candles = hf_only_rows(db_symbol)
             
             # Suffix/class alternative fallback (e.g. AREHA -> AREH)
             if not raw_candles and len(db_symbol) > 3:
@@ -1371,23 +1412,21 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150, exchange
                     alternatives.append(db_symbol[:-2])
                 
                 for alt_sym in alternatives:
-                    def fetch_alt(sb):
-                        return sb.table("stock_prices") \
-                            .select("date,open,high,low,close,volume") \
-                            .eq("symbol", alt_sym) \
-                            .eq("exchange", "EGX") \
-                            .order("date", desc=True) \
-                            .limit(limit) \
-                            .execute()
-                    alt_resp = _supabase_read_with_retry(fetch_alt, table_name="stock_prices")
-                    if alt_resp and alt_resp.data:
-                        raw_candles = alt_resp.data
+                    if stock_ai.supabase:
+                        alt_resp = _supabase_read_with_retry(
+                            lambda sb: fetch_prices(sb, alt_sym), table_name="stock_prices"
+                        )
+                        alt_rows = alt_resp if isinstance(alt_resp, list) else (alt_resp.data or [] if alt_resp else [])
+                    else:
+                        alt_rows = hf_only_rows(alt_sym)
+                    if alt_rows:
+                        raw_candles = alt_rows
                         db_symbol = alt_sym
-                        print(f"DEBUG: resolved {symbol} -> {alt_sym} in stock_prices via suffix alt")
+                        print(f"DEBUG: resolved {symbol} -> {alt_sym} in unified EGX history")
                         break
             
             # If still no data, try on-the-fly TradingView sync
-            if not raw_candles:
+            if not raw_candles and stock_ai.supabase:
                 try:
                     from api.tradingview_integration import fetch_tradingview_prices
                     full_ticker = f"{db_symbol}.EGX"
@@ -1396,13 +1435,17 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150, exchange
                     if ok:
                         # Re-query Supabase
                         prices_resp = _supabase_read_with_retry(fetch_prices, table_name="stock_prices")
-                        raw_candles = prices_resp.data or [] if prices_resp else []
+                        raw_candles = (
+                            prices_resp if isinstance(prices_resp, list)
+                            else (prices_resp.data or [] if prices_resp else [])
+                        )
                         print(f"DEBUG: On-the-fly TV sync succeeded for {full_ticker}. Loaded {len(raw_candles)} candles.")
                 except Exception as tv_ex:
                     print(f"DEBUG: On-the-fly TV sync failed for {db_symbol}: {tv_ex}")
 
-            # Reverse to chronological order
-            raw_candles.reverse()
+            # HF merging returns ascending rows; database fallback returns
+            # descending rows. Normalize both to chronological chart order.
+            raw_candles.sort(key=lambda candle: str(candle.get("date", "")))
         else:
             # Non-EGX intraday persistence was retired. The in-memory bot bar
             # fallback below remains available for active virtual bots.
@@ -1462,9 +1505,12 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150, exchange
                 .order("timestamp", desc=False) \
                 .execute()
 
-        markers_resp = _supabase_read_with_retry(fetch_markers, table_name="bot_trades")
+        markers_resp = (
+            _supabase_read_with_retry(fetch_markers, table_name="bot_trades")
+            if stock_ai.supabase else None
+        )
 
-        raw_markers = markers_resp.data or []
+        raw_markers = markers_resp.data or [] if markers_resp else []
         print(f"DEBUG: /candles for {symbol} - Found {len(raw_candles)} candles and {len(raw_markers)} markers")
         
         # Deduplicate markers by time, giving priority to BUY/SELL over SIGNAL

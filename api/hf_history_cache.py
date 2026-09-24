@@ -54,6 +54,7 @@ def _normalise_frame(value: pd.DataFrame) -> pd.DataFrame:
     frame.columns = [str(column).lower() for column in frame.columns]
     if "date" not in frame and isinstance(frame.index, pd.DatetimeIndex):
         frame = frame.reset_index().rename(columns={frame.index.name or "index": "date"})
+    has_prices = all(column in frame.columns for column in ("open", "high", "low", "close", "volume"))
     for column in _PRICE_COLUMNS:
         if column not in frame:
             frame[column] = None
@@ -62,6 +63,16 @@ def _normalise_frame(value: pd.DataFrame) -> pd.DataFrame:
     frame["exchange"] = frame["exchange"].astype(str).str.upper()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame = frame.dropna(subset=["date", "symbol", "exchange"])
+    if has_prices:
+        for column in ("open", "high", "low", "close", "volume"):
+            frame[column] = pd.to_numeric(frame[column], errors="coerce")
+        valid = (
+            frame[["open", "high", "low", "close"]].gt(0).all(axis=1)
+            & frame["high"].ge(frame[["open", "close", "low"]].max(axis=1))
+            & frame["low"].le(frame[["open", "close", "high"]].min(axis=1))
+            & frame["volume"].ge(0)
+        )
+        frame = frame.loc[valid]
     return frame.drop_duplicates(["symbol", "exchange", "date"], keep="last").sort_values(["symbol", "date"])
 
 
@@ -123,9 +134,22 @@ def snapshot_metadata(exchange: str) -> Dict[str, Any]:
         return dict(_META_CACHE.get((exchange or "").upper(), {}))
 
 
+def load_symbol_history_snapshot(exchange: str, symbol: str) -> pd.DataFrame:
+    """Read one symbol without copying the whole cached exchange on each chart request."""
+    exchange = (exchange or "").upper()
+    symbol = (symbol or "").upper()
+    with _CACHE_LOCK:
+        cached = _FRAME_CACHE.get(exchange)
+        if cached is not None:
+            return cached.loc[cached["symbol"] == symbol].copy()
+    frame = load_history_snapshot(exchange)
+    return frame.loc[frame["symbol"] == symbol].copy()
+
+
 def merge_snapshot_with_live(snapshot: pd.DataFrame, live_rows: Any) -> pd.DataFrame:
     """Merge a static snapshot with newer Supabase rows; live data wins ties."""
-    live = _normalise_frame(pd.DataFrame(live_rows or []))
+    source_rows = live_rows if isinstance(live_rows, pd.DataFrame) else (live_rows or [])
+    live = _normalise_frame(pd.DataFrame(source_rows))
     static = _normalise_frame(snapshot)
     if static.empty:
         return live
@@ -133,6 +157,16 @@ def merge_snapshot_with_live(snapshot: pd.DataFrame, live_rows: Any) -> pd.DataF
         return static
     combined = pd.concat([static, live], ignore_index=True)
     return _normalise_frame(combined)
+
+
+def history_for_exchange_with_live_tail(exchange: str, live_rows: Any) -> pd.DataFrame:
+    """Return the canonical historical frame with Supabase rows taking priority.
+
+    Callers deliberately supply only the recent operational tail.  This makes
+    the immutable Dataset revision the source for old bars while preserving the
+    live database as the correction source for recent sessions.
+    """
+    return merge_snapshot_with_live(load_history_snapshot(exchange), live_rows)
 
 
 def tail_start_date(snapshot: pd.DataFrame, days: int = 45) -> Optional[str]:
