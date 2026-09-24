@@ -24,11 +24,11 @@ export default function BrandedPageHeader({
   return (
     <header
       dir={dir}
-      className={`relative isolate mb-6 overflow-hidden border border-slate-700/80 bg-gradient-to-br from-[#080d1e] via-[#111827] to-[#0b1733] p-5 text-white shadow-[0_16px_44px_rgba(2,6,23,0.28)] sm:mb-8 sm:p-7 md:p-9 ${compact ? "md:flex md:items-center md:justify-between md:gap-8" : ""}`}
+      className={`relative isolate mb-6 overflow-hidden border border-zinc-200 bg-white p-5 text-zinc-950 shadow-[0_16px_44px_rgba(15,23,42,0.10)] dark:border-slate-700/80 dark:bg-gradient-to-br dark:from-[#080d1e] dark:via-[#111827] dark:to-[#0b1733] dark:text-white dark:shadow-[0_16px_44px_rgba(2,6,23,0.28)] sm:mb-8 sm:p-7 md:p-9 ${compact ? "md:flex md:items-center md:justify-between md:gap-8" : ""}`}
     >
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 -z-10 opacity-25"
+        className="pointer-events-none absolute inset-0 -z-10 opacity-25 dark:opacity-25"
         style={{
           backgroundImage:
             "linear-gradient(rgba(148,163,184,.12) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,.12) 1px, transparent 1px)",
@@ -47,7 +47,7 @@ export default function BrandedPageHeader({
         />
       </div>
       <div className="relative flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
-        <div className="hidden h-14 w-14 shrink-0 items-center justify-center border border-amber-300/40 bg-slate-950/60 p-2 sm:flex">
+        <div className="hidden h-14 w-14 shrink-0 items-center justify-center border border-amber-300/60 bg-amber-50 p-2 dark:border-amber-300/40 dark:bg-slate-950/60 sm:flex">
           <Image
             src="/favicon_io/apple-touch-icon.png"
             alt="EGX Bots"
@@ -61,10 +61,10 @@ export default function BrandedPageHeader({
             {badgeIcon ?? <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
             <span className="truncate">{eyebrow}</span>
           </span>
-          <h1 className="break-words text-2xl font-black leading-tight tracking-tight text-white sm:text-3xl md:text-4xl">
+          <h1 className="break-words text-2xl font-black leading-tight tracking-tight text-zinc-950 dark:text-white sm:text-3xl md:text-4xl">
             {title}
           </h1>
-          <p className="mt-2 max-w-4xl text-xs font-medium leading-6 text-slate-300 sm:text-sm sm:leading-7">
+          <p className="mt-2 max-w-4xl text-xs font-medium leading-6 text-zinc-600 dark:text-slate-300 sm:text-sm sm:leading-7">
             {description}
           </p>
         </div>
