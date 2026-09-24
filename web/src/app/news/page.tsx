@@ -217,7 +217,7 @@ export default function NewsPage() {
     };
 
     return (
-        <div className="w-full" dir={isAr ? "rtl" : "ltr"}>
+        <div className="w-full pt-5 sm:pt-7" dir={isAr ? "rtl" : "ltr"}>
             <BrandedPageHeader
                 eyebrow={isAr ? "أخبار وذكاء السوق" : "AI NEWS & INTELLIGENCE"}
                 title={isAr ? "نبض الأخبار ومشاعر الذكاء الاصطناعي" : "AI News & Sentiment Pulse"}

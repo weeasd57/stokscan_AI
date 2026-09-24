@@ -1436,7 +1436,7 @@ export default function TechnicalScannerPage() {
     }
 
     return (
-        <div dir={language === "ar" ? "rtl" : "ltr"} className="technical-shell app-page-shell flex flex-col h-full bg-[#0c0d12] text-[#d1d4dc] font-sans selection:bg-[#2962ff]/30 selection:text-white relative min-h-[calc(100vh-100px)] border border-[#2a2e39]">
+        <div dir={language === "ar" ? "rtl" : "ltr"} className="technical-shell app-page-shell flex flex-col h-full bg-[#0c0d12] text-[#d1d4dc] font-sans selection:bg-[#2962ff]/30 selection:text-white relative min-h-[calc(100vh-100px)] border border-[#2a2e39] pt-5 sm:pt-7">
             <BrandedPageHeader
                 eyebrow={language === "ar" ? "فحص وتحليل الأسهم" : "EGX STOCK SCREENER"}
                 title={language === "ar" ? "الماسح الفني" : "Technical Scanner"}
