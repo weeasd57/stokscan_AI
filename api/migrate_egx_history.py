@@ -1,13 +1,14 @@
-"""Build and verify the canonical EGX history before removing Supabase rows.
+"""Build and verify the canonical EGX history before optional DB-row removal.
 
 Usage (always inspect first):
     python -m api.migrate_egx_history --report history-report.json
     python -m api.migrate_egx_history --publish --report history-report.json
     python -m api.migrate_egx_history --publish --delete-live --report history-report.json
 
-``--delete-live`` is intentionally refused unless this same run has published
-and re-read the exact expected rows from HF.  Supabase Storage is never
-deleted by this tool: it remains a rollback copy until a separate review.
+``--delete-live`` requires a verified HF publication and removes *all* EGX
+rows from the operational Postgres ``stock_prices`` table, including recent
+ones. Do not use it while other application consumers still read that table.
+Supabase Storage deletion is handled separately by migrate_storage_archive.
 """
 from __future__ import annotations
 
