@@ -297,7 +297,7 @@ async def startup_event():
 
                     json={
                         "url": support_hook,
-                        "allowed_updates": ["message", "callback_query", "chat_member", "my_chat_member"],
+                        "allowed_updates": ["message", "chat_member", "my_chat_member"],
                     },
 
                     timeout=10
@@ -462,7 +462,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 
-from api.routers import admin, bot, payment, scan_ai, scan_ai_fast, scan_tech, similarity_admin, support, chatbot, local_payment
+from api.routers import admin, bot, easykash, scan_ai, scan_ai_fast, scan_tech, similarity_admin, support, chatbot
 
 
 
@@ -478,9 +478,7 @@ app.include_router(bot.router, prefix="/ai_bot")
 
 app.include_router(bot.router, prefix="/bot")  # Compatibility Alias
 
-app.include_router(payment.router)
-
-app.include_router(local_payment.router)
+app.include_router(easykash.router)
 
 app.include_router(similarity_admin.router)
 
@@ -667,7 +665,7 @@ async def tg_set_webhook_from_local(request: Request):
 
             json={
                 "url": support_hook,
-                "allowed_updates": ["message", "callback_query", "chat_member", "my_chat_member"],
+                "allowed_updates": ["message", "chat_member", "my_chat_member"],
             },
 
             timeout=30,

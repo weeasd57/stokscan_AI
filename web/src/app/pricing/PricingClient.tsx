@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -15,10 +16,68 @@ import {
   Zap,
   MessageSquare,
   BarChart3,
+  CreditCard,
+  Wallet,
+  Banknote,
+  ArrowLeft,
+  ArrowRight,
+  LockKeyhole,
 } from "lucide-react";
 import { toast } from "sonner";
 
 type Step = "plans" | "payment" | "submitted";
+
+const easyKashMethods = [
+  { id: "cards", ar: "البطاقات البنكية", en: "Bank cards", arHint: "فيزا وماستركارد", enHint: "Visa & Mastercard", icon: CreditCard },
+  { id: "mobile-wallet", ar: "محافظ الموبايل", en: "Mobile wallets", arHint: "ادفع من محفظتك", enHint: "Pay with your wallet", icon: Wallet },
+  { id: "cash", ar: "الدفع النقدي", en: "Cash payment", arHint: "أمان أو فوري", enHint: "Aman or Fawry", icon: Banknote },
+  { id: "meeza", ar: "ميزة", en: "Meeza", arHint: "بطاقة ميزة", enHint: "Meeza card", icon: CreditCard },
+  { id: "apple-pay", ar: "Apple Pay", en: "Apple Pay", arHint: "حسب الجهاز والإتاحة", enHint: "Device availability applies", icon: Smartphone },
+] as const;
+
+type EasyKashMethodId = (typeof easyKashMethods)[number]["id"];
+
+const paymentGroups: { ar: string; en: string; ids: EasyKashMethodId[] }[] = [
+  { ar: "البطاقات والدفع السريع", en: "Cards & express", ids: ["cards", "meeza", "apple-pay"] },
+  { ar: "المحافظ والدفع النقدي", en: "Wallets & cash", ids: ["mobile-wallet", "cash"] },
+];
+
+function EasyKashMethods({ isAr, selected, onSelect }: { isAr: boolean; selected: EasyKashMethodId; onSelect: (method: EasyKashMethodId) => void }) {
+  return (
+    <div className="space-y-5" dir={isAr ? "rtl" : "ltr"}>
+      <div>
+        <h2 className="text-xl font-black text-zinc-900 dark:text-white">
+          {isAr ? "اختار طريقة الدفع المناسبة" : "Choose how to pay"}
+        </h2>
+        <p className="mt-1 text-xs font-medium leading-relaxed text-zinc-600 dark:text-zinc-300">
+          {isAr
+            ? "الوسائل النهائية المتاحة يحددها حسابنا لدى EasyKash. اختار وسيلة لعرض خطواتها."
+            : "Final availability depends on our EasyKash account. Choose a method to see its steps."}
+        </p>
+      </div>
+      <div className="space-y-4">
+        {paymentGroups.map((group) => (
+          <div key={group.en} role="group" aria-label={isAr ? group.ar : group.en}>
+            <p className="mb-2 text-[11px] font-black uppercase tracking-[0.13em] text-zinc-500 dark:text-zinc-400">{isAr ? group.ar : group.en}</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {group.ids.map((id) => {
+                const method = easyKashMethods.find((item) => item.id === id)!;
+                const Icon = method.icon;
+                return (
+                  <button key={id} type="button" onClick={() => onSelect(id)} aria-pressed={selected === id} className={`group flex min-h-[72px] items-center gap-3 border-2 px-3.5 py-3 text-start transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 ${selected === id ? "border-zinc-950 bg-emerald-50 shadow-[4px_4px_0px_#10b981] dark:border-white dark:bg-emerald-950/50" : "border-zinc-200 bg-white hover:border-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-zinc-300 dark:hover:bg-zinc-800"}`}>
+                    <span className={`flex h-10 w-10 shrink-0 items-center justify-center border-2 ${selected === id ? "border-zinc-950 bg-emerald-500 text-zinc-950 dark:border-white" : "border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200"}`}><Icon className="h-5 w-5" aria-hidden="true" /></span>
+                    <span className="min-w-0 flex-1"><span className="block text-sm font-black leading-tight text-zinc-950 dark:text-zinc-100">{isAr ? method.ar : method.en}</span><span className="mt-1 block text-xs font-medium leading-tight text-zinc-500 dark:text-zinc-400">{isAr ? method.arHint : method.enHint}</span></span>
+                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${selected === id ? "border-emerald-600 bg-emerald-500 text-white" : "border-zinc-400 dark:border-zinc-500"}`}>{selected === id && <Check className="h-3.5 w-3.5" aria-hidden="true" />}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function PricingClient() {
   const { language } = useLanguage();
@@ -30,25 +89,28 @@ export default function PricingClient() {
   const [busy, setBusy] = useState(false);
   const [localConfig, setLocalConfig] = useState<any>(null);
   const [localOrder, setLocalOrder] = useState<string | null>(null);
-  const [customerNote, setCustomerNote] = useState("");
+  const [customerMobile, setCustomerMobile] = useState("");
   const [step, setStep] = useState<Step>("plans");
   const [orderStatus, setOrderStatus] = useState<string>("submitted");
   const [subscriptionEnd, setSubscriptionEnd] = useState<string | null>(null);
   const [telegramProUrl, setTelegramProUrl] = useState("");
   const [isPro, setIsPro] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState("pro_6m");
+  const [paymentMethod, setPaymentMethod] = useState<EasyKashMethodId>("cards");
 
-  const normalizedSenderPhone = customerNote.trim().replace(/[\s-]/g, "").replace(/^\+20/, "0").replace(/^0020/, "0");
-  const isSenderPhoneValid = /^01[0125]\d{8}$/.test(normalizedSenderPhone);
+  const normalizedMobile = customerMobile.trim().replace(/[\s-]/g, "").replace(/^\+20/, "0").replace(/^0020/, "0");
+  const isMobileValid = /^01[0125]\d{8}$/.test(normalizedMobile);
 
   useEffect(() => {
     if (step !== "submitted" || !localOrder) return;
     let stopped = false;
     const check = async () => {
-      const res = await fetch(`/api/payment/local/status?order_id=${encodeURIComponent(localOrder)}`, { cache: "no-store" });
+      const res = await fetch(`/api/payment/easykash/status?order_id=${encodeURIComponent(localOrder)}`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
         if (!stopped && data.status) {
-          setOrderStatus(data.status);
+          const settledStatus = ["expired", "rejected", "failed", "canceled", "cancelled"].includes(String(data.status).toLowerCase()) ? "failed" : data.status;
+          setOrderStatus(settledStatus);
+          if (data.plan_id) setSelectedPlan(data.plan_id);
           setSubscriptionEnd(data.subscription?.current_period_end || null);
           setTelegramProUrl(data.telegram_pro_url || "");
           if (data.status === "approved" && !data.telegram_pro_url) {
@@ -68,7 +130,7 @@ export default function PricingClient() {
   useEffect(() => {
     (async () => {
       try {
-        const local = await fetch("/api/payment/local/config", {
+        const local = await fetch("/api/payment/easykash/config", {
           cache: "no-store",
         }).then((r) => r.json());
         setLocalConfig(local);
@@ -91,22 +153,31 @@ export default function PricingClient() {
       .catch(() => setIsPro(false));
   }, [user?.id]);
 
-  const startLocalPayment = async (planId = selectedPlan) => {
+  const startEasyKashPayment = async (planId = selectedPlan) => {
     if (!user) {
       router.push(`/login?redirect=${encodeURIComponent("/pricing")}`);
       return;
     }
+    if (!isMobileValid) {
+      toast.error(isAr ? "أدخل رقم موبايل مصري صحيح من أي شبكة" : "Enter a valid Egyptian mobile number");
+      return;
+    }
     setBusy(true);
     try {
-      const res = await fetch("/api/payment/local/create", {
+      const res = await fetch("/api/payment/easykash/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan_id: planId }),
+        body: JSON.stringify({ plan_id: planId, mobile: normalizedMobile, method_id: paymentMethod }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "تعذر إنشاء طلب الدفع");
+      if (!res.ok) throw new Error(data.detail || (isAr ? "تعذر إنشاء طلب الدفع" : "Could not start checkout"));
       setLocalOrder(data.order_id);
-      setStep("payment");
+      const checkoutUrl = new URL(String(data.url || ""));
+      const checkoutPath = checkoutUrl.pathname.split("/").filter(Boolean);
+      if (!["https://easykash.net", "https://www.easykash.net"].includes(checkoutUrl.origin) || checkoutUrl.search || checkoutUrl.hash || checkoutPath.length !== 2 || checkoutPath[0] !== "DirectPayV1" || !/^[A-Za-z0-9]+$/.test(checkoutPath[1])) {
+        throw new Error(isAr ? "رابط الدفع غير صالح" : "Invalid payment URL");
+      }
+      window.location.assign(`https://www.easykash.net/DirectPayV1/${checkoutPath[1]}`);
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -114,29 +185,16 @@ export default function PricingClient() {
     }
   };
 
-  const submitLocalPayment = async () => {
-    if (!localOrder) return;
-    if (!isSenderPhoneValid) {
-      toast.error(isAr ? "اكتب رقم موبايل مصري صحيح من أي شبكة (010 أو 011 أو 012 أو 015)" : "Enter a valid Egyptian mobile number from any network");
-      return;
-    }
-    setBusy(true);
-    try {
-      const res = await fetch("/api/payment/local/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_id: localOrder, note: customerNote }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "تعذر إرسال الطلب");
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get("customerReference");
+    if (params.get("payment") === "easykash" && ref) {
+      setLocalOrder(ref);
+      setOrderStatus("pending");
       setStep("submitted");
-      toast.success(isAr ? "تم إرسال الطلب للمراجعة" : "Payment sent for review");
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setBusy(false);
+      window.history.replaceState({}, "", "/pricing");
     }
-  };
+  }, []);
 
   // ── Loading ──────────────────────────────────────────────────────────────
   if (loading) {
@@ -170,16 +228,28 @@ export default function PricingClient() {
     );
   }
 
-  // Keep the public offer consistent across the cards, checkout selection and
-  // the payment API. The backend still validates the plan id before creating
-  // an order; these are the currently approved displayed prices.
+  // Display the same plan amounts the checkout API will actually charge.
+  const monthlyPrice = Number(localConfig?.plans?.find((item: any) => item.id === "pro")?.amount_egp ?? 200);
   const paidPlans = [
-    { id: "pro", name_ar: "30 يومًا", name_en: "30 days", amount_egp: 200, days: 30, monthlyEquivalent: 200, savingsPct: 0 },
-    { id: "pro_6m", name_ar: "180 يومًا", name_en: "180 days", amount_egp: 1000, days: 180, monthlyEquivalent: 167, savingsPct: 17 },
-    { id: "pro_1y", name_ar: "365 يومًا", name_en: "365 days", amount_egp: 1800, days: 365, monthlyEquivalent: 150, savingsPct: 25 },
-  ];
+    { id: "pro", name_ar: "30 يومًا", name_en: "30 days", amount_egp: 200, days: 30 },
+    { id: "pro_6m", name_ar: "180 يومًا", name_en: "180 days", amount_egp: 1000, days: 180 },
+    { id: "pro_1y", name_ar: "365 يومًا", name_en: "365 days", amount_egp: 1800, days: 365 },
+  ].map((plan) => {
+    const configured = localConfig?.plans?.find((item: any) => item.id === plan.id);
+    const amount = Number(configured?.amount_egp ?? plan.amount_egp);
+    const days = Number(configured?.days ?? plan.days);
+    const monthlyEquivalent = Math.round((amount / days) * 30);
+    return { ...plan, amount_egp: amount, days, monthlyEquivalent, savingsPct: monthlyPrice > 0 ? Math.max(0, Math.round((1 - monthlyEquivalent / monthlyPrice) * 100)) : 0 };
+  });
   const selectedPlanDetails = paidPlans.find((plan: any) => plan.id === selectedPlan) || paidPlans[0];
   const proPrice = selectedPlanDetails?.amount_egp ?? 200;
+  const selectedMethod = easyKashMethods.find((method) => method.id === paymentMethod) || easyKashMethods[0];
+  const isCardMethod = paymentMethod === "cards" || paymentMethod === "meeza" || paymentMethod === "apple-pay";
+  const methodExplanation = isCardMethod
+      ? (isAr ? "بيانات البطاقة أو Apple Pay تُدخل على صفحة EasyKash الآمنة فقط؛ لا نطلبها هنا." : "Enter card or Apple Pay details only on EasyKash's secure page; we never collect them here.")
+      : paymentMethod === "mobile-wallet"
+        ? (isAr ? "اختار Mobile Wallet داخل EasyKash، ثم اتبع خطوات تأكيد الدفع من محفظتك." : "Select Mobile Wallet on EasyKash, then follow the wallet confirmation steps.")
+        : (isAr ? "اختار طريقة السداد النقدي المتاحة داخل EasyKash واتبع تعليمات أو كود السداد اللي هيظهر لك." : "Choose an available cash method on EasyKash and follow its voucher or payment instructions.");
 
   const freeFeatures = [
     {
@@ -233,18 +303,18 @@ export default function PricingClient() {
       <div className="min-h-[70vh] flex items-center justify-center py-12 px-4">
         <div className="max-w-md w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] p-8 space-y-6 text-center">
           <div className="flex justify-center">
-            <div className={`h-20 w-20 border-4 ${orderStatus === "rejected" ? "border-red-500 bg-red-50 text-red-500" : "border-emerald-500 bg-emerald-50 text-emerald-500"} flex items-center justify-center`}>
-              {orderStatus === "rejected" ? <X className="h-10 w-10" /> : <CheckCircle2 className="h-10 w-10" />}
+          <div className={`h-20 w-20 border-4 ${orderStatus === "failed" ? "border-red-500 bg-red-50 text-red-500" : "border-emerald-500 bg-emerald-50 text-emerald-500"} flex items-center justify-center`}>
+              {orderStatus === "failed" ? <X className="h-10 w-10" /> : <CheckCircle2 className="h-10 w-10" />}
             </div>
           </div>
           <div className="space-y-2">
             <h2 className="text-2xl font-black text-black dark:text-white">
-              {orderStatus === "rejected" ? (isAr ? "تم رفض الطلب ❌" : "Payment request rejected ❌") : orderStatus === "approved" ? (isAr ? "تم تفعيل Pro بنجاح ✅" : "Pro activated successfully ✅") : (isAr ? "الطلب قيد المراجعة ⏳" : "Order Under Review ⏳")}
+              {orderStatus === "failed" ? (isAr ? "لم يكتمل الدفع ❌" : "Payment was not completed ❌") : orderStatus === "approved" ? (isAr ? "تم تفعيل Pro بنجاح ✅" : "Pro activated successfully ✅") : (isAr ? "في انتظار تأكيد الدفع ⏳" : "Waiting for payment confirmation ⏳")}
             </h2>
             <p className="text-sm font-bold text-zinc-600 dark:text-zinc-300 leading-relaxed">
               {isAr
-                ? orderStatus === "rejected" ? "لم يتم اعتماد التحويل. يمكنك المحاولة مرة أخرى أو التواصل معنا عبر واتساب." : orderStatus === "approved" ? `تم تأكيد الدفع وتفعيل حساب Pro لمدة ${selectedPlanDetails?.days || 30} يومًا.` : "تم إرسال طلبك بنجاح! سيتم مراجعة التحويل من قبل الإدارة وتفعيل حسابك Pro فور التحقق."
-                : orderStatus === "rejected" ? "The transfer was not approved. Try again or contact us on WhatsApp." : orderStatus === "approved" ? `Your Pro plan is active for ${selectedPlanDetails?.days || 30} days.` : "Your request was submitted! The transfer will be reviewed by admin and your Pro account will be activated upon verification."}
+                ? orderStatus === "failed" ? "لم يصل تأكيد دفع مكتمل. يمكنك اختيار الخطة والمحاولة مرة أخرى." : orderStatus === "approved" ? `تم تأكيد الدفع وتفعيل حساب Pro لمدة ${selectedPlanDetails?.days || 30} يومًا.` : "طلب الدفع جاهز؛ سنحدّث الحالة تلقائيًا بعد تأكيد EasyKash."
+                : orderStatus === "failed" ? "Payment was not completed. Choose a plan and try again." : orderStatus === "approved" ? `Your Pro plan is active for ${selectedPlanDetails?.days || 30} days.` : "Checkout started. We will update this status after EasyKash confirms payment."}
             </p>
           </div>
           {localOrder && (
@@ -257,8 +327,8 @@ export default function PricingClient() {
               </p>
             </div>
           )}
-          {orderStatus === "rejected" && <div className="flex flex-col gap-2"><button onClick={() => startLocalPayment()} disabled={busy} className="w-full h-11 border-4 border-black bg-emerald-500 text-white font-black">{isAr ? "إعادة المحاولة" : "Try again"}</button><a href="https://wa.me/201024359109" target="_blank" rel="noreferrer" className="text-sm font-black text-emerald-600 underline">{isAr ? "محتاج مساعدة؟ كلمنا على واتساب" : "Need help? Contact us on WhatsApp"}</a></div>}
-          {orderStatus === "approved" && <div className="space-y-3"><p className="font-black text-emerald-600">{subscriptionEnd ? (isAr ? `صالح حتى ${new Date(subscriptionEnd).toLocaleDateString("ar-EG")}` : `Valid until ${new Date(subscriptionEnd).toLocaleDateString()}`) : ""}</p>{telegramProUrl ? <a href={telegramProUrl} target="_blank" rel="noreferrer" className="block border-4 border-black bg-indigo-600 px-4 py-3 text-sm font-black text-white shadow-[3px_3px_0px_rgba(0,0,0,1)]">{isAr ? "انضم إلى قناة VIP على تليجرام" : "Join VIP Telegram Channel"}<span className="block text-[10px] font-bold mt-1 opacity-80">{isAr ? "الرابط صالح لمدة 30 يوماً" : "Invite expires in 30 days"}</span></a> : <p className="text-xs font-bold text-amber-600">{isAr ? "جاري إنشاء رابط دعوة قناة VIP... حدّث الصفحة بعد لحظات." : "Creating your VIP invite link... refresh in a moment."}</p>}</div>}
+          {orderStatus === "failed" && <div className="flex flex-col gap-2"><button onClick={() => setStep("plans")} className="w-full h-11 border-4 border-black bg-emerald-500 text-white font-black">{isAr ? "اختيار خطة والمحاولة مجددًا" : "Choose a plan and try again"}</button><a href="https://wa.me/201024359109" target="_blank" rel="noreferrer" className="text-sm font-black text-emerald-600 underline">{isAr ? "محتاج مساعدة؟ كلمنا على واتساب" : "Need help? Contact us on WhatsApp"}</a></div>}
+          {orderStatus === "approved" && <div className="space-y-3"><p className="font-black text-emerald-600">{subscriptionEnd ? (isAr ? `صالح حتى ${new Date(subscriptionEnd).toLocaleDateString("ar-EG")}` : `Valid until ${new Date(subscriptionEnd).toLocaleDateString()}`) : ""}</p>{telegramProUrl ? <a href={telegramProUrl} target="_blank" rel="noreferrer" className="block border-4 border-black bg-indigo-600 px-4 py-3 text-sm font-black text-white shadow-[3px_3px_0px_rgba(0,0,0,1)]">{isAr ? "انضم إلى قناة VIP على تليجرام" : "Join VIP Telegram Channel"}<span className="block text-[10px] font-bold mt-1 opacity-80">{isAr ? `الرابط صالح حتى ${subscriptionEnd ? new Date(subscriptionEnd).toLocaleDateString("ar-EG") : "نهاية الاشتراك"}` : `Invite valid through ${subscriptionEnd ? new Date(subscriptionEnd).toLocaleDateString() : "subscription end"}`}</span></a> : <p className="text-xs font-bold text-amber-600">{isAr ? "جاري إنشاء رابط دعوة قناة VIP... حدّث الصفحة بعد لحظات." : "Creating your VIP invite link... refresh in a moment."}</p>}</div>}
           <a href="https://wa.me/201024359109" target="_blank" rel="noreferrer" className="block text-sm font-black text-emerald-600 underline">{isAr ? "محتاج مساعدة؟ كلمنا على واتساب" : "Need help? Contact us on WhatsApp"}</a>
         </div>
       </div>
@@ -266,139 +336,50 @@ export default function PricingClient() {
   }
 
   // ── Payment step ─────────────────────────────────────────────────────────
-  if (step === "payment" && localOrder) {
+  if (step === "payment") {
     return (
-      <div className="min-h-[70vh] py-12 px-4">
-        <div className="max-w-lg mx-auto space-y-5">
-          {/* Header */}
-          <div className="text-center space-y-1">
-            <h1 className="text-3xl font-black text-black dark:text-white">
-              {isAr ? "إتمام الدفع" : "Complete Payment"}
-            </h1>
-            <p className="text-sm font-bold text-zinc-500">
-              {isAr ? "حوّل المبلغ ثم أضغط «لقد قمت بالتحويل»" : "Transfer the amount then tap 'I have transferred'"}
-            </p>
-          </div>
+      <div className="relative min-h-[70vh] overflow-hidden bg-slate-50 px-4 py-8 dark:bg-[#0c1220] sm:py-12" dir={isAr ? "rtl" : "ltr"}>
+        <div className="pointer-events-none absolute inset-0 opacity-30 [background-image:linear-gradient(to_right,#94a3b81c_1px,transparent_1px),linear-gradient(to_bottom,#94a3b81c_1px,transparent_1px)] [background-size:32px_32px]" />
+        <div className="relative mx-auto max-w-6xl">
+          <header className="mb-6 flex flex-col gap-4 border-4 border-zinc-950 bg-white p-4 text-zinc-950 shadow-[5px_5px_0px_#18181b] dark:border-white dark:bg-zinc-950 dark:text-white dark:shadow-[5px_5px_0px_#fafafa33] sm:p-6 md:flex-row md:items-center md:justify-between">
+            <div className="flex min-w-0 items-start gap-3 sm:gap-4"><div className="shrink-0 border-2 border-zinc-950 bg-white p-1.5 dark:border-white"><Image src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={40} height={40} className="h-8 w-8 object-contain sm:h-10 sm:w-10" /></div><div><p className="mb-2 inline-flex border-2 border-zinc-950 bg-amber-300 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-zinc-950">EGX BOTS × EASYKASH</p><h1 className="text-2xl font-black leading-tight sm:text-3xl">{isAr ? "إتمام الاشتراك" : "Complete your subscription"}</h1><p className="mt-2 text-xs font-semibold leading-6 text-zinc-600 dark:text-zinc-300 sm:text-sm">{isAr ? "اختر وسيلة الدفع، راجع متطلباتها، ثم انتقل لصفحة EasyKash الآمنة." : "Choose a payment method, review its requirements, then continue to secure EasyKash checkout."}</p></div></div>
+            <button type="button" onClick={() => { setStep("plans"); setLocalOrder(null); }} className="inline-flex shrink-0 items-center gap-2 self-start border-2 border-zinc-950 bg-white px-4 py-2.5 text-sm font-black text-zinc-950 shadow-[3px_3px_0px_#10b981] transition-transform hover:-translate-y-0.5 dark:border-white dark:bg-zinc-900 dark:text-white">{isAr ? <ArrowRight className="h-4 w-4" /> : <ArrowLeft className="h-4 w-4" />}{isAr ? "تغيير الخطة" : "Change plan"}</button>
+          </header>
 
-          {/* Card */}
-          <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] p-6 space-y-5">
-            {/* Amount banner */}
-            <div className="border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 p-4 flex items-center justify-between">
-              <span className="font-black text-zinc-700 dark:text-zinc-200">
-                {isAr ? "المبلغ المطلوب" : "Amount due"}
-              </span>
-              <span className="text-3xl font-black text-emerald-600 dark:text-emerald-400">
-                {proPrice} {isAr ? "جنيه" : "EGP"}
-              </span>
-            </div>
-
-            {/* Wallet number */}
-            <div className="space-y-1">
-              <p className="text-xs font-black text-zinc-500 uppercase tracking-widest">
-                {isAr ? "رقم Vodafone Cash" : "Vodafone Cash Number"}
-              </p>
-              <div className="flex items-center gap-3 border-2 border-black dark:border-white p-3">
-                <Smartphone className="w-5 h-5 text-red-500 shrink-0" />
-                <span className="text-2xl font-black text-black dark:text-white tracking-widest">
-                  {localConfig.wallet_number || "—"}
-                </span>
+          <div dir="ltr" className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start">
+            <section dir={isAr ? "rtl" : "ltr"} className="order-1 min-w-0 border-4 border-zinc-950 bg-white shadow-[6px_6px_0px_#10b981] dark:border-white dark:bg-zinc-950 lg:order-2" aria-label={isAr ? "اختيار طريقة الدفع" : "Choose payment method"}>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-zinc-950 bg-emerald-400 px-5 py-3 text-zinc-950 dark:border-white sm:px-7">
+                <span className="text-xs font-black uppercase tracking-[0.14em]">{isAr ? "01 / وسيلة الدفع" : "01 / PAYMENT METHOD"}</span>
+                <span className="flex items-center gap-1 text-xs font-black"><ShieldCheck className="h-4 w-4" aria-hidden="true" />{isAr ? "دفع آمن عبر EasyKash" : "Secure EasyKash checkout"}</span>
               </div>
-            </div>
+              <div className="space-y-7 p-5 sm:p-7">
+                <EasyKashMethods isAr={isAr} selected={paymentMethod} onSelect={setPaymentMethod} />
 
-            {/* Professional Vodafone QR */}
-            {localConfig.qr_url && (
-              <div className="space-y-2">
-                <p className="text-xs font-black text-zinc-500 uppercase tracking-widest text-center">
-                  {isAr ? "أو امسح رمز QR" : "Or scan QR code"}
-                </p>
-                <div className="flex justify-center">
-                  <div className="relative inline-block p-3 bg-white border-4 border-red-600 shadow-[4px_4px_0px_#be0000]">
-                    {/* QR image — red Vodafone style, high error correction to allow logo */}
-                    <img
-                      src={`https://quickchart.io/qr?size=240&text=${encodeURIComponent(
-                        localConfig.qr_url
-                      )}&dark=BE0000&light=FFFFFF&ecLevel=H&margin=1`}
-                      alt="Vodafone Cash QR"
-                      className="block w-[200px] h-[200px]"
-                    />
-                    {/* Vodafone logo overlay centered */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center border-2 border-red-600 shadow-sm">
-                        {/* Vodafone "V" SVG */}
-                        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none">
-                          <circle cx="12" cy="12" r="12" fill="#BE0000" />
-                          <path
-                            d="M8 7c0 0 1.5 4.5 4 8c2.5-3.5 4-8 4-8"
-                            stroke="white"
-                            strokeWidth="2.2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            fill="none"
-                          />
-                        </svg>
-                      </div>
-                    </div>
-                    {/* Top label */}
-                    <p className="text-center text-[10px] font-black text-red-700 mt-1.5 tracking-widest uppercase">
-                      Vodafone Cash
-                    </p>
-                  </div>
+                <div aria-live="polite" className="border-2 border-zinc-900 bg-zinc-50 p-4 dark:border-zinc-500 dark:bg-zinc-900 sm:p-5">
+                  <div className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" aria-hidden="true" /><h3 className="text-base font-black text-zinc-950 dark:text-white">{isAr ? `متطلبات ${selectedMethod.ar}` : `What you need for ${selectedMethod.en}`}</h3></div>
+                  <p className="mt-2 text-sm font-medium leading-6 text-zinc-700 dark:text-zinc-200">{methodExplanation}</p>
+                  <p className="mt-2 text-xs font-bold leading-5 text-amber-700 dark:text-amber-300">{isAr ? "داخل EasyKash اضغط على الوسيلة الظاهرة لتحديدها، وبعدها اضغط Pay Now." : "On EasyKash, select the displayed method before pressing Pay Now."}</p>
                 </div>
+
+                <div className="space-y-4 border-t-2 border-zinc-200 pt-6 dark:border-zinc-800">
+                  <div><h3 className="text-lg font-black text-zinc-950 dark:text-white">{isAr ? "بيانات التواصل المشتركة" : "Contact details"}</h3><p className="mt-1 text-xs font-medium leading-5 text-zinc-600 dark:text-zinc-300">{isAr ? "EasyKash تطلب رقم موبايل مصري للمشتري مع كل وسائل الدفع، حتى البطاقة. مش لازم يكون عليه محفظة." : "EasyKash requires an Egyptian buyer phone number for every method, including cards. It does not need a wallet."}</p></div>
+                  {user?.email && <div className="flex flex-wrap items-center justify-between gap-2 border-2 border-zinc-200 bg-zinc-50 px-4 py-3 text-xs dark:border-zinc-700 dark:bg-zinc-900"><span className="font-black text-zinc-600 dark:text-zinc-300">{isAr ? "البريد الإلكتروني" : "Email"}</span><span dir="ltr" className="break-all font-bold text-zinc-950 dark:text-white">{user.email}</span></div>}
+                  <div className="space-y-2"><label htmlFor="easykash-contact-mobile" className="block text-sm font-black text-zinc-900 dark:text-white">{isAr ? "رقم الموبايل للتواصل" : "Contact mobile number"}</label><div className="flex items-center gap-3 border-2 border-zinc-400 bg-white px-4 py-3 focus-within:border-emerald-600 dark:border-zinc-600 dark:bg-zinc-950 dark:focus-within:border-emerald-400"><Smartphone className="h-5 w-5 shrink-0 text-emerald-600" aria-hidden="true" /><input id="easykash-contact-mobile" type="tel" inputMode="tel" autoComplete="tel-national" value={customerMobile} onChange={(event) => setCustomerMobile(event.target.value)} placeholder="01012345678" aria-invalid={customerMobile.length > 0 && !isMobileValid} aria-describedby="easykash-mobile-help" className="w-full bg-transparent text-lg font-bold text-zinc-950 outline-none placeholder:text-zinc-400 dark:text-white" dir="ltr" /></div><p id="easykash-mobile-help" className={`text-xs font-semibold ${isMobileValid ? "text-emerald-700 dark:text-emerald-400" : "text-zinc-500 dark:text-zinc-400"}`}>{isMobileValid ? (isAr ? "✓ الرقم صحيح" : "✓ Valid number") : (isAr ? "رقم من أي شبكة: 010 أو 011 أو 012 أو 015" : "Any network: 010, 011, 012 or 015")}</p></div>
+                </div>
+
+                <button type="button" onClick={() => startEasyKashPayment()} disabled={busy || (!!user && !isMobileValid)} className="flex w-full items-center justify-center gap-2 border-2 border-zinc-950 bg-emerald-500 px-5 py-4 text-sm font-black text-zinc-950 shadow-[4px_4px_0px_#18181b] transition-transform hover:-translate-y-0.5 active:translate-y-0 disabled:cursor-not-allowed disabled:bg-zinc-300 disabled:text-zinc-700 dark:border-white dark:shadow-[4px_4px_0px_#fafafa] dark:disabled:bg-zinc-800 dark:disabled:text-zinc-200">{busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <><LockKeyhole className="h-4 w-4" aria-hidden="true" />{!user ? (isAr ? "سجّل الدخول للمتابعة" : "Sign in to continue") : (isAr ? "المتابعة إلى EasyKash" : "Continue to EasyKash")}</>}</button>
+                <p className="text-center text-xs font-medium leading-5 text-zinc-500 dark:text-zinc-400">{isAr ? "لن نطلب بيانات البطاقة أو الرقم السري على EGX BOTS." : "EGX BOTS never asks for your card details or PIN."}</p>
               </div>
-            )}
+            </section>
 
-            {/* Note input */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-black text-zinc-600 dark:text-zinc-300 uppercase tracking-widest">
-                {isAr
-                  ? "رقم الموبايل المُحوَّل منه (مطلوب)"
-                  : "Sender mobile number (required)"}
-              </label>
-              <input
-                type="text"
-                value={customerNote}
-                onChange={(e) => setCustomerNote(e.target.value)}
-                placeholder={isAr ? "مثال: 01012345678" : "e.g. 01012345678"}
-                inputMode="tel"
-                aria-invalid={customerNote.length > 0 && !isSenderPhoneValid}
-                className={`w-full p-3 border-2 bg-zinc-50 dark:bg-zinc-800 text-sm font-bold placeholder:text-zinc-400 focus:outline-none ${customerNote.length > 0 && !isSenderPhoneValid ? "border-red-500" : isSenderPhoneValid ? "border-emerald-500" : "border-black dark:border-white"}`}
-              />
-              <p className={`text-[11px] font-bold ${isSenderPhoneValid ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-500"}`}>
-                {isSenderPhoneValid
-                  ? (isAr ? "✓ رقم موبايل مصري صالح" : "✓ Valid Egyptian mobile number")
-                  : (isAr ? "نقبل أرقام كل الشبكات المصرية: 010، 011، 012، 015" : "All Egyptian networks are accepted: 010, 011, 012, 015")}
-              </p>
-            </div>
-
-            {/* Submit */}
-            <button
-              onClick={submitLocalPayment}
-              disabled={busy || !isSenderPhoneValid}
-              className="w-full h-13 flex items-center justify-center gap-2 border-4 border-black dark:border-white bg-emerald-500 text-white font-black text-base uppercase tracking-widest shadow-[3px_3px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-60 transition-all py-3"
-            >
-              {busy ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>
-                  <CheckCircle2 className="w-5 h-5" />
-                  {isAr ? "لقد قمت بالتحويل ✓" : "I have transferred ✓"}
-                </>
-              )}
-            </button>
-
-            {/* Order ID */}
-            <p className="text-center text-xs font-mono text-zinc-400 break-all">
-              Order: {localOrder}
-            </p>
+            <aside dir={isAr ? "rtl" : "ltr"} className="order-2 border-4 border-zinc-950 bg-zinc-950 p-5 text-white shadow-[6px_6px_0px_#10b981] dark:border-white sm:p-6 lg:order-1 lg:sticky lg:top-24">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-400">{isAr ? "ملخص الاشتراك" : "Subscription summary"}</p>
+              <div className="mt-5 border-b border-zinc-700 pb-5"><p className="text-2xl font-black">EGX BOTS Pro</p><p className="mt-1 text-sm font-semibold text-zinc-300">{isAr ? selectedPlanDetails.name_ar : selectedPlanDetails.name_en}</p></div>
+              <div className="space-y-3 border-b border-zinc-700 py-5 text-sm"><div className="flex justify-between gap-3"><span className="text-zinc-400">{isAr ? "الخطة" : "Plan"}</span><span className="font-bold">Pro</span></div><div className="flex justify-between gap-3"><span className="text-zinc-400">{isAr ? "المدة" : "Duration"}</span><span className="font-bold">{selectedPlanDetails.days} {isAr ? "يوم" : "days"}</span></div><div className="flex justify-between gap-3"><span className="text-zinc-400">{isAr ? "وسيلة الدفع" : "Method"}</span><span className="font-bold">{isAr ? selectedMethod.ar : selectedMethod.en}</span></div></div>
+              <div className="flex items-end justify-between gap-3 py-5"><span className="text-sm font-black">{isAr ? "الإجمالي" : "Total"}</span><span className="text-3xl font-black text-emerald-400">{proPrice} <span className="text-sm">EGP</span></span></div>
+              <div className="border-s-4 border-emerald-400 bg-white/10 p-3 text-xs font-semibold leading-6 text-zinc-200">{isAr ? "بيانات الدفع تُدخل على EasyKash، والاشتراك يتفعل بعد تأكيد عملية الدفع." : "Payment details stay on EasyKash. Your plan activates after payment confirmation."}</div>
+            </aside>
           </div>
-
-          {/* Back */}
-          <button
-            onClick={() => { setStep("plans"); setLocalOrder(null); }}
-            className="w-full text-sm font-black text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 underline text-center"
-          >
-            {isAr ? "← العودة" : "← Back"}
-          </button>
         </div>
       </div>
     );
@@ -483,7 +464,7 @@ export default function PricingClient() {
                 <button type="button" onClick={() => setSelectedPlan(plan.id)} className="text-left pt-1">
                   <div className="flex items-center justify-between mb-4 gap-2">
                     <h2 className="text-xl font-black text-black dark:text-white">Pro · {planName}</h2>
-                    <span className="text-[10px] font-black bg-emerald-500 text-white px-2 py-1 border-2 border-black dark:border-white">{isPro ? (isAr ? "فعالة" : "Active") : "PRO"}</span>
+                    <span className="text-[10px] font-black bg-emerald-500 text-white px-2 py-1 border-2 border-black dark:border-white">PRO</span>
                   </div>
                   <div className="flex items-end gap-1 mb-1"><span className="text-3xl font-black text-black dark:text-white">EGP {plan.amount_egp}</span><span className="text-xs font-bold text-zinc-500 mb-1">/{plan.days} {isAr ? "يوم" : "days"}</span></div>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-bold text-zinc-500">
@@ -494,36 +475,16 @@ export default function PricingClient() {
                 <ul className="space-y-3 flex-1">
                   {proFeatures.map((f, i) => <li key={i} className="flex items-center gap-3 text-sm font-bold text-zinc-700 dark:text-zinc-200"><Check className="w-4 h-4 text-emerald-500 shrink-0" /><span className="flex items-center gap-1.5">{f.icon}{f.text}</span></li>)}
                 </ul>
-                <button onClick={() => startLocalPayment(plan.id)} disabled={busy || isPro} className="w-full h-12 flex items-center justify-center gap-2 border-4 border-black dark:border-white bg-emerald-500 text-white font-black uppercase tracking-widest shadow-[3px_3px_0px_rgba(0,0,0,1)] disabled:opacity-60 transition-all">
-                  {busy && isSelected ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Smartphone className="h-4 w-4" />{isPro ? (isAr ? "اشتراكك فعال" : "Active subscription") : !user ? (isAr ? "سجّل الدخول للاشتراك" : "Sign in to subscribe") : (isAr ? "اشترك الآن" : "Subscribe Now")}</>}
+                <button onClick={() => { setSelectedPlan(plan.id); setStep("payment"); }} disabled={busy} className="w-full h-12 flex items-center justify-center gap-2 border-4 border-black dark:border-white bg-emerald-500 text-white font-black uppercase tracking-widest shadow-[3px_3px_0px_rgba(0,0,0,1)] disabled:opacity-60 transition-all">
+                  {busy && isSelected ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Smartphone className="h-4 w-4" />{isPro ? (isAr ? "جدّد اشتراكك" : "Renew subscription") : !user ? (isAr ? "سجّل الدخول للاشتراك" : "Sign in to subscribe") : (isAr ? "اشترك الآن" : "Subscribe Now")}</>}
                 </button>
               </div>
             );
           })}
         </div>
 
-        {/* Payment methods */}
-        <div className="text-center space-y-3">
-          <p className="text-xs font-black text-zinc-500 uppercase tracking-widest">
-            {isAr ? "طرق الدفع المدعومة" : "Supported payment methods"}
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            {[
-              { ar: "فودافون كاش", en: "Vodafone Cash", color: "border-red-500 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400" },
-              { ar: "أورنج كاش", en: "Orange Cash", color: "border-orange-500 bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-400" },
-              { ar: "اتصالات كاش", en: "Etisalat Cash", color: "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400" },
-              { ar: "وي كاش", en: "WE Pay", color: "border-blue-500 bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400" },
-            ].map((wallet) => (
-              <span key={wallet.en} className={`text-xs font-black border-2 px-3 py-1.5 ${wallet.color}`}>
-                {isAr ? wallet.ar : wallet.en}
-              </span>
-            ))}
-          </div>
-          <p className="text-xs font-bold text-zinc-400">
-            {isAr
-              ? "يمكنك التحويل من أي محفظة إلكترونية مصرية إلى رقم Vodafone Cash الموضح أعلاه"
-              : "Transfer from any Egyptian mobile wallet to the Vodafone Cash number shown above"}
-          </p>
+        <div className="mx-auto max-w-2xl border-2 border-zinc-300 bg-white p-4 text-center text-sm font-bold text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 sm:p-5">
+          {isAr ? "البطاقات، المحافظ والدفع النقدي — اختار الوسيلة المناسبة بعد تحديد الخطة." : "Cards, wallets and cash — choose your method after selecting a plan."}
         </div>
       </div>
     </div>

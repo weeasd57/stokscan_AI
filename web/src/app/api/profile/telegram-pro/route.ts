@@ -64,6 +64,7 @@ async function persistInvite(
     .from("local_payment_orders")
     .select("id")
     .eq("user_id", userId)
+    .eq("provider", "easykash")
     .eq("status", "approved")
     .order("created_at", { ascending: false })
     .limit(1);
@@ -102,7 +103,7 @@ async function recoverInviteFromPaymentService(
 
   try {
     const response = await fetch(
-      `${backendUrl}/payment/local/status?order_id=${encodeURIComponent(orders[0].id)}&user_id=${encodeURIComponent(userId)}`,
+      `${backendUrl}/payment/easykash/status?order_id=${encodeURIComponent(orders[0].id)}&user_id=${encodeURIComponent(userId)}`,
       { cache: "no-store", signal: AbortSignal.timeout(25_000) },
     );
     if (!response.ok) return "";

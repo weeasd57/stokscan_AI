@@ -26,7 +26,7 @@ export async function GET(
     if (profileErr) return NextResponse.json({ detail: profileErr.message }, { status: 404 });
 
     // Query related tables safely
-    const [subRes, botSubRes, posRes, activityRes, chatMessagesRes, chatSessionsRes, aiAnalyticsRes, kashierRes, localPaymentsRes] = await Promise.all([
+    const [subRes, botSubRes, posRes, activityRes, chatMessagesRes, chatSessionsRes, aiAnalyticsRes, localPaymentsRes] = await Promise.all([
       supabase.from("subscriptions").select("*").eq("user_id", userId).maybeSingle().catch(() => ({ data: null })),
       supabase.from("bot_subscriptions").select("*").eq("user_id", userId).catch(() => ({ data: [] })),
       supabase.from("positions").select("*").eq("user_id", userId).catch(() => ({ data: [] })),
@@ -34,7 +34,6 @@ export async function GET(
       supabase.from("ai_chat_messages").select("user_id,role,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(5000).catch(() => ({ data: [] })),
       supabase.from("ai_chat_sessions").select("id,user_id,created_at,updated_at").eq("user_id", userId).order("updated_at", { ascending: false }).limit(500).catch(() => ({ data: [] })),
       supabase.from("ai_analytics").select("intent,total_latency_ms,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(5000).catch(() => ({ data: [] })),
-      supabase.from("kashier_payments").select("amount_paid,currency,status,provider,paid_at,created_at,order_ref").eq("user_id", userId).order("created_at", { ascending: false }).limit(100).catch(() => ({ data: [] })),
       supabase.from("local_payment_orders").select("amount_egp,status,provider,customer_note,created_at,reviewed_at,payment_review_status,payment_reviewed_at,payment_reviewed_by,auto_activated_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(100).catch(() => ({ data: [] })),
     ]);
 
@@ -48,8 +47,7 @@ export async function GET(
       pageTrackingAvailable: !activityRes?.error,
     };
     const payments = [
-      ...(kashierRes?.data || []).map((row: any) => ({ ...row, amount: row.amount_paid, source: "kashier" })),
-      ...(localPaymentsRes?.data || []).map((row: any) => ({ ...row, amount: row.amount_egp, source: "local" })),
+      ...(localPaymentsRes?.data || []).map((row: any) => ({ ...row, amount: row.amount_egp, source: row.provider || "legacy" })),
     ];
     const paidPayments = payments.filter((payment: any) => ["success", "approved", "paid"].includes(String(payment.status || "").toLowerCase()));
 

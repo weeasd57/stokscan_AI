@@ -12,7 +12,7 @@ completely free until the operator flips the flag.
 import os
 from typing import Any, Dict
 
-from api.kashier_payments import is_payments_enabled
+from api.payment_common import is_payments_enabled
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +35,7 @@ def pro_limits() -> Dict[str, Any]:
         "signal_delay_days": 0,
         "chat_messages_per_month": int(os.getenv("PRO_CHAT_MESSAGES", "350")),
         "portfolio_stocks": int(os.getenv("PRO_PORTFOLIO_STOCKS", "10")),
-        "price_egp": int(float(os.getenv("PRO_PRICE_EGP", os.getenv("KASHIER_PRO_PRICE_EGP", "200")))),
+        "price_egp": int(float(os.getenv("PRO_PRICE_EGP", "200"))),
     }
 
 
