@@ -1077,6 +1077,15 @@ body.antigrafity-theme #main-content {
   animation: pulse-glow 2s ease-in-out infinite;
 }
 
+/* Keep the profile surface aligned with the pricing page in dark mode. */
+.profile-page-shell {
+  background-color: #ffffff;
+}
+
+html.dark .profile-page-shell {
+  background-color: #050505;
+}
+
 /* Subtle landing-page motion: purposeful, inexpensive, and accessible. */
 @keyframes landing-fade-up {
   from { opacity: 0; transform: translateY(14px); }

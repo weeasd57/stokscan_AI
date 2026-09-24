@@ -92,7 +92,7 @@ export default function ProfilePage() {
   if (!user) return null;
 
   return (
-    <div className="neobrutal-layout flex flex-col gap-10 pb-20 max-w-[1600px] mx-auto mt-2 px-4 neobrutal-grid-bg min-h-screen">
+    <div dir={isAr ? "rtl" : "ltr"} className="profile-page-shell neobrutal-layout flex flex-col gap-10 pb-20 max-w-[1600px] mx-auto mt-2 px-4 neobrutal-grid-bg min-h-screen">
       {/* ── Header ── */}
       <header className="flex flex-col gap-3 relative z-10 pt-4">
         <h1 className="text-4xl sm:text-5xl font-black tracking-tighter text-black dark:text-white uppercase italic drop-shadow-[3px_3px_0px_rgba(0,0,0,1)]">

@@ -129,6 +129,14 @@ interface UserStats {
     emailDomains: { domain: string; count: number }[];
 }
 
+interface PortfolioSummary {
+    totalPortfolioUsers: number;
+    totalOpenPositions: number;
+    totalPortfolioValue: number;
+    latestPriceDate: string | null;
+    users: { user_id: string; display_name: string | null; email: string | null; positions_count: number; portfolio_value: number; priced_positions: number }[];
+}
+
 const SERVICE_LABELS: Record<string, string> = {
     stock_score: "Stocks Score",
     historical_similarity: "Similarity",
@@ -168,6 +176,8 @@ export default function UsersTab() {
     const [stats, setStats] = useState<UserStats | null>(null);
     const [statsLoading, setStatsLoading] = useState(false);
     const [analyticsLoaded, setAnalyticsLoaded] = useState(false);
+    const [portfolio, setPortfolio] = useState<PortfolioSummary | null>(null);
+    const [portfolioLoading, setPortfolioLoading] = useState(false);
 
     // Modal States
     const [selectedUser, setSelectedUser] = useState<UserDetail | null>(null);
@@ -233,6 +243,20 @@ export default function UsersTab() {
         setAnalyticsLoaded(true);
         await fetchStats();
     }, [fetchStats]);
+
+    const loadPortfolio = useCallback(async () => {
+        setPortfolioLoading(true);
+        try {
+            const res = await fetch("/api/admin/users/portfolio");
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || "Portfolio request failed");
+            setPortfolio(data);
+        } catch (error: any) {
+            toast.error(isAr ? "تعذر تحميل محافظ المستخدمين" : (error.message || "Failed to load portfolios"));
+        } finally {
+            setPortfolioLoading(false);
+        }
+    }, [isAr]);
 
     const fetchDetail = async (userId: string) => {
         setDetailLoading(true);
@@ -543,6 +567,9 @@ export default function UsersTab() {
                     <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4">
                         <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2 mb-3">
                             <TrendingUp className="w-4 h-4 text-emerald-500" /> {isAr ? "المحافظ والأسهم الأكثر امتلاكًا" : "PORTFOLIO & TOP STOCKS"}
+                            <button onClick={loadPortfolio} disabled={portfolioLoading} className="ml-auto border-2 border-black dark:border-white px-2 py-1 text-[9px] font-black hover:bg-emerald-100 dark:hover:bg-emerald-900/40">
+                                {portfolioLoading ? "..." : isAr ? "عرض محافظ المستخدمين" : "VIEW USER PORTFOLIOS"}
+                            </button>
                         </h3>
                         <div className="grid grid-cols-2 gap-2 mb-3">
                             <div className="border-2 border-black dark:border-white bg-white dark:bg-zinc-950 p-2">
@@ -568,6 +595,22 @@ export default function UsersTab() {
                                 </div>
                             </div>
                         ) : <div className="text-xs font-bold text-zinc-400">{isAr ? "لا توجد مراكز بالمحافظ بعد." : "No portfolio positions yet."}</div>}
+                        {portfolio && <div className="mt-4 border-t-2 border-zinc-300 dark:border-zinc-700 pt-3">
+                            <div className="grid grid-cols-2 gap-2 mb-3 text-[10px] font-black">
+                                <div className="bg-emerald-100 dark:bg-emerald-950/40 p-2">{isAr ? "قيمة المحافظ المسعّرة" : "Priced portfolio value"}<div className="text-base font-mono">{portfolio.totalPortfolioValue.toLocaleString()} {isAr ? "ج.م" : "EGP"}</div></div>
+                                <div className="bg-zinc-100 dark:bg-zinc-800 p-2">{isAr ? "آخر تاريخ أسعار" : "Latest price date"}<div className="text-base font-mono">{portfolio.latestPriceDate || "—"}</div></div>
+                            </div>
+                            <div className="text-[10px] font-black uppercase text-zinc-500 mb-1">{isAr ? "المستخدمون وعدد الأسهم وقيمة المحفظة" : "Users · holdings · portfolio value"}</div>
+                            <div className="max-h-64 overflow-auto space-y-1">
+                                {portfolio.users.slice(0, 20).map((user) => <div key={user.user_id} className="flex items-center gap-2 text-[11px] border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-2 py-1.5">
+                                    <span className="font-bold flex-1 truncate">{user.display_name || user.email || user.user_id.slice(0, 8)}</span>
+                                    <span className="font-mono shrink-0">{user.positions_count} {isAr ? "سهم" : "stocks"}</span>
+                                    <span className="font-black font-mono text-emerald-600 dark:text-emerald-400 shrink-0">{user.portfolio_value.toLocaleString()} {isAr ? "ج.م" : "EGP"}</span>
+                                </div>)}
+                            </div>
+                            {portfolio.users.length === 0 && <div className="text-xs font-bold text-zinc-400">{isAr ? "لا توجد محافظ نشطة." : "No active portfolios."}</div>}
+                            <div className="text-[9px] text-zinc-500 mt-2">{isAr ? "القيمة = الكمية × آخر سعر إغلاق متاح؛ الأسهم بلا سعر لا تدخل في الإجمالي." : "Value = quantity × latest available close; unpriced holdings are excluded from totals."}</div>
+                        </div>}
                     </div>
 
                     {/* Email Domains & Demographics */}
