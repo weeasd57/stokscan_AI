@@ -4913,7 +4913,7 @@ def update_user(user_id: str, body: UserUpdateRequest):
         if body.plan_id is not None:
             if body.plan_id not in {"free", "pro"}:
                 raise HTTPException(status_code=400, detail="Invalid plan")
-if body.plan_id == "free":
+            if body.plan_id == "free":
                 stock_ai.supabase.table("subscriptions").update({"status": "canceled", "updated_at": datetime.utcnow().isoformat()}).eq("user_id", user_id).eq("plan_id", "pro").eq("status", "active").execute()
             else:
                 now = datetime.now(timezone.utc)
