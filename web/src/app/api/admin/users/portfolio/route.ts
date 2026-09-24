@@ -5,6 +5,18 @@ import { requireAdmin } from "@/lib/admin-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type PositionRow = {
+  user_id: string | null;
+  symbol: string | null;
+  name: string | null;
+  quantity: number | string | null;
+  entry_price: number | string | null;
+  entry_at: string | null;
+  status: string | null;
+  updated_at: string | null;
+  [key: string]: unknown;
+};
+
 export async function GET(req: NextRequest) {
   try {
     const auth = await requireAdmin(req);
@@ -16,8 +28,10 @@ export async function GET(req: NextRequest) {
       supabase.from("stocks").select("symbol,name,name_ar").is("is_active", true),
     ]);
     if (posRes.error) return NextResponse.json({ detail: posRes.error.message }, { status: 500 });
-    const positions = posRes.data || [];
-    const stockNames = new Map((stocksRes.data || []).map((s: any) => [String(s.symbol).toUpperCase(), s]));
+    const positions = (posRes.data || []) as PositionRow[];
+    const stockNames = new Map<string, { name?: string | null; name_ar?: string | null }>(
+      (stocksRes.data || []).map((s: any) => [String(s.symbol).toUpperCase(), s] as const),
+    );
 
     const userIds = Array.from(new Set(positions.map((p) => String(p.user_id))));
     const [profilesRes, authRes] = await Promise.all([
@@ -25,7 +39,9 @@ export async function GET(req: NextRequest) {
       supabase.auth.admin.listUsers({ page: 1, perPage: 2000 }).catch(() => ({ data: { users: [] } })),
     ]);
     const emailById = new Map((authRes?.data?.users || []).map((u: any) => [String(u.id), u.email || null]));
-    const nameById = new Map((profilesRes.data || []).map((p: any) => [String(p.id), p]));
+    const nameById = new Map<string, { display_name?: string | null; username?: string | null }>(
+      (profilesRes.data || []).map((p: any) => [String(p.id), p] as const),
+    );
 
     const byUser = new Map<string, any[]>();
     for (const pos of positions) {
