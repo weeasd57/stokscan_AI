@@ -142,9 +142,19 @@ const SERVICE_LABELS_AR: Record<string, string> = {
     ai_bot: "بوت الذكاء الاصطناعي",
 };
 
+function displayPlanName(planId: string, isAr: boolean): string {
+    if (!isAr) return planId;
+    const normalized = planId.trim().toLowerCase();
+    if (normalized === "pro" || normalized.startsWith("pro_")) return "برو";
+    if (normalized === "free" || !normalized) return "مجاني";
+    return "خطة أخرى";
+}
+
 export default function UsersTab() {
     const { language } = useLanguage();
     const isAr = language === "ar";
+    const markPartial = (value: number | string) =>
+        stats && !stats.engagementDataComplete ? `≥ ${value}` : value;
     const [users, setUsers] = useState<UserRow[]>([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(0);
@@ -510,10 +520,10 @@ export default function UsersTab() {
                         </div>
                         <div className="grid grid-cols-2 gap-2 mb-3">
                             {[
-                                [isAr ? "مستخدمو الشات (30 يومًا)" : "Chat Users (30d)", stats?.chatUsers30Days || 0],
+                                [isAr ? "مستخدمو الشات (30 يومًا)" : "Chat Users (30d)", markPartial(stats?.chatUsers30Days || 0)],
                                 [isAr ? "جلسات الشات" : "Chat Sessions", stats?.chatSessions || 0],
-                                [isAr ? "رسائل المستخدمين" : "User Messages", stats?.chatMessages || 0],
-                                [isAr ? "نشطون شهريًا من إجمالي المستخدمين" : "Monthly active share of all users", `${stats && !stats.engagementDataComplete ? "≥ " : ""}${stats?.activeUsers30DaysRate || 0}%`],
+                                [isAr ? "رسائل المستخدمين" : "User Messages", markPartial(stats?.chatMessages || 0)],
+                                [isAr ? "نشطون شهريًا من إجمالي المستخدمين" : "Monthly active share of all users", markPartial(`${stats?.activeUsers30DaysRate || 0}%`)],
                             ].map(([label, value]) => (
                                 <div key={String(label)} className="border-2 border-black dark:border-white bg-white dark:bg-zinc-950 p-2">
                                     <div className="text-[9px] font-black text-zinc-500 uppercase">{label}</div>
@@ -619,8 +629,8 @@ export default function UsersTab() {
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
                         {[
                             [isAr ? "مشتركو برو النشطون" : "Active Pro", stats?.activeProUsers || 0, isAr ? "مستخدم" : "users"],
-                            [isAr ? "مشتركو برو مستخدمو الشات" : "Pro using chat", `${stats?.proChatUsers || 0} (${stats?.proChatRate || 0}%)`, isAr ? "من مشتركي برو النشطين" : "of active Pro"],
-                            [isAr ? "مشتركو برو مستخدمو الصفحات" : "Pro using pages", `${stats?.proPageUsers || 0} (${stats?.proPageRate || 0}%)`, isAr ? "من المستخدمين المتتبَّعين" : "tracked users"],
+                            [isAr ? "مشتركو برو مستخدمو الشات" : "Pro using chat", markPartial(`${stats?.proChatUsers || 0} (${stats?.proChatRate || 0}%)`), isAr ? "من مشتركي برو النشطين" : "of active Pro"],
+                            [isAr ? "مشتركو برو مستخدمو الصفحات" : "Pro using pages", markPartial(`${stats?.proPageUsers || 0} (${stats?.proPageRate || 0}%)`), isAr ? "من المستخدمين المتتبَّعين" : "tracked users"],
                             [isAr ? "التحويل إلى الاشتراك المدفوع" : "Paid conversion", `${stats?.paidConversionRate || 0}%`, isAr ? "من المسجلين إلى برو" : "registered → Pro"],
                         ].map(([label, value, hint]) => (
                             <div key={String(label)} className="border-4 border-black dark:border-white bg-indigo-50 dark:bg-indigo-950/30 p-3">
@@ -634,7 +644,7 @@ export default function UsersTab() {
                         <div className="bg-white dark:bg-zinc-950 border-2 border-black dark:border-white p-3">
                             <div className="flex items-center justify-between mb-2">
                                 <h4 className="font-black text-[10px] uppercase tracking-widest flex items-center gap-1"><Globe className="w-3 h-3 text-cyan-500" /> {isAr ? "أكثر الصفحات — الجميع" : "TOP PAGES — ALL"}</h4>
-                                <span className="text-[10px] font-bold text-zinc-500">{stats?.pageUsers30Days || 0} {isAr ? "مستخدم" : "users"}</span>
+                                <span className="text-[10px] font-bold text-zinc-500">{markPartial(stats?.pageUsers30Days || 0)} {isAr ? "مستخدم" : "users"}</span>
                             </div>
                             <div className="space-y-1">
                                 {(stats?.topPages || []).slice(0, 5).map((row) => <div key={row.path} className="flex items-center justify-between gap-2 text-[11px] font-mono border-b border-zinc-200 dark:border-zinc-800 pb-1"><span className="font-bold truncate">{row.path}</span><span className="text-zinc-500 shrink-0">{row.users}u · {row.views}v</span></div>)}
@@ -761,7 +771,7 @@ export default function UsersTab() {
                                             {u.subscription?.plan_id ? (
                                                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 border-2 border-black dark:border-white font-black text-[10px] uppercase tracking-wider ${u.subscription.plan_id === "pro" ? "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300" : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400"}`}>
                                                     <Crown className="w-3 h-3" />
-                                                {isAr ? (u.subscription.plan_id.toLowerCase() === "pro" ? "برو" : u.subscription.plan_id.toLowerCase() === "free" ? "مجاني" : u.subscription.plan_id) : u.subscription.plan_id}
+                                                {displayPlanName(u.subscription.plan_id, isAr)}
                                                 </span>
                                             ) : (
                                                 <span className="text-zinc-400 font-bold">{isAr ? "مجاني" : "Free"}</span>
