@@ -324,8 +324,8 @@ export default function PlanQuotaCard({ refreshTrigger = 0 }: Props) {
                   <Clock className="w-5 h-5 shrink-0" />
                   <span className="text-lg font-black text-black dark:text-white">
                     {isAr
-                      ? `تأخير ${signals?.delay_days ?? 5} أيام`
-                      : `${signals?.delay_days ?? 5} days delay`}
+                      ? `تأخير ${signals?.delay_days ?? 15} أيام`
+                      : `${signals?.delay_days ?? 15} days delay`}
                   </span>
                 </div>
               )}

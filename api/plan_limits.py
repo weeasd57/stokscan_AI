@@ -2,7 +2,7 @@
 Centralized plan / feature limits for EGX Bots.
 
 Single source of truth for the two tiers:
-  FREE  - (when PAYMENTS_ENABLED=true) signals delayed 5 days, 50 chat msgs/month, 5 portfolio stocks.
+  FREE  - (when PAYMENTS_ENABLED=true) signals delayed 15 days, 50 chat msgs/month, 5 portfolio stocks.
   PRO   - 200 EGP: daily signals, 350 chat msgs/month, 10 portfolio stocks.
 
 When PAYMENTS_ENABLED is false (default) the platform is FREE-UNLIMITED:
@@ -149,4 +149,4 @@ def telegram_public_link() -> str:
 
 
 def free_channel_notice() -> str:
-    return "ℹ️ القناة المجانية تعرض التوصيات والتعديلات بتأخير 5 أيام. التحديث اللحظي متاح لمشتركي Pro فقط."
+    return f"i️ القناة المجانية تعرض التوصيات والتعديلات بتأخير {free_limits()['signal_delay_days']} يوماً. التحديث اللحظي متاح لمشتركي Pro فقط."

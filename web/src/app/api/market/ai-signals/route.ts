@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isPro, filterByDelay, planLimits, paymentsEnabled } from "@/lib/ai/plan-gate";
+import { getViewerContext } from "@/lib/supabase/viewer-context";
+import { filterByDelay, planLimits, paymentsEnabled } from "@/lib/ai/plan-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,25 +29,14 @@ export async function GET(req: NextRequest) {
     // Determine the requesting user (if logged in) so we can apply plan-gated
     // visibility: subscribers see today's recommendations immediately; free
     // users only see recommendations older than the configured signal delay.
+    // Identity and plan resolve through the cached viewer context — no Supabase
+    // auth round trip per page view.
     let userIsPro = !billingEnabled; // the route is shared/cacheable while billing is disabled
     let userPlan = "free";
     if (billingEnabled) {
-      try {
-        const userClient = createSupabaseServerClient(req);
-        const { data: authUser } = await userClient.auth.getUser();
-        if (authUser?.user?.id) {
-          const { data: planRows } = await userClient
-            .from("subscriptions")
-            .select("plan_id,status,current_period_end")
-            .eq("user_id", authUser.user.id)
-            .limit(10);
-          userIsPro = isPro(planRows || []);
-          userPlan = userIsPro ? "pro" : "free";
-        }
-      } catch {
-        // Not logged in -> treat as free (delayed) when payments are on.
-        userIsPro = false;
-      }
+      const { authenticated, pro } = await getViewerContext(req);
+      userIsPro = authenticated && pro;
+      userPlan = userIsPro ? "pro" : "free";
     }
 
     // 1. Fetch latest open AI recommendations
