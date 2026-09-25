@@ -25,7 +25,6 @@ export async function POST(req: NextRequest) {
         email: user.email || "",
         name: String(user.user_metadata?.full_name || user.user_metadata?.name || "EGX Bots user").slice(0, 100),
         mobile,
-        method_id: typeof body?.method_id === "string" ? body.method_id : "all",
       }),
       cache: "no-store",
     });

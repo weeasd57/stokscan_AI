@@ -10,6 +10,8 @@ def is_payments_enabled() -> bool:
 
 def plan_amount_egp(plan_id: str) -> float:
     plan = (plan_id or "").strip().lower()
+    if plan == "pro_test":
+        return float(os.getenv("PRO_TEST_PRICE_EGP", "0"))
     if plan == "pro_6m":
         return float(os.getenv("PRO_6M_PRICE_EGP", "1000"))
     if plan == "pro_1y":
@@ -19,7 +21,7 @@ def plan_amount_egp(plan_id: str) -> float:
 
 def subscription_days(plan_id: str) -> int:
     plan = (plan_id or "").strip().lower()
-    return {"pro": 30, "pro_6m": 180, "pro_1y": 365}.get(plan, 30)
+    return {"pro": 30, "pro_6m": 180, "pro_1y": 365, "pro_test": int(os.getenv("PRO_TEST_DAYS", "1"))}.get(plan, 30)
 
 
 def activate_subscription(user_id: str, plan_id: str, provider: str = "easykash", payment_order_id: str | None = None) -> None:

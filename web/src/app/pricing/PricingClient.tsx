@@ -16,9 +16,6 @@ import {
   Zap,
   MessageSquare,
   BarChart3,
-  CreditCard,
-  Wallet,
-  Banknote,
   ArrowLeft,
   ArrowRight,
   LockKeyhole,
@@ -32,56 +29,6 @@ import {
 import { toast } from "sonner";
 
 type Step = "plans" | "payment" | "submitted";
-
-const easyKashMethods = [
-  {
-    id: "cards",
-    ar: "البطاقات البنكية",
-    en: "Bank Cards",
-    arHint: "فيزا، ماستركارد، كروت الخصم والائتمان",
-    enHint: "Visa, Mastercard, Debit & Credit",
-    icon: CreditCard,
-    badge: "Visa / MC",
-  },
-  {
-    id: "mobile-wallet",
-    ar: "محافظ الموبايل الذكية",
-    en: "Mobile Wallets",
-    arHint: "فودافون كاش، أورنج، اتصالات، وي كاش",
-    enHint: "Vodafone Cash, Orange, Etisalat, WE",
-    icon: Wallet,
-    badge: "Smart Wallet",
-  },
-  {
-    id: "cash",
-    ar: "الدفع النقدي",
-    en: "Cash Payment",
-    arHint: "سداد عبر منافذ فوري أو أمان",
-    enHint: "Pay at Aman or Fawry outlets",
-    icon: Banknote,
-    badge: "Fawry / Aman",
-  },
-  {
-    id: "meeza",
-    ar: "بطاقة ميزة الوطنية",
-    en: "Meeza Card",
-    arHint: "جميع كروت ميزة الحكومية والبنكية",
-    enHint: "All national Meeza debit cards",
-    icon: CreditCard,
-    badge: "Meeza",
-  },
-  {
-    id: "apple-pay",
-    ar: "Apple Pay",
-    en: "Apple Pay",
-    arHint: "الدفع السريع لأجهزة iOS المدعومة",
-    enHint: "Fast checkout on supported iOS devices",
-    icon: Smartphone,
-    badge: "Apple",
-  },
-] as const;
-
-type EasyKashMethodId = (typeof easyKashMethods)[number]["id"];
 
 export default function PricingClient() {
   const { language } = useLanguage();
@@ -100,7 +47,6 @@ export default function PricingClient() {
   const [telegramProUrl, setTelegramProUrl] = useState("");
   const [isPro, setIsPro] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState("pro_6m");
-  const [paymentMethod, setPaymentMethod] = useState<EasyKashMethodId>("cards");
   const [copiedOrder, setCopiedOrder] = useState(false);
 
   const normalizedMobile = customerMobile.trim().replace(/[\s-]/g, "").replace(/^\+20/, "0").replace(/^0020/, "0");
@@ -187,7 +133,7 @@ export default function PricingClient() {
       const res = await fetch("/api/payment/easykash/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan_id: planId, mobile: normalizedMobile, method_id: paymentMethod }),
+        body: JSON.stringify({ plan_id: planId, mobile: normalizedMobile }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || (isAr ? "تعذر إنشاء طلب الدفع" : "Could not start checkout"));
@@ -255,6 +201,7 @@ export default function PricingClient() {
 
   const monthlyPrice = Number(localConfig?.plans?.find((item: any) => item.id === "pro")?.amount_egp ?? 200);
   const paidPlans = [
+    ...(localConfig?.plans?.some((item: any) => item.id === "pro_test") ? [{ id: "pro_test", name_ar: "اختبار بوابة الدفع", name_en: "Payment Test", days: 1, amount_egp: 5, badge: isAr ? "اختبار فقط" : "Test only" }] : []),
     { id: "pro", name_ar: "شهر واحد", name_en: "1 Month", days: 30, amount_egp: 200, badge: null },
     { id: "pro_6m", name_ar: "6 شهور", name_en: "6 Months", days: 180, amount_egp: 1000, badge: isAr ? "الأكثر طلباً ⭐" : "Most Popular ⭐" },
     { id: "pro_1y", name_ar: "سنة كاملة", name_en: "1 Year", days: 365, amount_egp: 1800, badge: isAr ? "أكبر توفير 💎" : "Max Value 💎" },
@@ -274,21 +221,6 @@ export default function PricingClient() {
 
   const selectedPlanDetails = paidPlans.find((plan: any) => plan.id === selectedPlan) || paidPlans[1];
   const proPrice = selectedPlanDetails?.amount_egp ?? 1000;
-  const selectedMethod = easyKashMethods.find((method) => method.id === paymentMethod) || easyKashMethods[0];
-
-  const methodExplanation =
-    paymentMethod === "cards" || paymentMethod === "meeza" || paymentMethod === "apple-pay"
-      ? isAr
-        ? "بيانات بطاقتك تُدخل بأمان كامل على بوابة EasyKash المشفرة بـ SSL 256-bit؛ لا نحفظ أي أرقام كروت."
-        : "Card and Apple Pay details are securely processed directly on EasyKash 256-bit SSL gateway."
-      : paymentMethod === "mobile-wallet"
-      ? isAr
-        ? "اختار Mobile Wallet على صفحة EasyKash، ادخل رقم محفظتك وأكّد السداد من تطبيق محفظتك فوراً."
-        : "Select Mobile Wallet on EasyKash, enter your wallet number and confirm payment in your wallet app."
-      : isAr
-      ? "سيظهر لك كود سداد فوري أو أمان؛ ادفع في أي منفذ وسيتفعل اشتراكك تلقائياً خلال دقائق."
-      : "You'll receive a Fawry or Aman reference code to pay at any store; Pro activates automatically.";
-
   const freeFeatures = [
     { icon: <Zap className="w-4 h-4" />, text: isAr ? "تأخير الإشارات 15 يوماً" : "Signals delayed 15 days", included: true },
     { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? "50 رسالة شات بوت / شهر" : "50 chatbot messages / month", included: true },
@@ -499,7 +431,7 @@ export default function PricingClient() {
               <div className="border-b-2 border-zinc-200 dark:border-zinc-800 pb-4">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                    {isAr ? "01 / وسيلة الدفع المناسبة" : "01 / PAYMENT METHOD"}
+                    {isAr ? "01 / بوابة الدفع" : "01 / PAYMENT GATEWAY"}
                   </span>
                   <span className="flex items-center gap-1.5 text-xs font-black text-zinc-600 dark:text-zinc-300">
                     <ShieldCheck className="w-4 h-4 text-emerald-500" />
@@ -507,67 +439,21 @@ export default function PricingClient() {
                   </span>
                 </div>
                 <h2 className="text-xl font-black text-zinc-950 dark:text-white mt-1">
-                  {isAr ? "اختر طريقة السداد المفضلة" : "Select Your Payment Method"}
+                  {isAr ? "اختر وسيلة الدفع داخل EasyKash" : "Choose Your Method on EasyKash"}
                 </h2>
               </div>
 
-              {/* Methods Grid */}
-              <div className="grid gap-3 sm:grid-cols-2">
-                {easyKashMethods.map((method) => {
-                  const Icon = method.icon;
-                  const isSelected = paymentMethod === method.id;
-                  return (
-                    <button
-                      key={method.id}
-                      type="button"
-                      onClick={() => setPaymentMethod(method.id)}
-                      className={`group flex items-start gap-3.5 border-3 p-4 text-start transition-all relative ${
-                        isSelected
-                          ? "border-black dark:border-white bg-emerald-50 dark:bg-emerald-950/40 shadow-[4px_4px_0px_#10b981]"
-                          : "border-zinc-300 dark:border-zinc-700 bg-zinc-50/70 dark:bg-zinc-900 hover:border-black dark:hover:border-zinc-400"
-                      }`}
-                    >
-                      <div
-                        className={`w-10 h-10 border-2 flex items-center justify-center shrink-0 ${
-                          isSelected
-                            ? "border-black dark:border-white bg-emerald-500 text-white"
-                            : "border-zinc-400 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200"
-                        }`}
-                      >
-                        <Icon className="w-5 h-5" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-1 mb-0.5">
-                          <span className="font-black text-sm text-zinc-950 dark:text-white leading-tight">
-                            {isAr ? method.ar : method.en}
-                          </span>
-                          <span
-                            className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                              isSelected ? "border-emerald-600 bg-emerald-500 text-white" : "border-zinc-400"
-                            }`}
-                          >
-                            {isSelected && <Check className="w-3 h-3" />}
-                          </span>
-                        </div>
-                        <span className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 block leading-tight">
-                          {isAr ? method.arHint : method.enHint}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Dynamic Guidance Note */}
-              <div className="border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900/80 p-4 space-y-2">
+              <div className="border-2 border-black dark:border-white bg-emerald-50 dark:bg-emerald-950/30 p-4 space-y-2">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                   <h3 className="text-xs font-black uppercase text-zinc-900 dark:text-white">
-                    {isAr ? `إرشادات الدفع عبر ${selectedMethod.ar}` : `Instructions for ${selectedMethod.en}`}
+                    {isAr ? "كل وسائل حسابك المفعّلة تظهر داخل البوابة" : "All Enabled Methods Appear in the Gateway"}
                   </h3>
                 </div>
                 <p className="text-xs font-semibold leading-relaxed text-zinc-700 dark:text-zinc-300">
-                  {methodExplanation}
+                  {isAr
+                    ? "بعد المتابعة ستنتقل إلى صفحة EasyKash الرسمية، ومنها تختار البطاقة أو المحفظة أو الدفع النقدي أو أي وسيلة أخرى مفعّلة. بيانات الدفع لا تمر بموقعنا ولا نحفظها."
+                    : "Continue to the official EasyKash page, then choose card, wallet, cash, or any other method enabled for this merchant. Payment details never pass through or get stored by our site."}
                 </p>
               </div>
 
@@ -679,7 +565,7 @@ export default function PricingClient() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">{isAr ? "وسيلة الدفع:" : "Method:"}</span>
-                  <span>{isAr ? selectedMethod.ar : selectedMethod.en}</span>
+                  <span>{isAr ? "تُحدد داخل EasyKash" : "Chosen on EasyKash"}</span>
                 </div>
                 {selectedPlanDetails.savingsPct > 0 && (
                   <div className="flex justify-between text-emerald-400">

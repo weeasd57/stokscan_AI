@@ -19,18 +19,8 @@ from api.telegram_pro_invites import ensure_pro_invite
 
 _EASYKASH_PAY_URL = "https://back.easykash.net/api/directpayv1/pay"
 _PLANS = {"pro": 30, "pro_6m": 180, "pro_1y": 365}
-_PAYMENT_OPTIONS = {
-    # Explicit allowlist: omitting paymentOptions would expose installments
-    # whenever they are enabled on the EasyKash merchant account.
-    "all": [2, 35, 6, 31, 4, 1, 5],
-    "cards": [2, 35],
-    "mobile-wallet": [4],
-    "cash": [1, 5],
-    "meeza": [6],
-    "apple-pay": [31],
-}
-
-
+if os.getenv("ENABLE_PAYMENT_TEST_PLAN", "false").strip().lower() in {"1", "true", "yes", "on"}:
+    _PLANS["pro_test"] = int(os.getenv("PRO_TEST_DAYS", "1"))
 def _hosted_checkout_url(value: Any) -> str:
     """Accept only EasyKash hosted payment links and avoid its www redirect hop."""
     if not isinstance(value, str):
@@ -66,16 +56,19 @@ def is_easykash_ready() -> bool:
 
 def payment_config() -> Dict[str, Any]:
     enabled = is_payments_enabled() and is_easykash_ready()
+    plans = [
+        {"id": "pro", "name_ar": "شهري", "name_en": "Monthly", "amount_egp": int(plan_amount_egp("pro")), "days": 30},
+        {"id": "pro_6m", "name_ar": "6 شهور", "name_en": "6 Months", "amount_egp": int(plan_amount_egp("pro_6m")), "days": 180},
+        {"id": "pro_1y", "name_ar": "سنة", "name_en": "1 Year", "amount_egp": int(plan_amount_egp("pro_1y")), "days": 365},
+    ]
+    if "pro_test" in _PLANS:
+        plans.insert(0, {"id": "pro_test", "name_ar": "اختبار بوابة الدفع", "name_en": "Payment Test", "amount_egp": int(plan_amount_egp("pro_test")), "days": _PLANS["pro_test"]})
     return {
         "enabled": enabled,
         "mode": "easykash" if enabled else "disabled",
         "provider": "easykash",
         "currency": "EGP",
-        "plans": [
-            {"id": "pro", "name_ar": "شهري", "name_en": "Monthly", "amount_egp": int(plan_amount_egp("pro")), "days": 30},
-            {"id": "pro_6m", "name_ar": "6 شهور", "name_en": "6 Months", "amount_egp": int(plan_amount_egp("pro_6m")), "days": 180},
-            {"id": "pro_1y", "name_ar": "سنة", "name_en": "1 Year", "amount_egp": int(plan_amount_egp("pro_1y")), "days": 365},
-        ],
+        "plans": plans,
     }
 
 
@@ -93,12 +86,9 @@ def _direct_pay_payload(
     mobile: str,
     redirect_url: str,
     customer_reference: str,
-    method_id: str = "all",
 ) -> Dict[str, Any]:
-    """Build a hosted checkout with direct payment methods only."""
-    if method_id not in _PAYMENT_OPTIONS:
-        raise ValueError("Unsupported EasyKash payment method")
-    payload = {
+    """Build a hosted checkout and let EasyKash present enabled methods."""
+    return {
         "amount": float(amount),
         "currency": "EGP",
         "cashExpiry": int(os.getenv("EASYKASH_CASH_EXPIRY_HOURS", os.getenv("EASYKASH_CASH_EXPIRY_DAYS", "3"))),
@@ -108,11 +98,9 @@ def _direct_pay_payload(
         "redirectUrl": redirect_url,
         "customerReference": customer_reference,
     }
-    payload["paymentOptions"] = _PAYMENT_OPTIONS[method_id]
-    return payload
 
 
-def create_checkout(user_id: str, plan_id: str, email: str, name: str, mobile: str, method_id: str = "all") -> Dict[str, Any]:
+def create_checkout(user_id: str, plan_id: str, email: str, name: str, mobile: str) -> Dict[str, Any]:
     if not is_payments_enabled():
         raise RuntimeError("Payments are currently disabled")
     if not is_easykash_ready():
@@ -120,9 +108,6 @@ def create_checkout(user_id: str, plan_id: str, email: str, name: str, mobile: s
     plan_id = (plan_id or "").strip().lower()
     if plan_id not in _PLANS:
         raise ValueError("Unsupported Pro plan")
-    method_id = (method_id or "all").strip().lower()
-    if method_id not in _PAYMENT_OPTIONS:
-        raise ValueError("Unsupported EasyKash payment method")
     mobile = "".join(ch for ch in str(mobile or "") if ch.isdigit() or ch == "+")
     if not (mobile.startswith("01") and len(mobile) == 11 and mobile.isdigit()):
         raise ValueError("Enter a valid Egyptian mobile number (010/011/012/015)")
@@ -148,7 +133,7 @@ def create_checkout(user_id: str, plan_id: str, email: str, name: str, mobile: s
     origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
     return_url = f"{origin}/pricing?payment=easykash&customerReference={order_id}"
     try:
-        payload = _direct_pay_payload(amount, name, email, mobile, return_url, order_id, method_id)
+        payload = _direct_pay_payload(amount, name, email, mobile, return_url, order_id)
         response = requests.post(
             os.getenv("EASYKASH_PAY_API_URL", _EASYKASH_PAY_URL),
             json=payload,
@@ -168,7 +153,7 @@ def create_checkout(user_id: str, plan_id: str, email: str, name: str, mobile: s
                     f"🛒 <b>طلب اشتراك جديد (قيد الدفع)</b>\n\n"
                     f"<b>الخطة:</b> Pro ({plan_days} يوم)\n"
                     f"<b>المبلغ:</b> {float(amount):,.0f} ج.م\n"
-                    f"<b>وسيلة الدفع:</b> {method_id}\n"
+                    "<b>وسيلة الدفع:</b> يحددها العميل داخل بوابة EasyKash\n"
                     f"<b>الموبايل:</b> <code>{mobile}</code>\n"
                     f"<b>البريد:</b> <code>{email or '—'}</code>\n"
                     f"<b>الاسم:</b> {name or 'عميل'}\n"

@@ -26,7 +26,7 @@ class EasyKashPayloadTests(unittest.TestCase):
             with self.subTest(url=invalid), self.assertRaises(RuntimeError):
                 _hosted_checkout_url(invalid)
 
-    def test_all_method_explicitly_excludes_installments(self):
+    def test_hosted_checkout_defers_method_selection_to_easykash(self):
         payload = _direct_pay_payload(
             Decimal("200.00"),
             "Test User",
@@ -36,36 +36,13 @@ class EasyKashPayloadTests(unittest.TestCase):
             "test-order",
         )
 
-        self.assertEqual(payload["paymentOptions"], [2, 35, 6, 31, 4, 1, 5])
+        self.assertNotIn("paymentOptions", payload)
+        self.assertNotIn("paymentOptionsExcluded", payload)
         self.assertEqual(payload["currency"], "EGP")
         self.assertEqual(payload["amount"], 200.0)
         self.assertEqual(payload["customerReference"], "test-order")
 
-    def test_selected_methods_restrict_hosted_checkout_to_requested_options(self):
-        expected = {
-            "cards": [2, 35],
-            "mobile-wallet": [4],
-            "cash": [1, 5],
-            "meeza": [6],
-            "apple-pay": [31],
-        }
-        for method_id, options in expected.items():
-            with self.subTest(method_id=method_id):
-                payload = _direct_pay_payload(
-                    Decimal("200.00"), "Test User", "test@example.com",
-                    "01012345678", "https://egxbots.com/pricing", "test-order", method_id,
-                )
-                self.assertEqual(payload["paymentOptions"], options)
-
-    def test_unknown_method_is_rejected(self):
-        for method_id in ("unknown", "valu", "souhoula", "contact", "klivvr", "tru"):
-            with self.subTest(method_id=method_id), self.assertRaises(ValueError):
-                _direct_pay_payload(
-                    Decimal("200.00"), "Test User", "test@example.com",
-                    "01012345678", "https://egxbots.com/pricing", "test-order", method_id,
-                )
-
-    def test_checkout_sends_selected_method_to_easykash(self):
+    def test_checkout_lets_easykash_show_enabled_methods(self):
         database = MagicMock()
         database.table.return_value.insert.return_value.execute.return_value.data = [{"id": "test-order"}]
         provider = MagicMock()
@@ -80,13 +57,13 @@ class EasyKashPayloadTests(unittest.TestCase):
             patch("api.easykash_payments.requests.post", return_value=provider) as request,
             patch.dict("os.environ", {"EASYKASH_API_KEY": "test-key"}, clear=False),
         ):
-            result = create_checkout("test-user", "pro", "test@example.com", "Test User", "01012345678", "cards")
+            result = create_checkout("test-user", "pro", "test@example.com", "Test User", "01012345678")
 
         self.assertEqual(result["status"], "pending")
         self.assertEqual(result["url"], "https://www.easykash.net/DirectPayV1/test")
         # The checkout call is sent before the optional admin notification,
         # which can issue a second HTTP POST in the same test.
-        self.assertEqual(request.call_args_list[0].kwargs["json"]["paymentOptions"], [2, 35])
+        self.assertNotIn("paymentOptions", request.call_args_list[0].kwargs["json"])
 
     def test_callback_signature_uses_easykash_documented_field_order(self):
         secret = "unit-test-secret"
