@@ -7,7 +7,6 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useRefreshOnVisibility } from "@/hooks/useRealtimeRefresh";
 import { useAuth } from "./AuthContext";
 import { usePathname } from "next/navigation";
-import { filterByDelay } from "@/lib/ai/plan-gate";
 
 type AiScannerState = {
     country: string;
@@ -896,8 +895,8 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
 
             const mapped = (scanData as any[]).map((row: any) => {
                 if (row.locked === true) {
-                    // Only the stock identity is hidden; scores, signal, status,
-                    // dates and sector render like any other recommendation.
+                    // Only the stock identity is hidden; scores, sector, signal,
+                    // status and dates render like any other recommendation.
                     const p = Number(row.precision) || 0.5;
                     const clamp10 = (n: number) => Math.max(1, Math.min(10, Math.round(n)));
                     return {
@@ -1019,21 +1018,13 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
 
             let visibleRecommendations = mapped;
             if (!isLandingPage) {
-                let isPro = false;
-                try {
-                    const quotaResponse = await fetch("/api/user/quota", { cache: "no-store" });
-                    const quota = quotaResponse.ok ? await quotaResponse.json() : null;
-                    isPro = quota?.plan?.is_pro === true;
-                } catch {
-                    // Unauthenticated users are treated as Free (delayed)
-                    isPro = false;
-                }
-                // The recommendations route row-masks anything newer than the
-                // 15-day delay window for authenticated non-Pro users (rows
-                // with locked=true). Anonymous visitors only ever receive
-                // delayed public rows, filtered here as defense in depth.
+                // The recommendations route row-masks fresh and high-safety
+                // picks for Free users (locked=true rows) and never returns
+                // them to anonymous visitors; no extra quota round trip here.
                 if (!user) {
-                    visibleRecommendations = filterByDelay(mapped, 15);
+                    // Defense in depth: a stale/edge-cached response must not
+                    // leak locked placeholders to logged-out visitors.
+                    visibleRecommendations = mapped.filter((row: any) => !row.locked);
                 }
             }
             setRecommendations(visibleRecommendations);

@@ -16,7 +16,7 @@ import {
     TrendingUp, TrendingDown, Layers, Info, CheckCircle2, X, BarChart2,
     Target, ShieldAlert, Cpu, BookOpen, TrendingUp as Bullish, Calendar,
     Award, ArrowUpRight, ArrowDownRight, Minus, ExternalLink, ShieldCheck,
-    Share2, Loader2, Download, Check, Copy, Send, MessageCircle, Lock
+    Share2, Loader2, Download, Check, Copy, Send, MessageCircle, Lock, Crown
 } from "lucide-react";
 import { isShariaCompliant } from "@/lib/shariaStocks";
 import { toPng } from "html-to-image";
@@ -246,6 +246,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
     // Share card state
     const [shareRow, setShareRow] = useState<any>(null);
+    // Half-screen Pro upsell shown when a Free user opens a locked row
+    const [lockedModalOpen, setLockedModalOpen] = useState(false);
     const shareCardRef = useRef<HTMLDivElement>(null);
     const [isDownloading, setIsDownloading] = useState(false);
     const [isCopied, setIsCopied] = useState(false);
@@ -408,18 +410,66 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         }
     };
 
-    // Opens the Pro upsell alert when a Free user clicks a locked row.
+    // Opens the Pro upsell modal when a Free user clicks a locked row.
     const handleLockedClick = (e: React.MouseEvent) => {
         e.stopPropagation();
-        window.alert(isAr
-            ? "🔒 هذه التوصية حديثة وأقل من 15 يوماً — متاحة لمشتركي البرو فقط.\nاشترك في Pro لتصلك كل التوصيات فوراً بدون تأخير."
-            : "🔒 This recommendation is less than 15 days old — available to Pro subscribers only.\nSubscribe to Pro to unlock every signal instantly, without delay.");
+        setLockedModalOpen(true);
+    };
+
+    const renderLockedUpsellModal = () => {
+        if (!lockedModalOpen) return null;
+        return createPortal(
+            <div
+                className="fixed inset-0 z-[2147483647] flex flex-col bg-black/70 backdrop-blur-sm"
+                onClick={() => setLockedModalOpen(false)}
+                dir={isAr ? "rtl" : "ltr"}
+            >
+                {/* Half-screen sheet sliding from the bottom */}
+                <div
+                    className="mt-auto w-full h-1/2 max-h-[50vh] bg-white dark:bg-zinc-950 border-t-4 border-black dark:border-white shadow-[0_-8px_0_rgba(0,0,0,0.35)] flex flex-col items-center justify-center gap-5 p-8 text-center animate-in slide-in-from-bottom-6 duration-200"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <button
+                        onClick={() => setLockedModalOpen(false)}
+                        className="absolute top-4 end-4 w-9 h-9 flex items-center justify-center border-2 border-black dark:border-white bg-white dark:bg-zinc-900 text-black dark:text-white hover:bg-rose-600 hover:text-white hover:border-rose-600 transition-colors font-black"
+                        aria-label="Close"
+                    >
+                        <X className="w-4 h-4" />
+                    </button>
+                    <div className="w-16 h-16 rounded-full bg-amber-400 border-4 border-black flex items-center justify-center shadow-[3px_3px_0px_rgba(0,0,0,1)]">
+                        <Lock className="w-8 h-8 text-black" />
+                    </div>
+                    <div className="text-2xl font-black uppercase tracking-wide text-black dark:text-white">
+                        {isAr ? "توصية لبرو فقط" : "Pro-only signal"}
+                    </div>
+                    <div className="text-sm font-bold text-zinc-600 dark:text-zinc-400 max-w-md leading-relaxed">
+                        {isAr
+                            ? "اسم السهم ده مستتِر وراء قفل البرو — التوصيات الحديثة وأعلى توصيات أماناً بتوصلك فوراً مع خطة Pro بدون انتظار."
+                            : "This stock name sits behind the Pro lock — the freshest and highest-safety recommendations reach you instantly with Pro, no waiting."}
+                    </div>
+                    <button
+                        onClick={() => { setLockedModalOpen(false); router.push("/pricing"); }}
+                        className="w-full max-w-sm h-14 inline-flex items-center justify-center gap-2 border-4 border-black bg-amber-300 hover:bg-amber-400 text-black text-base font-black uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
+                    >
+                        <Crown className="w-5 h-5" />
+                        {isAr ? "اشترك الآن في Pro" : "Subscribe to Pro"}
+                    </button>
+                    <button
+                        onClick={() => setLockedModalOpen(false)}
+                        className="text-xs font-black uppercase tracking-widest text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
+                    >
+                        {isAr ? "لأ، شكراً" : "No thanks"}
+                    </button>
+                </div>
+            </div>,
+            document.body
+        );
     };
 
     const renderLockedCell = () => (
-        <span className="select-none rounded-md border-2 border-amber-500/50 bg-amber-500/10 px-2.5 py-1 text-[11px] font-black tracking-[0.25em] text-amber-600 dark:text-amber-400 inline-flex items-center gap-1.5" title={isAr ? "مشفرة — متاح للبرو" : "Encrypted — Pro only"}>
+        <span className="select-none rounded-md border-2 border-amber-500/50 bg-amber-500/10 px-2.5 py-1 text-[11px] font-black tracking-[0.25em] text-amber-600 dark:text-amber-400 inline-flex items-center gap-1.5" title={isAr ? "الاسم مشفر — متاح للبرو" : "Name encrypted — Pro only"}>
             <Lock className="w-3.5 h-3.5 shrink-0" />
-            {isAr ? "مشفّرة" : "ENCRYPTED"}
+            {isAr ? "اسم مشفر" : "ENCRYPTED"}
         </span>
     );
 
@@ -643,6 +693,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     };
 
     const getLowRiskScore = (row: any) => {
+        if (row.locked === true && row.safety_rate != null) return row.safety_rate;
         if (!row.stop_loss || !row.last_close) return 5;
         const distPct = Math.abs((row.last_close - row.stop_loss) / row.last_close);
         const score = Math.round(10 - distPct * 20);
@@ -725,57 +776,49 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         return (
             <div className="divide-y-4 divide-black dark:divide-white">
                 {/* Desktop header */}
-                <div className="hidden md:grid md:grid-cols-[56px_1fr_80px_100px_110px_1fr] items-center bg-zinc-100 dark:bg-zinc-900 text-black dark:text-white border-b-4 border-black dark:border-white">
+                <div className="hidden md:grid md:grid-cols-[56px_1fr_80px_100px_110px_110px_1fr] items-center bg-zinc-100 dark:bg-zinc-900 text-black dark:text-white border-b-4 border-black dark:border-white">
                     <div className={`${headerClass} text-center`}>{translate("rank")}</div>
                     <div className={`${headerClass}`}>{translate("stockName")}</div>
                     <div className={`${headerClass} text-center`}>{translate("aiScore")}</div>
                     <div className={`${headerClass} text-center`}>{translate("signal")}</div>
                     <div className={`${headerClass} text-center`}>{isAr ? "الحالة" : "Status"}</div>
+                    <div className={`${headerClass} text-center`}>
+                        <span
+                            className="inline-flex items-center gap-0.5 cursor-pointer"
+                            onClick={(e) => { e.stopPropagation(); handleHeaderClick("created_at"); }}
+                        >
+                            {isAr ? "تاريخ الإصدار" : "Issued"}
+                            {renderSortIcon("created_at")}
+                        </span>
+                    </div>
                     <div className={`${headerClass}`}>{translate("sector")}</div>
                 </div>
 
                 <div className="flex flex-col">
                     {displayRows.map((row, index) => {
                         const rankNum = limit !== Infinity ? index + 1 : (currentPage - 1) * itemsPerPage + index + 1;
-                        if (row.locked === true) {
-                            return (
-                                <div
-                                    key={row.id}
-                                    onClick={handleLockedClick}
-                                    className="cursor-pointer bg-amber-500/5 hover:bg-amber-500/10 border-b-4 border-black dark:border-white last:border-b-0 p-4"
-                                >
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 border-2 border-black dark:border-white bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center font-black font-mono text-sm text-zinc-500">
-                                                {rankNum}
-                                            </div>
-                                            <span className="text-base font-black text-zinc-400 dark:text-zinc-600 select-all tracking-widest">
-                                                {isAr ? "س•••••" : "S•••••"}
-                                            </span>
-                                        </div>
-                                        {renderLockedCell()}
-                                    </div>
-                                    <div className={`mt-3 text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 ${isAr ? "text-right" : "text-left"}`}>
-                                        {isAr ? "توصية حديثة — متاح للبرو فوراً · اضغط للاشتراك" : "Fresh signal — instant with Pro · Tap to subscribe"}
-                                    </div>
-                                </div>
-                            );
-                        }
+                        const landingLocked = row.locked === true;
                         const cInfo = getCountryFlag(row.country, row.exchange);
-                         const aiScoreNum = Number((row.precision * 10).toFixed(0));
+                        const aiScoreNum = Number(((landingLocked ? row.precision ?? 0 : row.precision) * 10).toFixed(0));
+                        const dateStr = row.created_at ? new Date(row.created_at).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
                         const statusLower = row.status?.toLowerCase() || "open";
-                        const rowBgClass =
-                            statusLower === "win"
-                                ? "bg-emerald-500/5 dark:bg-emerald-500/10"
-                                : statusLower === "loss"
-                                ? "bg-rose-500/5 dark:bg-rose-500/10"
-                                : "";
+                        const rowBgClass = landingLocked
+                            ? "bg-amber-500/5"
+                            : statusLower === "win"
+                            ? "bg-emerald-500/5 dark:bg-emerald-500/10"
+                            : statusLower === "loss"
+                            ? "bg-rose-500/5 dark:bg-rose-500/10"
+                            : "";
 
                         return (
                             <div
                                 key={row.id}
                                 onClick={(e) => {
                                     e.stopPropagation();
+                                    if (landingLocked) {
+                                        handleLockedClick(e);
+                                        return;
+                                    }
                                     handleStockClick(row);
                                 }}
                                 className={`group cursor-pointer transition-all duration-150 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${rowBgClass} border-b-4 border-black dark:border-white last:border-b-0`}
@@ -787,23 +830,33 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             <div className="w-8 h-8 border-2 border-black dark:border-white neobrutal-bg-yellow flex items-center justify-center font-black font-mono text-sm text-black">
                                                 {rankNum}
                                             </div>
-                                            <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="md" />
+                                            {landingLocked ? (
+                                                <div className="w-8 h-8 border-2 border-dashed border-amber-500/60 flex items-center justify-center bg-amber-500/10">
+                                                    <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                                                </div>
+                                            ) : (
+                                                <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="md" />
+                                            )}
                                             <div className="flex flex-col">
                                                 <div className="flex items-center gap-1.5">
-                                                    <span className="text-base font-black text-indigo-600 dark:text-indigo-400">{row.symbol}</span>
-                                                    {isShariaCompliant(row.symbol) && (
+                                                    {landingLocked ? (
+                                                        <span className="text-base font-black text-amber-600 dark:text-amber-400 select-none tracking-widest">{isAr ? "اسم مشفر" : "ENCRYPTED"}</span>
+                                                    ) : (
+                                                        <span className="text-base font-black text-indigo-600 dark:text-indigo-400">{row.symbol}</span>
+                                                    )}
+                                                    {!landingLocked && isShariaCompliant(row.symbol) && (
                                                         <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 border border-black dark:border-white bg-emerald-400 text-black text-[8px] font-black uppercase tracking-wider shadow-[1px_1px_0px_rgba(0,0,0,1)] dark:shadow-[1px_1px_0px_rgba(255,255,255,1)]">
                                                             <ShieldCheck className="w-2.5 h-2.5" />
                                                             {translate("halal")}
                                                         </span>
                                                     )}
                                                 </div>
-                                                <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[140px]" title={row.name}>
-                                                    {row.name}
+                                                <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[140px]">
+                                                    {landingLocked ? (isAr ? "متاح للبرو فوراً · اضغط للاشتراك" : "Instant with Pro · tap to subscribe") : row.name}
                                                 </span>
                                             </div>
                                         </div>
-                                         {row.anonymous ? <span className="text-xs font-black text-zinc-500">—</span> : renderCircularScore(aiScoreNum, "AI")}
+                                         {(row.anonymous || landingLocked) ? <span className="text-xs font-black text-zinc-500">—</span> : renderCircularScore(aiScoreNum, "AI")}
                                     </div>
                                     <div className="flex items-center justify-between flex-wrap gap-3">
                                         <div className="flex items-center gap-2">
@@ -813,33 +866,45 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <div className="flex items-center gap-1.5 text-xs font-black text-zinc-500 uppercase">
                                             <span className="text-lg leading-none">{cInfo.flag}</span>
                                             <span className="truncate max-w-[110px]">{row.sector || "N/A"}</span>
+                                            <span className="text-[10px] font-bold font-mono normal-case ms-1">{dateStr}</span>
                                         </div>
                                     </div>
                                 </div>
 
                                 {/* Desktop row */}
-                                <div className="hidden md:grid md:grid-cols-[56px_1fr_80px_100px_110px_1fr] items-center px-4 py-3">
+                                <div className="hidden md:grid md:grid-cols-[56px_1fr_80px_100px_110px_110px_1fr] items-center px-4 py-3">
                                     <div className="text-center font-black font-mono text-zinc-500 text-sm">{rankNum}</div>
                                     <div className="flex items-center gap-3">
-                                        <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="md" />
+                                        {landingLocked ? (
+                                            <div className="w-8 h-8 border-2 border-dashed border-amber-500/60 flex items-center justify-center bg-amber-500/10">
+                                                <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                                            </div>
+                                        ) : (
+                                            <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="md" />
+                                        )}
                                         <div className="flex flex-col">
                                             <div className="flex items-center gap-1.5">
-                                                <span className="text-base font-black text-indigo-600 dark:text-indigo-400 hover:underline">{row.symbol}</span>
-                                                {isShariaCompliant(row.symbol) && (
+                                                {landingLocked ? (
+                                                    <span className="text-base font-black text-amber-600 dark:text-amber-400 select-none tracking-widest">{isAr ? "اسم مشفر" : "ENCRYPTED"}</span>
+                                                ) : (
+                                                    <span className="text-base font-black text-indigo-600 dark:text-indigo-400 hover:underline">{row.symbol}</span>
+                                                )}
+                                                {!landingLocked && isShariaCompliant(row.symbol) && (
                                                     <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 border border-black dark:border-white bg-emerald-400 text-black text-[8px] font-black uppercase tracking-wider shadow-[1px_1px_0px_rgba(0,0,0,1)] dark:shadow-[1px_1px_0px_rgba(255,255,255,1)]">
                                                         <ShieldCheck className="w-2.5 h-2.5" />
                                                         {translate("halal")}
                                                     </span>
                                                 )}
                                             </div>
-                                            <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[200px]" title={row.name}>
-                                                {row.name}
+                                            <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[200px]">
+                                                {landingLocked ? (isAr ? "متاح للبرو فوراً · اضغط للاشتراك" : "Instant with Pro · tap to subscribe") : row.name}
                                             </span>
                                         </div>
                                     </div>
-                                     <div className="flex justify-center">{row.anonymous ? <span className="text-xs font-black text-zinc-500">—</span> : renderCircularScore(aiScoreNum, "AI")}</div>
+                                     <div className="flex justify-center">{(row.anonymous || landingLocked) ? <span className="text-xs font-black text-zinc-500">—</span> : renderCircularScore(aiScoreNum, "AI")}</div>
                                     <div className="flex justify-center">{renderSignalBadge(row)}</div>
                                     <div className="flex justify-center">{getStatusBadge(row.status || "open", isAnonymousView ? null : row.profit_loss_pct)}</div>
+                                    <div className="flex justify-center text-[11px] font-bold font-mono text-zinc-500 dark:text-zinc-400 whitespace-nowrap">{dateStr}</div>
                                     <div className="text-xs font-black uppercase text-zinc-500 flex items-center gap-1.5">
                                         <span className="text-lg leading-none">{cInfo.flag}</span>
                                         <span className="truncate">{row.sector || "N/A"}</span>
@@ -1884,6 +1949,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             {/* Dialog */}
             {renderDialog()}
 
+            {renderLockedUpsellModal()}
+
             {/* Share Dialog */}
             {renderShareDialog()}
 
@@ -2240,43 +2307,14 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <div className="md:hidden flex flex-col divide-y-4 divide-black dark:divide-white">
                             {displayRows.map((row, index) => {
                                 const rankNum = limit !== Infinity ? index + 1 : (currentPage - 1) * itemsPerPage + index + 1;
-                                if (row.locked === true) {
-                                    return (
-                                        <div
-                                            key={row.id}
-                                            onClick={handleLockedClick}
-                                            className="cursor-pointer p-4 space-y-3 bg-amber-500/5"
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 border-2 border-black dark:border-white bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center font-black font-mono text-sm text-zinc-500">
-                                                    {rankNum}
-                                                </div>
-                                                <div className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center">
-                                                    <Lock className="w-4 h-4 text-zinc-400" />
-                                                </div>
-                                                <div className="flex flex-col">
-                                                    <span className="text-base font-black text-zinc-400 dark:text-zinc-600 select-all tracking-widest">
-                                                        {isAr ? "س•••••" : "S•••••"}
-                                                    </span>
-                                                    <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium">
-                                                        {row.created_at ? new Date(row.created_at).toLocaleDateString(isAr ? "ar-EG" : "en-US") : ""}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center justify-between flex-wrap gap-3">
-                                                {renderLockedCell()}
-                                                <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase">
-                                                    {isAr ? "اضغط للترقية إلى Pro" : "Tap to upgrade to Pro"}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    );
-                                }
-                                const aiScoreNum = Number((row.precision * 10).toFixed(0));
+                                const locked = row.locked === true;
+                                const aiScoreNum = Number(((locked ? row.precision ?? 0 : row.precision) * 10).toFixed(0));
                                 const cInfo = getCountryFlag(row.country, row.exchange);
                                 const statusLower = row.status?.toLowerCase() || "open";
                                 let rowBgClass = "";
-                                if (statusLower === "win") {
+                                if (locked) {
+                                    rowBgClass = "bg-amber-500/5";
+                                } else if (statusLower === "win") {
                                     rowBgClass = "bg-emerald-500/5 dark:bg-emerald-500/10 hover:bg-emerald-500/10 dark:hover:bg-emerald-500/20";
                                 } else if (statusLower === "loss") {
                                     rowBgClass = "bg-rose-500/5 dark:bg-rose-500/10 hover:bg-rose-500/10 dark:hover:bg-rose-500/20";
@@ -2289,6 +2327,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         key={row.id}
                                         onClick={(e) => {
                                             e.stopPropagation();
+                                            if (locked) { handleLockedClick(e); return; }
                                             handleStockClick(row);
                                         }}
                                         className={`group cursor-pointer transition-all duration-150 ${rowBgClass} p-4 space-y-4`}
@@ -2298,20 +2337,36 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                 <div className="w-8 h-8 border-2 border-black dark:border-white neobrutal-bg-yellow flex items-center justify-center font-black font-mono text-sm text-black">
                                                     {rankNum}
                                                 </div>
-                                                <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="md" />
+                                                {locked ? (
+                                                    <div className="w-8 h-8 border-2 border-dashed border-amber-500/60 flex items-center justify-center bg-amber-500/10">
+                                                        <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                                                    </div>
+                                                ) : (
+                                                    <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="md" />
+                                                )}
                                                 <div className="flex flex-col">
                                                     <div className="flex items-center gap-1.5">
-                                                        <span className="text-base font-black text-indigo-600 dark:text-indigo-400">{row.symbol}</span>
-                                                        {isShariaCompliant(row.symbol) && (
+                                                        {locked ? (
+                                                            <span className="text-base font-black text-amber-600 dark:text-amber-400 select-none tracking-widest">{isAr ? "اسم مشفر" : "ENCRYPTED"}</span>
+                                                        ) : (
+                                                            <span className="text-base font-black text-indigo-600 dark:text-indigo-400">{row.symbol}</span>
+                                                        )}
+                                                        {!locked && isShariaCompliant(row.symbol) && (
                                                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 border border-black dark:border-white bg-emerald-400 text-black text-[8px] font-black uppercase tracking-wider shadow-[1px_1px_0px_rgba(0,0,0,1)] dark:shadow-[1px_1px_0px_rgba(255,255,255,1)]">
                                                                 <ShieldCheck className="w-2.5 h-2.5" />
                                                                 {translate("halal")}
                                                             </span>
                                                         )}
                                                     </div>
-                                                    <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[140px]" title={row.name}>
-                                                        {row.name}
-                                                    </span>
+                                                    {locked ? (
+                                                        <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium select-none">
+                                                            {isAr ? "متاح للبرو فوراً · اضغط للاشتراك" : "Instant with Pro · tap to subscribe"}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[140px]" title={row.name}>
+                                                            {row.name}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
                                             {renderCircularScore(aiScoreNum, "AI")}
@@ -2319,11 +2374,23 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <div className="flex items-center justify-between flex-wrap gap-3">
                                             <div className="flex items-center gap-2">
                                                 {renderSignalBadge(row)}
-                                                {getStatusBadge(row.status || "open", row.profit_loss_pct)}
+                                                {locked ? (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/10 text-amber-500 border border-amber-500/30">
+                                                        <Lock className="w-3 h-3" />
+                                                        {isAr ? "مقفلة" : "LOCKED"}
+                                                    </span>
+                                                ) : (
+                                                    getStatusBadge(row.status || "open", row.profit_loss_pct)
+                                                )}
                                             </div>
                                             <div className="flex items-center gap-1.5 text-xs font-black text-zinc-500 uppercase">
                                                 <span className="text-lg leading-none">{cInfo.flag}</span>
                                                 <span className="truncate max-w-[110px]">{row.sector || "N/A"}</span>
+                                                {row.created_at && (
+                                                    <span className="text-[10px] font-bold font-mono text-zinc-500 dark:text-zinc-400 normal-case ms-1" title={isAr ? "تاريخ الإصدار" : "Issue date"}>
+                                                        {new Date(row.created_at).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                         {user && (
@@ -2334,6 +2401,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                 {renderCircularScore(getLowRiskScore(row), "Risk")}
                                             </div>
                                         )}
+                                        {!locked && (
                                         <div className="flex justify-end pt-2 border-t border-zinc-200 dark:border-zinc-800">
                                             <button
                                                 onClick={(e) => {
@@ -2346,6 +2414,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                 {translate("shareTrade")}
                                             </button>
                                         </div>
+                                        )}
                                     </div>
                                 );
                             })}
@@ -2353,7 +2422,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
                         {/* Desktop Table View */}
                         <div className="hidden md:block overflow-x-auto w-full">
-                            <table className="w-full min-w-[1150px] text-left border-collapse whitespace-nowrap lg:whitespace-normal">
+                            <table className="w-full min-w-[1250px] text-left border-collapse whitespace-nowrap lg:whitespace-normal">
                             <thead>
                                 <tr className="text-xs font-black uppercase tracking-wider text-black dark:text-white select-none">
                                     <th 
@@ -2425,12 +2494,18 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     <th className="hidden md:table-cell bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center">
                                         {translate("lowRisk")}
                                     </th>
-                                    <th className="bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-28 text-center">
-                                        {isAr ? "الحالة" : "Status"}
+                                    <th 
+                                        onClick={() => handleHeaderClick("profit_loss_pct")}
+                                        className="bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-28 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                    >
+                                        <div className="flex items-center justify-center gap-1">
+                                            {isAr ? "الحالة" : "Status"}
+                                            {renderSortIcon("profit_loss_pct")}
+                                        </div>
                                     </th>
                                     <th 
                                         onClick={() => handleHeaderClick("created_at")}
-                                        className="bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-28 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                        className="bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-6 py-4 w-28 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
                                     >
                                         <div className="flex items-center justify-center gap-1">
                                             {isAr ? "تاريخ الإصدار" : "Issued"}
@@ -2457,35 +2532,81 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                 className="group transition-all duration-150 text-sm cursor-pointer bg-amber-500/5 hover:bg-amber-500/10"
                                             >
                                                 <td className="px-4 py-4 text-center font-black font-mono text-zinc-500">{rankNum}</td>
-                                                <td className="px-6 py-4">
+                                                <td className="px-6 py-4 font-black">
                                                     <div className="flex items-center gap-3">
                                                         <div className="w-8 h-8 border-2 border-dashed border-amber-500/60 flex items-center justify-center bg-amber-500/10">
                                                             <Lock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                                                         </div>
                                                         <div className="flex flex-col">
-                                                            <span className="text-base font-black text-zinc-400 dark:text-zinc-600 select-all tracking-widest">
-                                                                {isAr ? "س•••••" : "S•••••"}
-                                                            </span>
-                                                            <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium">
-                                                                {isAr ? `تاريخ الإصدار: ${row.created_at ? new Date(row.created_at).toLocaleDateString("ar-EG") : ""}` : `Issued: ${row.created_at ? new Date(row.created_at).toLocaleDateString("en-US") : ""}`}
+                                                            <div className="flex items-center gap-1.5">
+                                                                <span className="text-base text-amber-600 dark:text-amber-400 select-none tracking-widest" title={isAr ? "اسم السهم مشفر — متاح للبرو" : "Stock name encrypted — unlock with Pro"}>
+                                                                    {isAr ? "••••••" : "••••••"}
+                                                                </span>
+                                                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 border border-black dark:border-white bg-amber-300 text-black text-[8px] font-black uppercase tracking-wider shadow-[1px_1px_0px_rgba(0,0,0,1)] dark:shadow-[1px_1px_0px_rgba(255,255,255,1)]">
+                                                                    <Lock className="w-2.5 h-2.5" />
+                                                                    {isAr ? "برو" : "PRO"}
+                                                                </span>
+                                                            </div>
+                                                            <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium select-none">
+                                                                {isAr ? "اسم السهم مشفر — اضغط للاشتراك" : "Name encrypted — tap to subscribe"}
                                                             </span>
                                                         </div>
                                                     </div>
                                                 </td>
-                                                <td className="hidden md:table-cell px-6 py-4 text-center text-amber-600 dark:text-amber-400 text-xs font-black uppercase">{isAr ? "مقفلة" : "Locked"}</td>
-                                                <td className="px-4 py-4 text-center">{renderLockedCell()}</td>
-                                                <td className="px-4 py-4 text-center"></td>
+                                                <td className="hidden md:table-cell px-6 py-4 text-center">
+                                                    <div className="flex items-center justify-center gap-1.5" title={cInfo.name}>
+                                                        <span className="text-lg leading-none">{cInfo.flag}</span>
+                                                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">{row.exchange}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 py-4 text-center">
+                                                    {(() => {
+                                                        const lockedScore = Number(((row.precision ?? 0) * 10).toFixed(0));
+                                                        return lockedScore > 0 ? renderCircularScore(lockedScore, "AI") : <span className="text-xs font-black text-zinc-500">—</span>;
+                                                    })()}
+                                                </td>
+                                                <td className="px-4 py-4 text-center">
+                                                    {String(row.signal).toUpperCase() === "BUY" ? (
+                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 border-2 border-black font-black text-xs bg-emerald-100 text-emerald-800 shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+                                                            <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+                                                            {translate("buy")}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 border-2 border-black font-black text-xs bg-rose-100 text-rose-800 shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+                                                            <TrendingDown className="w-3.5 h-3.5 shrink-0" />
+                                                            {translate("sell")}
+                                                        </span>
+                                                    )}
+                                                </td>
                                                 {user && (
                                                     <>
-                                                        <td className="hidden md:table-cell px-4 py-4 text-center"></td>
-                                                        <td className="hidden md:table-cell px-4 py-4 text-center"></td>
-                                                        <td className="hidden md:table-cell px-4 py-4 text-center"></td>
+                                                        <td className="hidden md:table-cell px-4 py-4 text-center">
+                                                            {renderCircularScore(row.technical_score || 5, "Tech")}
+                                                        </td>
+                                                        <td className="hidden md:table-cell px-4 py-4 text-center">
+                                                            {renderCircularScore(row.fundamental_score || 5, "Fund")}
+                                                        </td>
+                                                        <td className="hidden md:table-cell px-4 py-4 text-center">
+                                                            {renderCircularScore(row.sentiment_score || 5, "Sent")}
+                                                        </td>
                                                     </>
                                                 )}
-                                                <td className="hidden md:table-cell px-4 py-4 text-center"></td>
-                                                <td className="px-4 py-4 text-center text-amber-600 dark:text-amber-400 text-[10px] font-black">{isAr ? "للبرو فقط" : "Pro only"}</td>
-                                                <td className="px-4 py-4"></td>
-                                                <td className="hidden lg:table-cell px-6 py-4"></td>
+                                                <td className="hidden md:table-cell px-4 py-4 text-center">
+                                                    {renderCircularScore(getLowRiskScore(row), "Risk")}
+                                                </td>
+                                                <td className="px-4 py-4 text-center">
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/10 text-amber-500 border border-amber-500/30">
+                                                        <Lock className="w-3 h-3" />
+                                                        {isAr ? "مقفلة" : "LOCKED"}
+                                                    </span>
+                                                </td>
+                                                 <td className="px-4 py-4 text-center text-[11px] font-bold font-mono text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                                                     {row.created_at ? new Date(row.created_at).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
+                                                 </td>
+                                                 <td className="px-4 py-4"></td>
+                                                 <td className="hidden lg:table-cell px-6 py-4 text-xs font-black uppercase text-zinc-500">
+                                                    {row.sector || "N/A"}
+                                                </td>
                                             </tr>
                                         );
                                     }

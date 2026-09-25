@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServiceClient, toNumber } from "@/lib/supabase/route-data";
 import { DAILY_CACHE_TAGS } from "@/lib/cache/daily";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { filterByDelay, hasActiveProSubscription, paymentsEnabled } from "@/lib/ai/plan-gate";
+import { getViewerContext } from "@/lib/supabase/viewer-context";
+import { filterByDelay, paymentsEnabled } from "@/lib/ai/plan-gate";
+
+/** Recommendations with a safety rate above this are Pro-only too. */
+const PRO_SAFETY_THRESHOLD = 8;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,19 +22,11 @@ export async function GET(req: NextRequest) {
   
   try {
     const supabase = getSupabaseServiceClient({ cacheMarketData: true });
-    let authenticated = false;
-    let pro = false;
-    try {
-      const auth = createSupabaseServerClient(req);
-      const { data: { user } } = await auth.auth.getUser();
-      authenticated = Boolean(user);
-      if (user && paymentsEnabled()) {
-        const { data: subs } = await auth.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", user.id);
-        pro = hasActiveProSubscription(subs || []);
-      }
-    } catch { /* unauthenticated users are always delayed */ }
-
-    const delayedVisibility = !authenticated || (paymentsEnabled() && !pro);
+    // Session + plan now resolve through in-memory freshness windows instead
+    // of a Supabase auth round trip on every page view.
+    const { authenticated, pro } = await getViewerContext(req);
+    const payments = paymentsEnabled();
+    const delayedVisibility = !authenticated || (payments && !pro);
     const delayDays = Number(process.env.FREE_SIGNAL_DELAY_DAYS || 15) || 15;
     const cutoffTime = Date.now() - delayDays * 24 * 60 * 60 * 1000;
     // Minute/millisecond-specific cutoffs would defeat shared query reuse.
@@ -71,10 +66,21 @@ export async function GET(req: NextRequest) {
     if (error) throw error;
 
     let visibleData = data || [];
+    // Safety rate mirrors the client's low-risk score (1-10, stop distance);
+    // picks above the Pro threshold are Pro-only regardless of age.
+    const safetyRateOf = (row: Record<string, unknown>) => {
+      const lastClose = toNumber(row.last_close, 0);
+      const stopLoss = toNumber(row.stop_loss, 0);
+      if (!stopLoss || !lastClose) return 0;
+      const distPct = Math.abs((lastClose - stopLoss) / lastClose);
+      return Math.max(1, Math.min(10, Math.round(10 - distPct * 20)));
+    };
     // Anonymous visitors must never receive today's recommendations, even when
     // billing is disabled for the rest of the authenticated platform.
+    // High-safety picks are Pro-only content and are withheld from anonymous
+    // requests entirely (locked placeholders render for signed-in Free only).
     if (!authenticated) {
-      visibleData = filterByDelay(visibleData, delayDays);
+      visibleData = filterByDelay(visibleData, delayDays).filter((row: Record<string, unknown>) => safetyRateOf(row) <= PRO_SAFETY_THRESHOLD);
     }
 
     const symbols = Array.from(new Set(visibleData.map((row: Record<string, unknown>) => String(row.symbol || "")).filter(Boolean)));
@@ -90,12 +96,14 @@ export async function GET(req: NextRequest) {
     ]));
 
     const results = visibleData.map((row: Record<string, unknown>) => {
-      // Authenticated Free users receive every row, but anything newer than
-      // the delay window keeps its identity hidden: no symbol, company name,
-      // logo or prices. Scores, signal, status and dates stay visible so the
-      // locked rows render like real recommendations with an encrypted name.
+      // Free users receive every row, but fresh signals (delay window) and
+      // high-safety picks are Pro-only: identity stays hidden — no symbol,
+      // company name, logo or prices. Scores, signal, status and dates stay
+      // visible so locked rows render like real recommendations with an
+      // encrypted name.
       const createdMs = row.created_at ? new Date(String(row.created_at)).getTime() : Number.NaN;
-      const locked = authenticated && delayedVisibility && (!Number.isFinite(createdMs) || createdMs > cutoffTime);
+      const fresh = !Number.isFinite(createdMs) || createdMs > cutoffTime;
+      const locked = authenticated && delayedVisibility && (fresh || safetyRateOf(row) > PRO_SAFETY_THRESHOLD);
       if (locked) {
         return {
           id: row.id,
@@ -104,6 +112,9 @@ export async function GET(req: NextRequest) {
           status: row.status || "open",
           exchange: row.exchange || null,
           precision: toNumber(row.precision, 0),
+          // Prices are withheld, so the client cannot recompute the low-risk
+          // score — send the value the row was gated on.
+          safety_rate: safetyRateOf(row) || null,
           created_at: row.created_at,
           updated_at: row.updated_at || row.created_at,
           sector: sectorMap.get(String(row.symbol)) || "General",
