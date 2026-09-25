@@ -13,7 +13,14 @@ from uuid import UUID, uuid4
 import requests
 
 from api.stock_ai import _init_supabase, supabase
-from api.payment_common import activate_subscription, is_payments_enabled, plan_amount_egp
+from api.payment_common import (
+    activate_subscription,
+    billing_settings,
+    is_payments_enabled,
+    plan_amount_egp,
+    pro_discount,
+    pro_regular_amount_egp,
+)
 from api.telegram_pro_invites import ensure_pro_invite
 
 
@@ -37,8 +44,8 @@ _EASYKASH_INSTALLMENT_OPTIONS = [
     34,  # Forsa
 ]
 _PLANS = {"pro": 30, "pro_6m": 180, "pro_1y": 365}
-if os.getenv("ENABLE_PAYMENT_TEST_PLAN", "false").strip().lower() in {"1", "true", "yes", "on"}:
-    _PLANS["pro_test"] = int(os.getenv("PRO_TEST_DAYS", "1"))
+
+
 def _hosted_checkout_url(value: Any) -> str:
     """Accept only EasyKash hosted payment links and avoid its www redirect hop."""
     if not isinstance(value, str):
@@ -74,13 +81,28 @@ def is_easykash_ready() -> bool:
 
 def payment_config() -> Dict[str, Any]:
     enabled = is_payments_enabled() and is_easykash_ready()
+    discount = pro_discount()
+    settings = billing_settings()
+    monthly = {
+        "id": "pro",
+        "name_ar": "شهري",
+        "name_en": "Monthly",
+        "amount_egp": int(plan_amount_egp("pro")),
+        "days": 30,
+    }
+    if discount["active"]:
+        monthly["discount"] = {
+            "active": True,
+            "label_ar": str(settings.get("discount_label_ar") or "عرض محدود"),
+            "label_en": str(settings.get("discount_label_en") or "Limited offer"),
+            "original_amount_egp": int(pro_regular_amount_egp()),
+            "ends_at": discount["ends_at"],
+        }
     plans = [
-        {"id": "pro", "name_ar": "شهري", "name_en": "Monthly", "amount_egp": int(plan_amount_egp("pro")), "days": 30},
+        monthly,
         {"id": "pro_6m", "name_ar": "6 شهور", "name_en": "6 Months", "amount_egp": int(plan_amount_egp("pro_6m")), "days": 180},
         {"id": "pro_1y", "name_ar": "سنة", "name_en": "1 Year", "amount_egp": int(plan_amount_egp("pro_1y")), "days": 365},
     ]
-    if "pro_test" in _PLANS:
-        plans.insert(0, {"id": "pro_test", "name_ar": "اختبار بوابة الدفع", "name_en": "Payment Test", "amount_egp": int(plan_amount_egp("pro_test")), "days": _PLANS["pro_test"]})
     return {
         "enabled": enabled,
         "mode": "easykash" if enabled else "disabled",

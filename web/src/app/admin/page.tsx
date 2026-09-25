@@ -22,6 +22,8 @@ import HistoricalSimilarityTab from "./components/HistoricalSimilarityTab";
 import DailyJobsTab from "./components/DailyJobsTab";
 import UsersTab from "./components/UsersTab";
 import AIChatbotTab from "./components/AIChatbotTab";
+import BillingTab from "./components/BillingTab";
+
 
 const SESSION_KEY = "admin_unlocked_v1";
 
@@ -50,7 +52,7 @@ export default function AdminPage() {
     const [pageSize, setPageSize] = useState(100);
     // Opening Admin is normally for Chatbot/User review. Keep the large data
     // manager dormant until an administrator explicitly requests it.
-    const [activeMainTab, setActiveMainTab] = useState<"data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "support">("support");
+    const [activeMainTab, setActiveMainTab] = useState<"data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "support" | "billing">("support");
     const [dataLoaded, setDataLoaded] = useState(false);
     const [dataSourcesTab, setDataSourcesTab] = useState<"prices" | "funds">("prices");
     const [selectedSymbols, setSelectedSymbols] = useState<Set<string>>(new Set());
@@ -594,6 +596,8 @@ export default function AdminPage() {
                     <UsersTab />
                 ) : activeMainTab === "support" ? (
                     <AIChatbotTab />
+                ) : activeMainTab === "billing" ? (
+                    <BillingTab />
                 ) : (
                     <div className="flex items-center justify-center h-full text-zinc-500">
                         Select a tab to view content

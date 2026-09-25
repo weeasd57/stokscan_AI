@@ -1,10 +1,10 @@
 "use client";
 
-import { Brain, Database, Bot, LineChart, History, Sparkles, Clock, Users, MessageSquare, Send } from "lucide-react";
+import { Brain, Database, Bot, LineChart, History, Sparkles, Clock, Users, MessageSquare, Send, CreditCard } from "lucide-react";
 
 interface AdminHeaderProps {
-    activeMainTab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "support";
-    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "support") => void;
+    activeMainTab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "support" | "billing";
+    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "support" | "billing") => void;
 }
 
 export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHeaderProps) {
@@ -18,6 +18,7 @@ export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHe
         { id: "schedule", label: "TELEGRAM", icon: Send, color: "amber" },
         { id: "users", label: "USERS", icon: Users, color: "blue" },
         { id: "support", label: "SUPPORT & AI", icon: MessageSquare, color: "pink" },
+        { id: "billing", label: "BILLING", icon: CreditCard, color: "teal" },
     ] as const;
 
     const getTabColorClasses = (color: string, isActive: boolean) => {

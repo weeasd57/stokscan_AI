@@ -103,7 +103,7 @@ describe("VIP Telegram invitation route", () => {
     global.fetch = fetchMock as any;
 
     await GET();
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("https://public-backend.example.test/payment/local/status"), expect.any(Object));
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("https://public-backend.example.test/payment/easykash/status"), expect.any(Object));
   });
 
   it("never displays an expired invite as a working VIP link", async () => {

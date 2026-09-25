@@ -199,9 +199,9 @@ export default function PricingClient() {
     );
   }
 
-  const monthlyPrice = Number(localConfig?.plans?.find((item: any) => item.id === "pro")?.amount_egp ?? 200);
+  const monthlyDiscount = localConfig?.plans?.find((item: any) => item.id === "pro")?.discount || null;
+  const monthlyPrice = Number(monthlyDiscount?.original_amount_egp ?? localConfig?.plans?.find((item: any) => item.id === "pro")?.amount_egp ?? 200);
   const paidPlans = [
-    ...(localConfig?.plans?.some((item: any) => item.id === "pro_test") ? [{ id: "pro_test", name_ar: "اختبار بوابة الدفع", name_en: "Payment Test", days: 1, amount_egp: 5, badge: isAr ? "اختبار فقط" : "Test only" }] : []),
     { id: "pro", name_ar: "شهر واحد", name_en: "1 Month", days: 30, amount_egp: 200, badge: null },
     { id: "pro_6m", name_ar: "6 شهور", name_en: "6 Months", days: 180, amount_egp: 1000, badge: isAr ? "الأكثر طلباً ⭐" : "Most Popular ⭐" },
     { id: "pro_1y", name_ar: "سنة كاملة", name_en: "1 Year", days: 365, amount_egp: 1800, badge: isAr ? "أكبر توفير 💎" : "Max Value 💎" },
@@ -693,6 +693,7 @@ export default function PricingClient() {
           {paidPlans.map((plan) => {
             const isFeatured = plan.id === "pro_6m";
             const isMax = plan.id === "pro_1y";
+            const planDiscount = plan.id === "pro" && monthlyDiscount?.active ? monthlyDiscount : null;
             return (
               <div
                 key={plan.id}
@@ -703,10 +704,10 @@ export default function PricingClient() {
                 }`}
               >
                 {/* Top Badge */}
-                {plan.badge && (
+                {(planDiscount || plan.badge) && (
                   <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                    <span className="border-2 border-black dark:border-white bg-emerald-500 text-white text-[10px] font-black uppercase px-3 py-0.5 tracking-wider shadow-[2px_2px_0px_rgba(0,0,0,1)]">
-                      {plan.badge}
+                    <span className="border-2 border-black dark:border-white bg-amber-300 text-black text-[10px] font-black uppercase px-3 py-0.5 tracking-wider shadow-[2px_2px_0px_rgba(0,0,0,1)] whitespace-nowrap">
+                      {planDiscount ? (isAr ? planDiscount.label_ar || "عرض محدود" : planDiscount.label_en || "Limited offer") : plan.badge}
                     </span>
                   </div>
                 )}
@@ -730,6 +731,11 @@ export default function PricingClient() {
                     <div className="flex items-baseline gap-1">
                       <span className="text-4xl font-black text-zinc-950 dark:text-white">{plan.amount_egp}</span>
                       <span className="text-xs font-bold text-zinc-500">ج.م</span>
+                      {planDiscount && (
+                        <span className="ms-1 text-lg font-black text-zinc-400 line-through">
+                          {planDiscount.original_amount_egp}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">
