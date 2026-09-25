@@ -83,6 +83,7 @@ async function persistInvite(
 async function recoverInviteFromPaymentService(
   service: ReturnType<typeof getSupabaseServiceClient>,
   userId: string,
+  accessToken: string,
 ): Promise<string> {
   const backendUrl = (
     process.env.PYTHON_BACKEND_URL ||
@@ -104,7 +105,7 @@ async function recoverInviteFromPaymentService(
   try {
     const response = await fetch(
       `${backendUrl}/payment/easykash/status?order_id=${encodeURIComponent(orders[0].id)}&user_id=${encodeURIComponent(userId)}`,
-      { cache: "no-store", signal: AbortSignal.timeout(25_000) },
+      { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store", signal: AbortSignal.timeout(10_000) },
     );
     if (!response.ok) return "";
     const order = await response.json();
@@ -147,7 +148,10 @@ export async function GET() {
     // The payment service owns the persisted invite and has the same Telegram
     // credentials as the approval flow. Prefer it, so a profile refresh does
     // not create a second invite when the browser-facing service is degraded.
-    const recoveredInvite = await recoverInviteFromPaymentService(service, user.id);
+    const { data: { session } } = await supabase.auth.getSession();
+    const recoveredInvite = session?.access_token
+      ? await recoverInviteFromPaymentService(service, user.id, session.access_token)
+      : "";
     const directInvite = recoveredInvite ? "" : await createProTelegramInvite(user.id, subscriptionEnd).catch(() => "");
     const inviteLink = recoveredInvite || directInvite;
     if (inviteLink) {

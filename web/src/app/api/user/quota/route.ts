@@ -33,7 +33,7 @@ export async function GET() {
     const pro = hasActiveProSubscription(subRows || []);
     const activeSub = subRows?.[0];
     const planName = pro ? "pro" : "free";
-    const limits = { ...planLimits(planName), signal_delay_days: pro ? 0 : 15 };
+    const limits = planLimits(planName);
 
     // 2. Chatbot messages used this month
     const monthStart = new Date();

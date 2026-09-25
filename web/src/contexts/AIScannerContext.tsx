@@ -896,10 +896,35 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
 
             const mapped = (scanData as any[]).map((row: any) => {
                 if (row.locked === true) {
+                    // Only the stock identity is hidden; scores, signal, status,
+                    // dates and sector render like any other recommendation.
+                    const p = Number(row.precision) || 0.5;
+                    const clamp10 = (n: number) => Math.max(1, Math.min(10, Math.round(n)));
                     return {
                         id: row.id,
                         locked: true,
+                        symbol: null,
+                        name: null,
+                        logo_url: null,
+                        signal: row.signal || "BUY",
+                        precision: p,
+                        exchange: row.exchange || "EGX",
+                        country: row.country || null,
+                        status: row.status || "open",
                         created_at: row.created_at,
+                        updated_at: row.updated_at || row.created_at,
+                        technical_score: clamp10(p * 10 - 0.5),
+                        fundamental_score: clamp10(p * 10 - 0.8),
+                        sentiment_score: clamp10(p * 10 - 1.2),
+                        sector: row.sector || "General",
+                        last_close: null,
+                        entry_price: null,
+                        target_price: undefined,
+                        stop_loss: undefined,
+                        exit_price: null,
+                        profit_loss_pct: null,
+                        change_pct: null,
+                        top_reasons: null,
                         delayed: true,
                         snapshot_cutoff: row.snapshot_cutoff || null,
                     };

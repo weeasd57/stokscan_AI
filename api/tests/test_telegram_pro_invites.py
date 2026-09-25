@@ -116,8 +116,8 @@ class TelegramProInviteTests(unittest.TestCase):
         payload = {
             "chat_member": {
                 "chat": {"id": -100123},
-                "from": {"id": 555},
-                "new_chat_member": {"status": "member"},
+                "from": {"id": 999},
+                "new_chat_member": {"status": "member", "user": {"id": 555}},
                 "invite_link": {"invite_link": "https://t.me/+vip"},
             }
         }
@@ -125,6 +125,51 @@ class TelegramProInviteTests(unittest.TestCase):
              patch.object(invites, "record_vip_channel_join") as record_join:
             invites.handle_chat_member_update(payload)
         record_join.assert_called_once_with(555, "https://t.me/+vip")
+
+    def test_expired_subscription_does_not_override_active_renewal(self):
+        future = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+        past = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+
+        class Query:
+            def select(self, *args): return self
+            def eq(self, *args): return self
+            def execute(self):
+                return type("Response", (), {"data": [
+                    {"user_id": "renewed", "status": "canceled", "current_period_end": past},
+                    {"user_id": "renewed", "status": "active", "current_period_end": future},
+                    {"user_id": "expired", "status": "active", "current_period_end": past},
+                ]})()
+
+        class FakeSupabase:
+            def table(self, name): return Query()
+
+        with patch.object(invites, "_init_supabase"), patch.object(invites, "supabase", FakeSupabase()):
+            self.assertEqual(set(invites._expired_pro_subscriptions()), {"expired"})
+
+    def test_revocation_does_not_repeat_after_successful_marker(self):
+        past = datetime.now(timezone.utc) - timedelta(days=1)
+
+        class Query:
+            def __init__(self, name): self.name = name
+            def select(self, *args): return self
+            def in_(self, *args): return self
+            def execute(self):
+                rows = {
+                    "profiles": [{"id": "expired", "telegram_chat_id": "123"}],
+                    "pro_telegram_invites": [],
+                    "pro_telegram_revocations": [{"user_id": "expired", "telegram_user_id": 123, "subscription_end": past.isoformat()}],
+                }
+                return type("Response", (), {"data": rows[self.name]})()
+
+        class FakeSupabase:
+            def table(self, name): return Query(name)
+
+        with patch.object(invites, "_expired_pro_subscriptions", return_value={"expired": past}), \
+             patch.object(invites, "_init_supabase"), patch.object(invites, "supabase", FakeSupabase()), \
+             patch.object(invites, "pro_chat_id", return_value="-100123"), \
+             patch.object(invites, "telegram_api") as telegram_api:
+            self.assertEqual(invites.revoke_expired_pro_members(), 0)
+        telegram_api.assert_not_called()
 
 
 if __name__ == "__main__":

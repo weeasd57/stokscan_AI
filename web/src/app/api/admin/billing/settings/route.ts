@@ -38,7 +38,7 @@ function validIsoOrEmpty(value: unknown): string | null {
 function validPriceOrNull(value: unknown): number | null | "__invalid__" {
   if (value === null || value === "" || value === undefined) return null;
   const num = Number(value);
-  if (!Number.isFinite(num) || num < 0) return "__invalid__";
+  if (!Number.isFinite(num) || num <= 0) return "__invalid__";
   return num;
 }
 
@@ -69,6 +69,9 @@ export async function POST(request: Request) {
       if (body.discount_enabled && (discountPrice === null || discountPrice <= 0 || endsAt === null)) {
         return NextResponse.json({ error: "Discount requires a positive price and an end date" }, { status: 400 });
       }
+      if (body.discount_enabled && endsAt && new Date(endsAt).getTime() <= Date.now()) {
+        return NextResponse.json({ error: "Discount end date must be in the future" }, { status: 400 });
+      }
       patch.discount_enabled = body.discount_enabled;
       patch.discount_price_egp = discountPrice;
       patch.discount_ends_at = endsAt;
@@ -80,6 +83,15 @@ export async function POST(request: Request) {
     }
 
     const supabase = getSupabaseAdminClient();
+    if (patch.discount_enabled === true) {
+      const { data: current, error: currentError } = await supabase.from("local_billing_settings")
+        .select("pro_price_egp").eq("id", 1).maybeSingle();
+      if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
+      const regularPrice = Number(patch.pro_price_egp ?? current?.pro_price_egp ?? process.env.PRO_PRICE_EGP ?? 200);
+      if (!Number.isFinite(regularPrice) || Number(patch.discount_price_egp) >= regularPrice) {
+        return NextResponse.json({ error: "Discount price must be below the regular monthly price" }, { status: 400 });
+      }
+    }
     const { data, error } = await supabase.from("local_billing_settings").upsert(patch).select(SELECT_COLS).single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json(data);

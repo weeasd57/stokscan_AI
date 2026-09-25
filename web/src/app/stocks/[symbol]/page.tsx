@@ -1,4 +1,4 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getPublicMarketClient } from "@/lib/supabase/route-data";
 import { notFound } from "next/navigation";
 import StockDetailClient from "./StockDetailClient";
 import { Metadata } from "next";
@@ -12,12 +12,12 @@ interface PageProps {
 // Generate dynamic metadata for SEO search indexers
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const symbol = params.symbol.toUpperCase();
-  const supabase = createSupabaseServerClient();
+  const supabase = getPublicMarketClient();
 
   // Fetch fundamentals
   const { data: fundData } = (await supabase
     .from("stock_fundamentals")
-    .select("data, exchange")
+    .select("*")
     .eq("symbol", symbol)) as any;
 
   const fundRow = fundData?.find((r: any) => r.exchange === "EGX") || fundData?.[0] || null;
@@ -63,7 +63,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function StockDetailPage({ params }: PageProps) {
   const symbol = params.symbol.toUpperCase();
-  const supabase = createSupabaseServerClient();
+  const supabase = getPublicMarketClient();
 
   // 1. Fetch Fundamentals
   const { data: fundData } = (await supabase

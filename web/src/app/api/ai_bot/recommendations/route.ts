@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     "id,batch_id,symbol,exchange,name,last_close,precision,signal,status,entry_price,target_price,stop_loss,is_public,created_at,updated_at,exit_price,profit_loss_pct,top_reasons";
   
   try {
-    const supabase = getSupabaseServiceClient();
+    const supabase = getSupabaseServiceClient({ cacheMarketData: true });
     let authenticated = false;
     let pro = false;
     try {
@@ -34,7 +34,9 @@ export async function GET(req: NextRequest) {
     const delayedVisibility = !authenticated || (paymentsEnabled() && !pro);
     const delayDays = Number(process.env.FREE_SIGNAL_DELAY_DAYS || 15) || 15;
     const cutoffTime = Date.now() - delayDays * 24 * 60 * 60 * 1000;
-    const cutoff = new Date(cutoffTime).toISOString();
+    // Minute/millisecond-specific cutoffs would defeat shared query reuse.
+    // Round down conservatively; filterByDelay still enforces the exact cutoff.
+    const cutoff = new Date(Math.floor(cutoffTime / 86400000) * 86400000).toISOString();
     const applyVisibility = (query: any) => {
       if (!authenticated) {
         return query.eq("status", "open").lt("created_at", cutoff);
@@ -89,15 +91,23 @@ export async function GET(req: NextRequest) {
 
     const results = visibleData.map((row: Record<string, unknown>) => {
       // Authenticated Free users receive every row, but anything newer than
-      // the delay window is returned as a locked placeholder: no symbol, no
-      // scores, no prices — the client renders it encrypted with an upsell.
+      // the delay window keeps its identity hidden: no symbol, company name,
+      // logo or prices. Scores, signal, status and dates stay visible so the
+      // locked rows render like real recommendations with an encrypted name.
       const createdMs = row.created_at ? new Date(String(row.created_at)).getTime() : Number.NaN;
       const locked = authenticated && delayedVisibility && (!Number.isFinite(createdMs) || createdMs > cutoffTime);
       if (locked) {
         return {
           id: row.id,
           locked: true,
+          signal: row.signal || "BUY",
+          status: row.status || "open",
+          exchange: row.exchange || null,
+          precision: toNumber(row.precision, 0),
           created_at: row.created_at,
+          updated_at: row.updated_at || row.created_at,
+          sector: sectorMap.get(String(row.symbol)) || "General",
+          year: row.created_at ? new Date(String(row.created_at)).getFullYear() : null,
           delayed: true,
           snapshot_cutoff: cutoff,
         };

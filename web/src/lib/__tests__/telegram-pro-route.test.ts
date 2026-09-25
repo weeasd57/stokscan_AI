@@ -33,7 +33,10 @@ describe("VIP Telegram invitation route", () => {
     process.env.PYTHON_BACKEND_URL = "https://backend.example.test";
     delete process.env.TRADING_SIGNALS_API_URL;
     delete process.env.NEXT_PUBLIC_API_BASE_URL;
-    auth.mockReturnValue({ auth: { getUser: jest.fn(async () => ({ data: { user: { id: userId } } })) } });
+    auth.mockReturnValue({ auth: {
+      getUser: jest.fn(async () => ({ data: { user: { id: userId } } })),
+      getSession: jest.fn(async () => ({ data: { session: { access_token: "test-user-token" } } })),
+    } });
   });
 
   afterAll(() => {
@@ -68,6 +71,9 @@ describe("VIP Telegram invitation route", () => {
     expect(body.invite_link).toBe("https://t.me/+private-test-invite");
     expect(body.invite_status).toBe("ready");
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("user_id=" + userId), expect.any(Object));
+    expect(fetchMock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      headers: { Authorization: "Bearer test-user-token" },
+    }));
     expect(upsert).toHaveBeenCalled();
   });
 

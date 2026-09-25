@@ -2,8 +2,10 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { invalidateByTag } from "@vercel/functions";
 import { DAILY_CACHE_TAG_VALUES } from "@/lib/cache/daily";
+import { refreshMarketQueries } from "@/lib/cache/market-query-cache";
 
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   return handleRevalidate(req);
@@ -48,6 +50,17 @@ async function handleRevalidate(req: NextRequest) {
   const cdnInvalidated: string[] = [];
 
   try {
+    if (tags.some(tag => !DAILY_CACHE_TAG_VALUES.includes(tag as any))) {
+      return NextResponse.json({ error: "Unknown daily cache tag" }, { status: 400 });
+    }
+    // Refresh first, invalidate responses second. A failure preserves the old
+    // generation and prevents a thundering herd of CDN misses hitting Supabase.
+    const refreshTags = tags.length ? tags : DAILY_CACHE_TAG_VALUES;
+    const eventId = typeof body.event_id === "string" ? body.event_id : new Date().toISOString();
+    if (eventId.length > 100 || !Number.isFinite(Date.parse(eventId))) {
+      return NextResponse.json({ error: "Invalid event_id" }, { status: 400 });
+    }
+    const marketCache = await refreshMarketQueries(refreshTags, eventId);
     if (tags.length > 0) {
       for (const tag of tags) {
         revalidateTag(tag);
@@ -80,6 +93,7 @@ async function handleRevalidate(req: NextRequest) {
       message: "Cache successfully revalidated",
       revalidated,
       cdn_invalidated: cdnInvalidated,
+      market_cache: marketCache,
       timestamp: new Date().toISOString(),
     });
   } catch (err: any) {

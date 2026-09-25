@@ -80,6 +80,8 @@ def is_easykash_ready() -> bool:
 
 
 def payment_config() -> Dict[str, Any]:
+    from api.plan_limits import free_limits, pro_limits
+
     enabled = is_payments_enabled() and is_easykash_ready()
     discount = pro_discount()
     settings = billing_settings()
@@ -109,6 +111,7 @@ def payment_config() -> Dict[str, Any]:
         "provider": "easykash",
         "currency": "EGP",
         "plans": plans,
+        "limits": {"free": free_limits(), "pro": pro_limits()},
     }
 
 

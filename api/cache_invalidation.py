@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 import urllib.error
 import urllib.request
 from typing import Any, Dict, Iterable, List, Optional
@@ -80,7 +81,7 @@ def _revalidate_endpoint() -> Optional[str]:
     return f"{origin}/api/revalidate"
 
 
-def invalidate_daily_cache(steps: List[Dict[str, Any]], timeout: float = 10.0) -> Dict[str, Any]:
+def invalidate_daily_cache(steps: List[Dict[str, Any]], timeout: float = 310.0) -> Dict[str, Any]:
     """Ask Vercel to invalidate the daily cache tags for a completed run."""
     tags = select_cache_tags(steps)
     if not tags:
@@ -93,7 +94,8 @@ def invalidate_daily_cache(steps: List[Dict[str, Any]], timeout: float = 10.0) -
         print("[CACHE] Revalidation skipped: REVALIDATE_URL/WEB_ORIGIN or REVALIDATE_SECRET not configured.")
         return {"invalidated": [], "skipped": True}
 
-    payload = json.dumps({"tags": tags}).encode("utf-8")
+    # Stable across HTTP retries: Vercel stages data before switching generation.
+    payload = json.dumps({"tags": tags, "event_id": datetime.now(timezone.utc).isoformat()}).encode("utf-8")
     request = urllib.request.Request(
         endpoint,
         data=payload,

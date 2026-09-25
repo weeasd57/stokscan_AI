@@ -97,22 +97,8 @@ export async function POST(req: Request) {
       query = query.in('symbol', countrySymbols);
     }
 
-    // Apply primary filters directly in DB query if possible
-    if (rsi_min !== undefined) {
-      query = query.gte('rsi_14', rsi_min);
-    }
-    if (rsi_max !== undefined) {
-      query = query.lte('rsi_14', rsi_max);
-    }
-    if (min_price !== undefined) {
-      query = query.gte('close', min_price);
-    }
-    if (adx_min !== undefined) {
-      query = query.gte('adx_14', adx_min);
-    }
-    if (adx_max !== undefined) {
-      query = query.lte('adx_14', adx_max);
-    }
+    // Read one shared country dataset; slider/filter changes must not create
+    // another Supabase query/cache key. Filter the latest symbol rows below.
 
     let { data: indicators, error } = await query
       .limit(1000) // Fetch a larger pool to allow client-side filters (joins)
@@ -157,11 +143,6 @@ export async function POST(req: Request) {
         fallbackQuery = fallbackQuery.in('symbol', countrySymbols);
       }
 
-      if (rsi_min !== undefined) fallbackQuery = fallbackQuery.gte('rsi_14', rsi_min);
-      if (rsi_max !== undefined) fallbackQuery = fallbackQuery.lte('rsi_14', rsi_max);
-      if (min_price !== undefined) fallbackQuery = fallbackQuery.gte('close', min_price);
-      if (adx_min !== undefined) fallbackQuery = fallbackQuery.gte('adx_14', adx_min);
-      if (adx_max !== undefined) fallbackQuery = fallbackQuery.lte('adx_14', adx_max);
 
       const fallbackResult = await fallbackQuery
         .limit(1000)
@@ -265,6 +246,11 @@ export async function POST(req: Request) {
       const logoUrl = fundData.logoUrl || null;
 
       // Filter in JS
+      if (rsi_min !== undefined && (tech.rsi_14 == null || rsi < rsi_min)) continue;
+      if (rsi_max !== undefined && (tech.rsi_14 == null || rsi > rsi_max)) continue;
+      if (min_price !== undefined && (tech.close == null || close < min_price)) continue;
+      if (adx_min !== undefined && (tech.adx_14 == null || adx14 < adx_min)) continue;
+      if (adx_max !== undefined && (tech.adx_14 == null || adx14 > adx_max)) continue;
       if (above_ema50 && close <= ema50) continue;
       if (below_ema50 && close >= ema50) continue;
       if (above_ema200 && close <= ema200) continue;

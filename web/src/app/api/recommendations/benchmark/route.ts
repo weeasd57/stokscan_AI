@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const supabase = getSupabaseServiceClient();
+    const supabase = getSupabaseServiceClient({ cacheMarketData: true });
     // Include the preceding week so a recommendation opened on a market holiday
     // can be paired with the last available close, subject to a freshness check.
     const queryFrom = new Date(Date.parse(`${from}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);

@@ -67,6 +67,15 @@ export async function POST(req: NextRequest, context: { params: Promise<{ userId
     const inviteLink = inviteRes.data?.invite_link || orderRes.data?.telegram_invite_link || "";
     const telegramUserId = inviteRes.data?.vip_telegram_user_id || profileRes.data?.telegram_chat_id || null;
     const revocation = await revokeProTelegramAccess({ inviteLink, telegramUserId });
+    if (revocation.memberRemoved && telegramUserId && /^\d+$/.test(String(telegramUserId))) {
+      const { error: markerError } = await service.from("pro_telegram_revocations").upsert({
+        user_id: userId,
+        telegram_user_id: Number(telegramUserId),
+        subscription_end: now,
+        revoked_at: now,
+      }, { onConflict: "user_id,telegram_user_id" });
+      if (markerError) console.warn("[admin/users/subscription] VIP revocation marker could not be saved:", markerError.code);
+    }
 
     const [inviteClear, orderInviteClear, pendingOrderReject] = await Promise.all([
       service.from("pro_telegram_invites").update({ invite_link: "", invite_expires_at: now, updated_at: now }).eq("user_id", userId),

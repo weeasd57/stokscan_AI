@@ -2425,13 +2425,16 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     <th className="hidden md:table-cell bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center">
                                         {translate("lowRisk")}
                                     </th>
+                                    <th className="bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-28 text-center">
+                                        {isAr ? "الحالة" : "Status"}
+                                    </th>
                                     <th 
-                                        onClick={() => handleHeaderClick("profit_loss_pct")}
+                                        onClick={() => handleHeaderClick("created_at")}
                                         className="bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-28 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
                                     >
                                         <div className="flex items-center justify-center gap-1">
-                                            {isAr ? "الحالة" : "Status"}
-                                            {renderSortIcon("profit_loss_pct")}
+                                            {isAr ? "تاريخ الإصدار" : "Issued"}
+                                            {renderSortIcon("created_at")}
                                         </div>
                                     </th>
                                     <th className="bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-20 text-center select-none">
@@ -2594,6 +2597,11 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             {/* Status */}
                                             <td className="px-4 py-4 text-center">
                                                 {getStatusBadge(row.status || "open", row.profit_loss_pct)}
+                                            </td>
+
+                                            {/* Issue date */}
+                                            <td className="px-4 py-4 text-center text-[11px] font-bold font-mono text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+                                                {row.created_at ? new Date(row.created_at).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
                                             </td>
 
                                             {/* Share Action */}

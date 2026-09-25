@@ -17,7 +17,7 @@ function finite(value: unknown): number | null {
 
 export async function GET() {
   try {
-    const supabase = getSupabaseServiceClient();
+    const supabase = getSupabaseServiceClient({ cacheMarketData: true });
     const { data: latestRows, error: latestError } = await supabase
       .from("stock_technical_indicators")
       .select("date")

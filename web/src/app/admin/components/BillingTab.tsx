@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 interface BillingSettings {
@@ -22,6 +22,11 @@ interface LivePlan {
     discount?: { active: boolean; ends_at: string; original_amount_egp: number };
 }
 
+interface PlanLimits {
+    free?: { signal_delay_days: number; chat_messages_per_month: number; portfolio_stocks: number };
+    pro?: { chat_messages_per_month: number; portfolio_stocks: number };
+}
+
 function toLocalInput(iso: string | null): string {
     if (!iso) return "";
     const date = new Date(iso);
@@ -32,6 +37,9 @@ function toLocalInput(iso: string | null): string {
 
 export default function BillingTab() {
     const [livePlans, setLivePlans] = useState<LivePlan[]>([]);
+    const [planLimits, setPlanLimits] = useState<PlanLimits>({});
+    const [syncing, setSyncing] = useState(false);
+    const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [proPrice, setProPrice] = useState("");
@@ -65,6 +73,7 @@ export default function BillingTab() {
             if (configRes.ok) {
                 const config = await configRes.json();
                 setLivePlans(Array.isArray(config?.plans) ? config.plans : []);
+                setPlanLimits(config?.limits || {});
             }
         } catch (err: any) {
             setError(err.message || "خطأ غير معروف");
@@ -75,6 +84,9 @@ export default function BillingTab() {
 
     useEffect(() => {
         load();
+        return () => {
+            if (syncTimer.current) clearTimeout(syncTimer.current);
+        };
     }, [load]);
 
     const save = async () => {
@@ -98,16 +110,27 @@ export default function BillingTab() {
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || "فشل الحفظ");
-            toast.success("تم حفظ الإعدادات");
+            toast.success("تم حفظ الإعدادات؛ تحديث الأسعار الفعلية خلال 15 ثانية");
             setProPrice(data.pro_price_egp != null ? String(data.pro_price_egp) : "");
             setPro6mPrice(data.pro_6m_price_egp != null ? String(data.pro_6m_price_egp) : "");
             setPro1yPrice(data.pro_1y_price_egp != null ? String(data.pro_1y_price_egp) : "");
             setDiscountEndsAt(toLocalInput(data.discount_ends_at ?? null));
-            const configRes = await fetch("/api/payment/easykash/config", { cache: "no-store" });
-            if (configRes.ok) {
-                const config = await configRes.json();
-                setLivePlans(Array.isArray(config?.plans) ? config.plans : []);
-            }
+            setSyncing(true);
+            if (syncTimer.current) clearTimeout(syncTimer.current);
+            syncTimer.current = setTimeout(async () => {
+                try {
+                    const configRes = await fetch("/api/payment/easykash/config", { cache: "no-store" });
+                    if (configRes.ok) {
+                        const config = await configRes.json();
+                        setLivePlans(Array.isArray(config?.plans) ? config.plans : []);
+                        setPlanLimits(config?.limits || {});
+                    }
+                } catch {
+                    setError("تم الحفظ، لكن تعذر تحديث المعاينة. أعد تحميلها بعد قليل.");
+                } finally {
+                    setSyncing(false);
+                }
+            }, 16_000);
         } catch (err: any) {
             setError(err.message || "خطأ غير معروف");
         } finally {
@@ -205,13 +228,14 @@ export default function BillingTab() {
                         {/* Live preview */}
                         <div className="border-4 border-black dark:border-white bg-zinc-950 text-white p-6 space-y-3 shadow-[6px_6px_0px_#10b981]">
                             <h3 className="text-sm font-black uppercase tracking-widest text-emerald-400">ما يراه العميل الآن (من الباك-إند)</h3>
+                            {syncing && <p className="text-xs font-bold text-amber-300">جاري تحديث المعاينة بعد انتهاء ذاكرة التخزين المؤقت (15 ثانية)...</p>}
                             {livePlans.length === 0 ? (
                                 <p className="text-xs font-bold text-zinc-400">لو الدفع متوقف حالياً فلن تظهر خطط. تأكد من PAYMENTS_ENABLED وإعدادات EasyKash.</p>
                             ) : (
                                 <ul className="space-y-2 text-xs font-bold">
                                     {livePlans.map((plan) => (
                                         <li key={plan.id} className="flex justify-between items-center border-b border-zinc-800 pb-2">
-                                            <span className="font-mono">{plan.id} ({plan.days}y)</span>
+                                            <span className="font-mono">{plan.id} ({plan.days} يوم)</span>
                                             <span className="flex items-center gap-2">
                                                 {plan.discount?.active && (
                                                     <span className="text-zinc-500 line-through">{plan.discount.original_amount_egp} ج.م</span>
@@ -229,6 +253,9 @@ export default function BillingTab() {
                                 </p>
                             )}
                         </div>
+                        <p className="text-xs font-bold text-zinc-600 dark:text-zinc-300">
+                            حدود المزايا المعروضة من إعدادات الخدمة: مجاني {planLimits.free?.signal_delay_days ?? 15} يوم تأخير، {planLimits.free?.chat_messages_per_month ?? 50} رسالة و{planLimits.free?.portfolio_stocks ?? 5} أسهم؛ Pro {planLimits.pro?.chat_messages_per_month ?? 350} رسالة و{planLimits.pro?.portfolio_stocks ?? 10} أسهم.
+                        </p>
                     </div>
                 )}
             </div>

@@ -1,19 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
+// The Python service owns both support messages and VIP membership updates.
+// This endpoint must never point the bot at the Vercel-only message handler.
+export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req);
+  if (auth instanceof Response) return auth;
   try {
-    const token = process.env.SUPPORT_BOT_TOKEN;
-    if (!token) {
-      return NextResponse.json({ ok: false, error: "SUPPORT_BOT_TOKEN is not configured in Vercel environment variables" }, { status: 400 });
+    const token = process.env.SUPPORT_BOT_TOKEN?.trim();
+    const backend = process.env.PYTHON_BACKEND_URL || process.env.TRADING_SIGNALS_API_URL;
+    if (!token || !backend) {
+      return NextResponse.json({ ok: false, error: "Telegram bot or Python backend is not configured" }, { status: 503 });
     }
 
-    const url = new URL(req.url);
-    const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || url.host;
-    const protocol = req.headers.get("x-forwarded-proto") || "https";
-    const webhookUrl = `${protocol}://${host}/api/support/tg-webhook/${token}`;
+    const backendUrl = new URL(backend);
+    if (backendUrl.protocol !== "https:" && backendUrl.hostname !== "localhost" && backendUrl.hostname !== "127.0.0.1") {
+      return NextResponse.json({ ok: false, error: "Python backend must use HTTPS" }, { status: 503 });
+    }
+    const webhookUrl = new URL(`/support-tg-webhook/${encodeURIComponent(token)}`, backendUrl);
 
     const relayUrl = (process.env.TELEGRAM_RELAY_URL || "https://api.telegram.org").replace(/\/$/, "");
     const tgUrl = `${relayUrl}/bot${token}/setWebhook`;
@@ -22,20 +29,19 @@ export async function GET(req: NextRequest) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        url: webhookUrl,
+        url: webhookUrl.toString(),
         allowed_updates: ["message", "chat_member", "my_chat_member"],
       }),
-      signal: AbortSignal.timeout(10000)
+      cache: "no-store",
+      signal: AbortSignal.timeout(10000),
     });
 
-    const data = await res.json();
-    return NextResponse.json({
-      ok: data.ok || false,
-      webhook_url: webhookUrl,
-      telegram_response: data
-    });
-  } catch (err: any) {
-    console.error("[SUPPORT_SETUP_WEBHOOK] Error setting Telegram webhook:", err);
-    return NextResponse.json({ ok: false, error: err.message }, { status: 500 });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok !== true) {
+      return NextResponse.json({ ok: false, error: "Telegram rejected the webhook update" }, { status: 502 });
+    }
+    return NextResponse.json({ ok: true, webhook_host: backendUrl.hostname });
+  } catch {
+    return NextResponse.json({ ok: false, error: "Telegram webhook update failed" }, { status: 502 });
   }
 }

@@ -48,6 +48,8 @@ export default function PricingClient() {
   const [isPro, setIsPro] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState("pro_6m");
   const [copiedOrder, setCopiedOrder] = useState(false);
+  const [pollRestart, setPollRestart] = useState(0);
+  const [pollingExhausted, setPollingExhausted] = useState(false);
 
   const normalizedMobile = customerMobile.trim().replace(/[\s-]/g, "").replace(/^\+20/, "0").replace(/^0020/, "0");
   const isMobileValid = /^01[0125]\d{8}$/.test(normalizedMobile);
@@ -55,10 +57,30 @@ export default function PricingClient() {
   useEffect(() => {
     if (step !== "submitted" || !localOrder) return;
     let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    const startedAt = Date.now();
+    setPollingExhausted(false);
+    const schedule = () => {
+      if (stopped) return;
+      if (Date.now() - startedAt >= 15 * 60_000) {
+        setPollingExhausted(true);
+        return;
+      }
+      const delay = Math.min(30_000, 5_000 * Math.pow(1.5, attempts));
+      attempts += 1;
+      timer = setTimeout(check, delay);
+    };
     const check = async () => {
-      const res = await fetch(`/api/payment/easykash/status?order_id=${encodeURIComponent(localOrder)}`, { cache: "no-store" });
-      const data = await res.json().catch(() => ({}));
-      if (!stopped && data.status) {
+      if (stopped || document.visibilityState === "hidden") return;
+      try {
+        const res = await fetch(`/api/payment/easykash/status?order_id=${encodeURIComponent(localOrder)}`, {
+          cache: "no-store",
+          signal: AbortSignal.timeout(12_000),
+        });
+        const data = res.ok ? await res.json().catch(() => ({})) : {};
+        if (stopped) return;
+        if (data.status) {
         const settledStatus = ["expired", "rejected", "failed", "canceled", "cancelled"].includes(String(data.status).toLowerCase())
           ? "failed"
           : data.status;
@@ -66,8 +88,8 @@ export default function PricingClient() {
         if (data.plan_id) setSelectedPlan(data.plan_id);
         setSubscriptionEnd(data.subscription?.current_period_end || null);
         setTelegramProUrl(data.telegram_pro_url || "");
-        if (data.status === "approved" && !data.telegram_pro_url) {
-          const vip = await fetch("/api/profile/telegram-pro", { cache: "no-store" })
+        if (settledStatus === "approved" && !data.telegram_pro_url) {
+          const vip = await fetch("/api/profile/telegram-pro", { cache: "no-store", signal: AbortSignal.timeout(12_000) })
             .then((response) => (response.ok ? response.json() : null))
             .catch(() => null);
           if (!stopped && vip?.invite_link) {
@@ -75,29 +97,53 @@ export default function PricingClient() {
             setSubscriptionEnd(vip.current_period_end || data.subscription?.current_period_end || null);
           }
         }
+        if (settledStatus === "approved" || settledStatus === "failed") return;
+        }
+      } catch {
+        // Transient gateway/backend failures are retried with bounded backoff.
+      }
+      schedule();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && !stopped) {
+        if (timer) clearTimeout(timer);
+        void check();
       }
     };
-    check();
-    const timer = window.setInterval(check, 5000);
+    document.addEventListener("visibilitychange", onVisible);
+    void check();
     return () => {
       stopped = true;
-      window.clearInterval(timer);
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [step, localOrder]);
+  }, [step, localOrder, pollRestart]);
 
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+    const loadConfig = async () => {
       try {
-        const local = await fetch("/api/payment/easykash/config", {
+        const response = await fetch("/api/payment/easykash/config", {
           cache: "no-store",
-        }).then((r) => r.json());
-        setLocalConfig(local);
+        });
+        if (!response.ok) throw new Error("Payment configuration unavailable");
+        const local = await response.json();
+        if (!cancelled) setLocalConfig(local);
       } catch {
-        setLocalConfig(null);
+        if (!cancelled) setLocalConfig(null);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    })();
+    };
+    void loadConfig();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void loadConfig();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   useEffect(() => {
@@ -177,7 +223,15 @@ export default function PricingClient() {
     );
   }
 
-  if (!localConfig?.enabled) {
+  if (!localConfig) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center p-6 text-center font-bold text-zinc-900 dark:text-white">
+        {isAr ? "تعذر تحميل الخطط الآن. أعد تحميل الصفحة للمحاولة مجددًا." : "Plans are temporarily unavailable. Please reload and try again."}
+      </div>
+    );
+  }
+
+  if (!localConfig.enabled) {
     return (
       <div className="min-h-[70vh] flex items-center justify-center p-6">
         <div className="max-w-xl w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-8 text-center space-y-4 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_#10b981]">
@@ -221,18 +275,20 @@ export default function PricingClient() {
 
   const selectedPlanDetails = paidPlans.find((plan: any) => plan.id === selectedPlan) || paidPlans[1];
   const proPrice = selectedPlanDetails?.amount_egp ?? 1000;
+  const freeLimits = localConfig.limits?.free || { signal_delay_days: 15, chat_messages_per_month: 50, portfolio_stocks: 5 };
+  const proLimits = localConfig.limits?.pro || { chat_messages_per_month: 350, portfolio_stocks: 10 };
   const freeFeatures = [
-    { icon: <Zap className="w-4 h-4" />, text: isAr ? "تأخير الإشارات 15 يوماً" : "Signals delayed 15 days", included: true },
-    { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? "50 رسالة شات بوت / شهر" : "50 chatbot messages / month", included: true },
-    { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? "حتى 5 أسهم في المحفظة" : "Up to 5 portfolio stocks", included: true },
+    { icon: <Zap className="w-4 h-4" />, text: isAr ? `تأخير الإشارات ${freeLimits.signal_delay_days} يوماً` : `Signals delayed ${freeLimits.signal_delay_days} days`, included: true },
+    { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? `${freeLimits.chat_messages_per_month} رسالة شات بوت / شهر` : `${freeLimits.chat_messages_per_month} chatbot messages / month`, included: true },
+    { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? `حتى ${freeLimits.portfolio_stocks} أسهم في المحفظة` : `Up to ${freeLimits.portfolio_stocks} portfolio stocks`, included: true },
     { icon: <ShieldCheck className="w-4 h-4" />, text: isAr ? "قناة VIP على تليجرام" : "VIP Telegram Channel", included: false },
     { icon: <Sparkles className="w-4 h-4" />, text: isAr ? "توصيات ونماذج الذكاء الاصطناعي لحظياً" : "Live AI models & intraday signals", included: false },
   ];
 
   const proFeatures = [
     { icon: <Zap className="w-4 h-4" />, text: isAr ? "إشارات وتوصيات يومية فورية ولحظية" : "Daily real-time instant signals", included: true },
-    { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? "350 رسالة شات بوت ذكي شهرياً" : "350 smart chatbot messages / month", included: true },
-    { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? "حتى 10 أسهم نشطة في المحفظة" : "Up to 10 active portfolio stocks", included: true },
+    { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? `${proLimits.chat_messages_per_month} رسالة شات بوت ذكي شهرياً` : `${proLimits.chat_messages_per_month} smart chatbot messages / month`, included: true },
+    { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? `حتى ${proLimits.portfolio_stocks} أسهم نشطة في المحفظة` : `Up to ${proLimits.portfolio_stocks} active portfolio stocks`, included: true },
     { icon: <ShieldCheck className="w-4 h-4" />, text: isAr ? "رابط دخول خاص لقناة VIP على تليجرام" : "Private invite to VIP Telegram channel", included: true },
     { icon: <Sparkles className="w-4 h-4" />, text: isAr ? "نماذج الذكاء الاصطناعي (EGX Booster & King)" : "Full AI models (EGX Booster & King)", included: true },
   ];
@@ -346,7 +402,7 @@ export default function PricingClient() {
                 </a>
               ) : (
                 <div className="p-3 border-2 border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-xs font-bold text-amber-800 dark:text-amber-200">
-                  {isAr ? "جاري توليد رابط الدعوة الخاص بقناة VIP... أعد تحميل الصفحة بعد ثوانٍ." : "Generating your VIP invite link... refresh in a few seconds."}
+                  {isAr ? "لم يتوفر رابط VIP بعد. ستجده في ملفك الشخصي؛ تواصل مع الدعم لو استمرت المشكلة." : "VIP invite is not ready yet. Check your profile or contact support if this persists."}
                 </div>
               )}
               <button
@@ -370,6 +426,12 @@ export default function PricingClient() {
                 {isAr ? "اختيار باقة والمحاولة مجددًا" : "Choose a Plan & Try Again"}
               </button>
             </div>
+          )}
+
+          {pollingExhausted && orderStatus !== "approved" && orderStatus !== "failed" && (
+            <button type="button" onClick={() => setPollRestart((value) => value + 1)} className="w-full border-2 border-black dark:border-white p-3 font-bold text-zinc-900 dark:text-white">
+              {isAr ? "التحقق من حالة الدفع مجددًا" : "Check payment status again"}
+            </button>
           )}
 
           {/* Support Hotline */}
@@ -599,11 +661,11 @@ export default function PricingClient() {
                 </div>
                 <div className="flex items-center gap-2 text-zinc-300">
                   <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span>{isAr ? "350 رسالة ذكاء اصطناعي شهرياً" : "350 monthly AI chat messages"}</span>
+                  <span>{isAr ? `${proLimits.chat_messages_per_month} رسالة ذكاء اصطناعي شهرياً` : `${proLimits.chat_messages_per_month} monthly AI chat messages`}</span>
                 </div>
                 <div className="flex items-center gap-2 text-zinc-300">
                   <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span>{isAr ? "محفظة تداول حتى 10 أسهم" : "10 active portfolio stock slots"}</span>
+                  <span>{isAr ? `محفظة تداول حتى ${proLimits.portfolio_stocks} أسهم` : `${proLimits.portfolio_stocks} active portfolio stock slots`}</span>
                 </div>
               </div>
 
