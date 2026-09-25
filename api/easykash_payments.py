@@ -18,6 +18,23 @@ from api.telegram_pro_invites import ensure_pro_invite
 
 
 _EASYKASH_PAY_URL = "https://back.easykash.net/api/directpayv1/pay"
+# EasyKash Hosted Checkout payment-option IDs for installments and BNPL.
+# Keep method selection on EasyKash while preventing credit/installment offers.
+_EASYKASH_INSTALLMENT_OPTIONS = [
+    3,  # Qassatly
+    8, 9, 10,  # NBE installments
+    17,  # ValU
+    18, 19, 20,  # Banque Misr installments
+    21,  # Aman installments
+    22,  # Souhoula
+    23,  # Contact
+    24,  # Mogo / MidTakseet
+    25,  # Blnk
+    26, 27, 28,  # Multiple-bank installments
+    29,  # Halan
+    32,  # TRU
+    34,  # Forsa
+]
 _PLANS = {"pro": 30, "pro_6m": 180, "pro_1y": 365}
 if os.getenv("ENABLE_PAYMENT_TEST_PLAN", "false").strip().lower() in {"1", "true", "yes", "on"}:
     _PLANS["pro_test"] = int(os.getenv("PRO_TEST_DAYS", "1"))
@@ -87,10 +104,11 @@ def _direct_pay_payload(
     redirect_url: str,
     customer_reference: str,
 ) -> Dict[str, Any]:
-    """Build a hosted checkout and let EasyKash present enabled methods."""
+    """Let EasyKash present enabled methods, excluding installments and BNPL."""
     return {
         "amount": float(amount),
         "currency": "EGP",
+        "paymentOptionsExcluded": list(_EASYKASH_INSTALLMENT_OPTIONS),
         "cashExpiry": int(os.getenv("EASYKASH_CASH_EXPIRY_HOURS", os.getenv("EASYKASH_CASH_EXPIRY_DAYS", "3"))),
         "name": (name or "EGX Bots user")[:100],
         "email": (email or "")[:254],

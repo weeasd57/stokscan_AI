@@ -26,7 +26,7 @@ class EasyKashPayloadTests(unittest.TestCase):
             with self.subTest(url=invalid), self.assertRaises(RuntimeError):
                 _hosted_checkout_url(invalid)
 
-    def test_hosted_checkout_defers_method_selection_to_easykash(self):
+    def test_hosted_checkout_defers_method_selection_and_excludes_installments(self):
         payload = _direct_pay_payload(
             Decimal("200.00"),
             "Test User",
@@ -37,7 +37,12 @@ class EasyKashPayloadTests(unittest.TestCase):
         )
 
         self.assertNotIn("paymentOptions", payload)
-        self.assertNotIn("paymentOptionsExcluded", payload)
+        self.assertEqual(
+            payload["paymentOptionsExcluded"],
+            [3, 8, 9, 10, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 32, 34],
+        )
+        for allowed_option in (1, 2, 4, 5, 6, 31, 33, 35):
+            self.assertNotIn(allowed_option, payload["paymentOptionsExcluded"])
         self.assertEqual(payload["currency"], "EGP")
         self.assertEqual(payload["amount"], 200.0)
         self.assertEqual(payload["customerReference"], "test-order")
@@ -63,7 +68,12 @@ class EasyKashPayloadTests(unittest.TestCase):
         self.assertEqual(result["url"], "https://www.easykash.net/DirectPayV1/test")
         # The checkout call is sent before the optional admin notification,
         # which can issue a second HTTP POST in the same test.
-        self.assertNotIn("paymentOptions", request.call_args_list[0].kwargs["json"])
+        sent_payload = request.call_args_list[0].kwargs["json"]
+        self.assertNotIn("paymentOptions", sent_payload)
+        self.assertEqual(
+            sent_payload["paymentOptionsExcluded"],
+            [3, 8, 9, 10, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 32, 34],
+        )
 
     def test_callback_signature_uses_easykash_documented_field_order(self):
         secret = "unit-test-secret"
