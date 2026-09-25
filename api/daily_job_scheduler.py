@@ -31,7 +31,16 @@ _scheduler_lock = threading.RLock()
 _scheduler_thread = None
 _stop_event = threading.Event()
 _last_recommendation_retry_at = 0.0
+_last_vip_revocation_at = 0.0
 _DEFAULT_STALE_RUN_MINUTES = 90
+
+
+def _positive_interval_seconds(name: str, default: int, minimum: int = 60) -> int:
+    """Read a polling interval without allowing an accidental tight loop."""
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return default
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "daily_job_config.json")
 
@@ -338,8 +347,13 @@ def _compute_next_run() -> str:
 
 
 def _scheduler_worker():
-    global _scheduler_state, _last_recommendation_retry_at
+    global _scheduler_state, _last_recommendation_retry_at, _last_vip_revocation_at
     print("[DAILY-JOB-SCHEDULER] Worker started.")
+
+    # Pending Telegram events are exceptional retries, not a realtime queue.
+    # VIP expiry is even less urgent and must not scan subscriptions every minute.
+    retry_interval = _positive_interval_seconds("TELEGRAM_RETRY_INTERVAL_SECONDS", 900)
+    vip_revocation_interval = _positive_interval_seconds("VIP_REVOCATION_INTERVAL_SECONDS", 21600, 300)
 
     while not _stop_event.is_set():
         try:
@@ -350,15 +364,21 @@ def _scheduler_worker():
             # Retry delivery is a separate operational concern from the daily
             # evaluator. Keep it alive even when the daily job is paused.
             now_monotonic = time.monotonic()
-            if now_monotonic - _last_recommendation_retry_at >= 60:
+            if now_monotonic - _last_recommendation_retry_at >= retry_interval:
                 try:
                     from api.daily_bot_run import retry_pending_recommendation_telegram_events
                     retry_pending_recommendation_telegram_events(limit=10)
-                    from api.telegram_pro_invites import revoke_expired_pro_members
-                    revoke_expired_pro_members()
                 except Exception as retry_err:
                     print(f"[DAILY-JOB-SCHEDULER] Recommendation retry failed: {retry_err}")
                 _last_recommendation_retry_at = now_monotonic
+
+            if now_monotonic - _last_vip_revocation_at >= vip_revocation_interval:
+                try:
+                    from api.telegram_pro_invites import revoke_expired_pro_members
+                    revoke_expired_pro_members()
+                except Exception as revoke_err:
+                    print(f"[DAILY-JOB-SCHEDULER] VIP revocation check failed: {revoke_err}")
+                _last_vip_revocation_at = now_monotonic
 
             if not enabled:
                 with _scheduler_lock:

@@ -3,6 +3,11 @@ import { getSupabaseClient, toNumber } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 
+// These optional columns are not present in the current production schema.
+// Keep them opt-in so every scanner request does not first issue a guaranteed
+// failing PostgREST query and then repeat the full query as a fallback.
+const MONEY_FLOW_COLUMNS_ENABLED = process.env.TECHNICAL_MONEY_FLOW_COLUMNS_ENABLED === "true";
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -51,6 +56,9 @@ export async function POST(req: Request) {
     const countrySymbols = (countryStocks || []).map((s: any) => s.symbol);
 
     // 2. Fetch technical indicators from Supabase
+    const moneyFlowFields = MONEY_FLOW_COLUMNS_ENABLED
+      ? ", cmf_20, mm_accumulation, mm_distribution"
+      : "";
     let queryFields = `
       symbol,
       exchange,
@@ -72,10 +80,7 @@ export async function POST(req: Request) {
       macd,
       macd_signal,
       r_vol,
-      vwap_20,
-      cmf_20,
-      mm_accumulation,
-      mm_distribution,
+      vwap_20${moneyFlowFields},
       rsi_divergence,
       macd_divergence,
       stoch_divergence,
