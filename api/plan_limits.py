@@ -12,7 +12,7 @@ completely free until the operator flips the flag.
 import os
 from typing import Any, Dict
 
-from api.payment_common import is_payments_enabled
+from api.payment_common import is_payments_enabled, plan_amount_egp, plan_amount_egp
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +35,7 @@ def pro_limits() -> Dict[str, Any]:
         "signal_delay_days": 0,
         "chat_messages_per_month": int(os.getenv("PRO_CHAT_MESSAGES", "350")),
         "portfolio_stocks": int(os.getenv("PRO_PORTFOLIO_STOCKS", "10")),
-        "price_egp": int(float(os.getenv("PRO_PRICE_EGP", "200"))),
+        "price_egp": int(plan_amount_egp("pro")),
     }
 
 
@@ -145,7 +145,7 @@ def telegram_public_link() -> str:
     # once billing is enabled.
     if not is_payments_enabled():
         return os.getenv("TELEGRAM_PUBLIC_LINK_FREE", "https://t.me/egxbots/153").strip()
-    return os.getenv("TELEGRAM_PUBLIC_LINK", "https://t.me/+oPTsNYS03FE3MDQ0").strip()
+    return os.getenv("TELEGRAM_PUBLIC_LINK", "https://t.me/egxbots").strip()
 
 
 def free_channel_notice() -> str:

@@ -2024,7 +2024,9 @@ class LiveBot:
             # Support both env var styles used across the repo/UI.
             coins=coins,
             telegram_chat_id=int(
-                float(_read_env("TELEGRAM_CHAT_ID", "-1003699330518") or -1003699330518)
+                float(
+                    str(_read_env("TELEGRAM_CHAT_ID", "-1002083067817") or -1002083067817).split("_", 1)[0]
+                )
             ),
             telegram_token=_read_env("TELEGRAM_TOKEN"),
             king_threshold=_parse_float(_read_env("KING_THRESHOLD", "0.60"), 0.60),
@@ -4789,7 +4791,7 @@ class BotManager:
                 )
                 profile_chat_id = (profile_res.data or {}).get("telegram_chat_id") if profile_res else None
                 if profile_chat_id:
-                    bot.config.telegram_chat_id = int(float(profile_chat_id))
+                    bot.config.telegram_chat_id = int(float(str(profile_chat_id).split("_", 1)[0]))
             except Exception as e:
                 print(f"Error loading profile telegram_chat_id for bot {bot_id}: {e}")
 

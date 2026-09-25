@@ -60,17 +60,18 @@ export default function OpenTradesDashboard({ isLandingPage = false }: { isLandi
 
     // Count per status group
     const counts = useMemo(() => {
+        const visibleRecs = recommendations.filter((r: any) => r.locked !== true);
         let active = 0, closed = 0;
-        recommendations.forEach((r: any) => {
+        visibleRecs.forEach((r: any) => {
             if (isStatusOpen(r.status)) active++;
             else if (isStatusClosed(r.status)) closed++;
         });
-        return { active, closed, total: recommendations.length };
+        return { active, closed, total: visibleRecs.length };
     }, [recommendations]);
 
     // Filter by active tab
     const tabTrades = useMemo(() => {
-        let items = [...recommendations];
+        let items = [...recommendations].filter((r: any) => r.locked !== true);
         if (activeTab === "active") {
             items = items.filter((r: any) => isStatusOpen(r.status));
             const seen = new Set<string>();

@@ -237,7 +237,7 @@ async def startup_event():
 
     print(f"DEBUG: STARTUP - ARTORO_AI_BOT: {'SET' if tg_token else 'MISSING'}")
 
-    print(f"DEBUG: STARTUP - WEBHOOK_URL: {webhook_url or 'NOT SET (Polling Mode)'}")
+    print(f"DEBUG: STARTUP - WEBHOOK_URL: {webhook_url or 'NOT SET (Outbound-only mode; set TELEGRAM_POLLING=true to poll)'}")
 
 
 

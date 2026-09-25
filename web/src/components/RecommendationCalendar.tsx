@@ -216,12 +216,14 @@ export default function RecommendationCalendar({
     const currentMonthName = isAr ? monthNamesAr[month] : monthNamesEn[month];
     const currentDaysOfWeek = isAr ? daysOfWeekAr : daysOfWeekEn;
 
-    // Filter base recommendations by Sharia if toggled
+    // Filter base recommendations by Sharia if toggled. Locked placeholders
+    // (fresh signals hidden from Free users) must never enter the statistics.
     const filteredBaseRecs = useMemo(() => {
+        const usable = recommendations.filter(r => r.locked !== true);
         if (shariaOnly) {
-            return recommendations.filter(r => isShariaCompliant(r.symbol));
+            return usable.filter(r => isShariaCompliant(r.symbol));
         }
-        return recommendations;
+        return usable;
     }, [recommendations, shariaOnly]);
 
     const filteredSentEvents = useMemo(

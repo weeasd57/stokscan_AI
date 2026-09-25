@@ -16,7 +16,7 @@ import {
     TrendingUp, TrendingDown, Layers, Info, CheckCircle2, X, BarChart2,
     Target, ShieldAlert, Cpu, BookOpen, TrendingUp as Bullish, Calendar,
     Award, ArrowUpRight, ArrowDownRight, Minus, ExternalLink, ShieldCheck,
-    Share2, Loader2, Download, Check, Copy, Send, MessageCircle
+    Share2, Loader2, Download, Check, Copy, Send, MessageCircle, Lock
 } from "lucide-react";
 import { isShariaCompliant } from "@/lib/shariaStocks";
 import { toPng } from "html-to-image";
@@ -408,10 +408,25 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         }
     };
 
+    // Opens the Pro upsell alert when a Free user clicks a locked row.
+    const handleLockedClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        window.alert(isAr
+            ? "🔒 هذه التوصية حديثة وأقل من 15 يوماً — متاحة لمشتركي البرو فقط.\nاشترك في Pro لتصلك كل التوصيات فوراً بدون تأخير."
+            : "🔒 This recommendation is less than 15 days old — available to Pro subscribers only.\nSubscribe to Pro to unlock every signal instantly, without delay.");
+    };
+
+    const renderLockedCell = () => (
+        <span className="select-none rounded-md border-2 border-amber-500/50 bg-amber-500/10 px-2.5 py-1 text-[11px] font-black tracking-[0.25em] text-amber-600 dark:text-amber-400 inline-flex items-center gap-1.5" title={isAr ? "مشفرة — متاح للبرو" : "Encrypted — Pro only"}>
+            <Lock className="w-3.5 h-3.5 shrink-0" />
+            {isAr ? "مشفّرة" : "ENCRYPTED"}
+        </span>
+    );
+
     const tabCounts = useMemo(() => {
         let items = recommendations;
         if (shariaOnly) {
-            items = items.filter(r => isShariaCompliant(r.symbol));
+            items = items.filter(r => r.locked === true || isShariaCompliant(r.symbol));
         }
 
         const active = items.filter(r => {
@@ -438,6 +453,10 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         [isLandingPage, recommendations.length, isProView, user],
     );
 
+    // Locked placeholders (fresh recommendations hidden from Free plan) never
+    // match text/sector/signal filters and are exempt from symbol dedupe.
+    const isLockedRow = (r: any) => r.locked === true;
+
     // Client-side filtering and sorting
     const processedRows = useMemo(() => {
         let items = [...recommendations];
@@ -445,26 +464,30 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         if (searchTerm.trim()) {
             const q = searchTerm.toLowerCase();
             items = items.filter(r =>
-                r.name.toLowerCase().includes(q) ||
-                r.symbol.toLowerCase().includes(q)
+                !isLockedRow(r) && (
+                    String(r.name || "").toLowerCase().includes(q) ||
+                    r.symbol.toLowerCase().includes(q)
+                )
             );
         }
         if (selectedSector) {
-            items = items.filter(r => r.sector === selectedSector);
+            items = items.filter(r => isLockedRow(r) || r.sector === selectedSector);
         }
         if (selectedSignal) {
-            items = items.filter(r => r.signal.toUpperCase() === selectedSignal.toUpperCase());
+            items = items.filter(r => isLockedRow(r) || r.signal.toUpperCase() === selectedSignal.toUpperCase());
         }
         
         // Filter by Tab (Active vs Closed)
         if (activeTab === "active") {
             items = items.filter(r => {
+                if (isLockedRow(r)) return true; // fresh signals are active-but-hidden
                 const s = (r.status || "").toLowerCase();
                 return s !== "win" && s !== "loss";
             });
             // Deduplicate active recommendations by symbol (keep the latest one)
             const seen = new Set<string>();
             items = items.filter(r => {
+                if (isLockedRow(r)) return true;
                 const sym = (r.symbol || "").toUpperCase();
                 if (seen.has(sym)) return false;
                 seen.add(sym);
@@ -472,6 +495,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             });
         } else if (activeTab === "closed") {
             items = items.filter(r => {
+                if (isLockedRow(r)) return false;
                 const s = (r.status || "").toLowerCase();
                 return s === "win" || s === "loss";
             });
@@ -485,7 +509,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         }
 
         if (shariaOnly) {
-            items = items.filter(r => isShariaCompliant(r.symbol));
+            items = items.filter(r => isLockedRow(r) || isShariaCompliant(r.symbol));
         }
 
         if (sortBy) {
@@ -511,7 +535,14 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 }
             });
         } else {
-            items.sort((a, b) => b.precision - a.precision);
+            items.sort((a, b) => {
+                const pa = a.locked === true ? null : a.precision;
+                const pb = b.locked === true ? null : b.precision;
+                if (pa == null && pb == null) return (b.created_at || "").localeCompare(a.created_at || "");
+                if (pa == null) return 1;
+                if (pb == null) return -1;
+                return Number(pb) - Number(pa);
+            });
         }
         return items;
     }, [recommendations, searchTerm, selectedSector, selectedSignal, activeTab, timeRange, shariaOnly, sortBy, sortOrder]);
@@ -705,8 +736,32 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
                 <div className="flex flex-col">
                     {displayRows.map((row, index) => {
-                        const cInfo = getCountryFlag(row.country, row.exchange);
                         const rankNum = limit !== Infinity ? index + 1 : (currentPage - 1) * itemsPerPage + index + 1;
+                        if (row.locked === true) {
+                            return (
+                                <div
+                                    key={row.id}
+                                    onClick={handleLockedClick}
+                                    className="cursor-pointer bg-amber-500/5 hover:bg-amber-500/10 border-b-4 border-black dark:border-white last:border-b-0 p-4"
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 border-2 border-black dark:border-white bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center font-black font-mono text-sm text-zinc-500">
+                                                {rankNum}
+                                            </div>
+                                            <span className="text-base font-black text-zinc-400 dark:text-zinc-600 select-all tracking-widest">
+                                                {isAr ? "س•••••" : "S•••••"}
+                                            </span>
+                                        </div>
+                                        {renderLockedCell()}
+                                    </div>
+                                    <div className={`mt-3 text-[10px] font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 ${isAr ? "text-right" : "text-left"}`}>
+                                        {isAr ? "توصية حديثة — متاح للبرو فوراً · اضغط للاشتراك" : "Fresh signal — instant with Pro · Tap to subscribe"}
+                                    </div>
+                                </div>
+                            );
+                        }
+                        const cInfo = getCountryFlag(row.country, row.exchange);
                          const aiScoreNum = Number((row.precision * 10).toFixed(0));
                         const statusLower = row.status?.toLowerCase() || "open";
                         const rowBgClass =
@@ -2185,6 +2240,38 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <div className="md:hidden flex flex-col divide-y-4 divide-black dark:divide-white">
                             {displayRows.map((row, index) => {
                                 const rankNum = limit !== Infinity ? index + 1 : (currentPage - 1) * itemsPerPage + index + 1;
+                                if (row.locked === true) {
+                                    return (
+                                        <div
+                                            key={row.id}
+                                            onClick={handleLockedClick}
+                                            className="cursor-pointer p-4 space-y-3 bg-amber-500/5"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 border-2 border-black dark:border-white bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center font-black font-mono text-sm text-zinc-500">
+                                                    {rankNum}
+                                                </div>
+                                                <div className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center">
+                                                    <Lock className="w-4 h-4 text-zinc-400" />
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-base font-black text-zinc-400 dark:text-zinc-600 select-all tracking-widest">
+                                                        {isAr ? "س•••••" : "S•••••"}
+                                                    </span>
+                                                    <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium">
+                                                        {row.created_at ? new Date(row.created_at).toLocaleDateString(isAr ? "ar-EG" : "en-US") : ""}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center justify-between flex-wrap gap-3">
+                                                {renderLockedCell()}
+                                                <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase">
+                                                    {isAr ? "اضغط للترقية إلى Pro" : "Tap to upgrade to Pro"}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    );
+                                }
                                 const aiScoreNum = Number((row.precision * 10).toFixed(0));
                                 const cInfo = getCountryFlag(row.country, row.exchange);
                                 const statusLower = row.status?.toLowerCase() || "open";
@@ -2359,6 +2446,46 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                 {displayRows.map((row, index) => {
                                     const cInfo = getCountryFlag(row.country, row.exchange);
                                     const rankNum = limit !== Infinity ? index + 1 : (currentPage - 1) * itemsPerPage + index + 1;
+                                    if (row.locked === true) {
+                                        return (
+                                            <tr
+                                                key={row.id}
+                                                onClick={handleLockedClick}
+                                                className="group transition-all duration-150 text-sm cursor-pointer bg-amber-500/5 hover:bg-amber-500/10"
+                                            >
+                                                <td className="px-4 py-4 text-center font-black font-mono text-zinc-500">{rankNum}</td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-8 h-8 border-2 border-dashed border-amber-500/60 flex items-center justify-center bg-amber-500/10">
+                                                            <Lock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                                                        </div>
+                                                        <div className="flex flex-col">
+                                                            <span className="text-base font-black text-zinc-400 dark:text-zinc-600 select-all tracking-widest">
+                                                                {isAr ? "س•••••" : "S•••••"}
+                                                            </span>
+                                                            <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium">
+                                                                {isAr ? `تاريخ الإصدار: ${row.created_at ? new Date(row.created_at).toLocaleDateString("ar-EG") : ""}` : `Issued: ${row.created_at ? new Date(row.created_at).toLocaleDateString("en-US") : ""}`}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="hidden md:table-cell px-6 py-4 text-center text-amber-600 dark:text-amber-400 text-xs font-black uppercase">{isAr ? "مقفلة" : "Locked"}</td>
+                                                <td className="px-4 py-4 text-center">{renderLockedCell()}</td>
+                                                <td className="px-4 py-4 text-center"></td>
+                                                {user && (
+                                                    <>
+                                                        <td className="hidden md:table-cell px-4 py-4 text-center"></td>
+                                                        <td className="hidden md:table-cell px-4 py-4 text-center"></td>
+                                                        <td className="hidden md:table-cell px-4 py-4 text-center"></td>
+                                                    </>
+                                                )}
+                                                <td className="hidden md:table-cell px-4 py-4 text-center"></td>
+                                                <td className="px-4 py-4 text-center text-amber-600 dark:text-amber-400 text-[10px] font-black">{isAr ? "للبرو فقط" : "Pro only"}</td>
+                                                <td className="px-4 py-4"></td>
+                                                <td className="hidden lg:table-cell px-6 py-4"></td>
+                                            </tr>
+                                        );
+                                    }
                                     const aiScoreNum = Number((row.precision * 10).toFixed(0));
 
                                     const statusLower = row.status?.toLowerCase() || "open";

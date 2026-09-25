@@ -32,12 +32,16 @@ export async function GET(req: NextRequest) {
     } catch { /* unauthenticated users are always delayed */ }
 
     const delayedVisibility = !authenticated || (paymentsEnabled() && !pro);
-    const cutoff = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString();
+    const delayDays = Number(process.env.FREE_SIGNAL_DELAY_DAYS || 15) || 15;
+    const cutoffTime = Date.now() - delayDays * 24 * 60 * 60 * 1000;
+    const cutoff = new Date(cutoffTime).toISOString();
     const applyVisibility = (query: any) => {
       if (!authenticated) {
         return query.eq("status", "open").lt("created_at", cutoff);
       }
-      return delayedVisibility ? query.lt("created_at", cutoff) : query;
+      // Authenticated Free users receive every recommendation, but rows newer
+      // than the delay window are row-masked in the mapper below (locked).
+      return query;
     };
 
     let recommendationsQuery = supabase
@@ -67,8 +71,8 @@ export async function GET(req: NextRequest) {
     let visibleData = data || [];
     // Anonymous visitors must never receive today's recommendations, even when
     // billing is disabled for the rest of the authenticated platform.
-    if (delayedVisibility) {
-      visibleData = filterByDelay(visibleData, 5);
+    if (!authenticated) {
+      visibleData = filterByDelay(visibleData, delayDays);
     }
 
     const symbols = Array.from(new Set(visibleData.map((row: Record<string, unknown>) => String(row.symbol || "")).filter(Boolean)));
@@ -83,7 +87,22 @@ export async function GET(req: NextRequest) {
       row.data?.sector || row.data?.Sector || row.data?.industry || "General",
     ]));
 
-    const results = visibleData.map((row: Record<string, unknown>) => ({
+    const results = visibleData.map((row: Record<string, unknown>) => {
+      // Authenticated Free users receive every row, but anything newer than
+      // the delay window is returned as a locked placeholder: no symbol, no
+      // scores, no prices — the client renders it encrypted with an upsell.
+      const createdMs = row.created_at ? new Date(String(row.created_at)).getTime() : Number.NaN;
+      const locked = authenticated && delayedVisibility && (!Number.isFinite(createdMs) || createdMs > cutoffTime);
+      if (locked) {
+        return {
+          id: row.id,
+          locked: true,
+          created_at: row.created_at,
+          delayed: true,
+          snapshot_cutoff: cutoff,
+        };
+      }
+      return {
       ...(authenticated ? row : {
         id: row.id,
         symbol: row.symbol,
@@ -101,7 +120,8 @@ export async function GET(req: NextRequest) {
       snapshot_cutoff: delayedVisibility ? cutoff : null,
       precision: authenticated ? toNumber(row.precision, 0) : null,
       last_close: authenticated ? toNumber(row.last_close, 0) : null,
-    }));
+      };
+    });
 
     return NextResponse.json(results, {
       headers: {

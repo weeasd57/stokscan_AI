@@ -440,16 +440,6 @@ class TelegramBot:
         queue.append(payload)
         self._log(f"Queued keyboard message to {payload['chat_id']} (thread: {payload.get('message_thread_id')})")
 
-        # Mirror free-channel keyboard messages to the VIP channel.
-        if self._vip_mirror_enabled() and self._channel_root(chat_id) == self.DEFAULT_CHANNEL_ID:
-            vip_payload = self._build_send_payload(text, self.VIP_CHANNEL_ID, message_thread_id)
-            if vip_payload:
-                vip_payload["reply_markup"] = {"inline_keyboard": buttons}
-                if parse_mode:
-                    vip_payload["parse_mode"] = parse_mode
-                self._channel_queue.append(vip_payload)
-                self._log(f"Queued VIP mirror keyboard message to {self.VIP_CHANNEL_ID}")
-
     def _sender_loop(self):
         """Background loop: drain the queue whenever the network is up."""
         self._log("Sender thread started.")
@@ -926,6 +916,12 @@ class TelegramBot:
                 self._log("getMe failed after 5 attempts — continuing without bot username")
 
             webhook_url = os.getenv("WEBHOOK_URL")
+            polling_enabled = os.getenv("TELEGRAM_POLLING", "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
             if webhook_url:
                 # ── WEBHOOK MODE (production) ──
                 hook = f"{webhook_url.rstrip('/')}/tg-webhook/{self.token}"
@@ -950,10 +946,10 @@ class TelegramBot:
                     self._log("Webhook setup failed after 10 attempts — outbound-only mode (sender still active). ✅")
                     self._ready = True
                     self._net_ok = True
-            else:
-                # ── LONG-POLLING MODE (local development) ──
+            elif polling_enabled:
+                # ── LONG-POLLING MODE (explicit opt-in for local development) ──
                 self._log(
-                    "No WEBHOOK_URL — starting Long-Polling mode for local dev ✅"
+                    "No WEBHOOK_URL and TELEGRAM_POLLING enabled — starting Long-Polling mode for local dev ✅"
                 )
                 # Delete any existing webhook first
                 self._call_api("deleteWebhook", {"drop_pending_updates": False})
@@ -964,6 +960,15 @@ class TelegramBot:
                 # Run polling in this thread (blocks)
                 self._polling_loop()
                 return  # polling_loop runs forever
+            else:
+                # ── OUTBOUND-ONLY MODE (default when WEBHOOK_URL is unset) ──
+                # Must not deleteWebhook or getUpdates here: either would
+                # collide with the production webhook and burn API requests.
+                self._log(
+                    "No WEBHOOK_URL and TELEGRAM_POLLING not enabled — outbound-only mode (sender active, production webhook preserved) ✅"
+                )
+                self._ready = True
+                self._net_ok = True
 
             # Keep thread alive (webhook mode)
             self.loop.run_forever()

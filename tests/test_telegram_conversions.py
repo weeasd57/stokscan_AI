@@ -16,6 +16,7 @@ def test_conversions():
     # Initialize mock TelegramBot
     bot = TelegramBot(token="12345:dummy_token", bot_instance=DummyBotInstance())
     bot._queue.clear()
+    bot._channel_queue.clear()
     
     # Test send_notification with various ID formats
     bot.send_notification("Test 1", chat_id=123)
@@ -24,28 +25,31 @@ def test_conversions():
     bot.send_notification("Test 4", chat_id="@my_channel")
     bot.send_notification("Test 5", chat_id="-1002083067817_153")
     
-    print(f"Queue size after notifications: {len(bot._queue)}")
-    assert len(bot._queue) == 5
+    # Public-channel targets are isolated in _channel_queue by design.
+    queued = list(bot._queue) + list(bot._channel_queue)
+    print(f"Queue size after notifications: {len(queued)}")
+    assert len(queued) == 5
     
-    assert bot._queue[0]["chat_id"] == 123
-    assert "message_thread_id" not in bot._queue[0]
+    assert queued[0]["chat_id"] == 123
+    assert "message_thread_id" not in queued[0]
     
-    assert bot._queue[1]["chat_id"] == 123
-    assert "message_thread_id" not in bot._queue[1]
+    assert queued[1]["chat_id"] == 123
+    assert "message_thread_id" not in queued[1]
     
-    assert bot._queue[2]["chat_id"] == 123
-    assert "message_thread_id" not in bot._queue[2]
+    assert queued[2]["chat_id"] == 123
+    assert "message_thread_id" not in queued[2]
     
-    assert bot._queue[3]["chat_id"] == "@my_channel"
-    assert "message_thread_id" not in bot._queue[3]
+    assert queued[3]["chat_id"] == "@my_channel"
+    assert "message_thread_id" not in queued[3]
     
-    assert bot._queue[4]["chat_id"] == -1002083067817
-    assert bot._queue[4]["message_thread_id"] == 153
+    assert queued[4]["chat_id"] == -1002083067817
+    assert queued[4]["message_thread_id"] == 153
     
     print("[SUCCESS] send_notification correctly parsed all ID formats, including threads!")
     
     # Test send_message_with_keyboard with various ID formats
     bot._queue.clear()
+    bot._channel_queue.clear()
     buttons = [[{"text": "Btn", "url": "https://example.com"}]]
     
     bot.send_message_with_keyboard("KB 1", chat_id=456, buttons=buttons)
@@ -54,23 +58,28 @@ def test_conversions():
     bot.send_message_with_keyboard("KB 4", chat_id="@my_channel", buttons=buttons)
     bot.send_message_with_keyboard("KB 5", chat_id="-1002083067817_153", buttons=buttons)
     
-    print(f"Queue size after keyboards: {len(bot._queue)}")
-    assert len(bot._queue) == 5
+    kb_queued = list(bot._queue) + list(bot._channel_queue)
+    print(f"Queue size after keyboards: {len(kb_queued)}")
+    # Free-channel keyboard messages are never mirrored into the paid VIP channel.
+    assert len(kb_queued) == 5
     
-    assert bot._queue[0]["chat_id"] == 456
-    assert "message_thread_id" not in bot._queue[0]
+    assert kb_queued[0]["chat_id"] == 456
+    assert "message_thread_id" not in kb_queued[0]
     
-    assert bot._queue[1]["chat_id"] == 456
-    assert "message_thread_id" not in bot._queue[1]
+    assert kb_queued[1]["chat_id"] == 456
+    assert "message_thread_id" not in kb_queued[1]
     
-    assert bot._queue[2]["chat_id"] == 456
-    assert "message_thread_id" not in bot._queue[2]
+    assert kb_queued[2]["chat_id"] == 456
+    assert "message_thread_id" not in kb_queued[2]
     
-    assert bot._queue[3]["chat_id"] == "@my_channel"
-    assert "message_thread_id" not in bot._queue[3]
+    assert kb_queued[3]["chat_id"] == "@my_channel"
+    assert "message_thread_id" not in kb_queued[3]
     
-    assert bot._queue[4]["chat_id"] == -1002083067817
-    assert bot._queue[4]["message_thread_id"] == 153
+    assert kb_queued[4]["chat_id"] == -1002083067817
+    assert kb_queued[4]["message_thread_id"] == 153
+    
+    vip_targets = [m for m in kb_queued if str(m["chat_id"]) == bot.VIP_CHANNEL_ID]
+    assert vip_targets == []
     
     print("[SUCCESS] send_message_with_keyboard correctly parsed all ID formats, including threads!")
     

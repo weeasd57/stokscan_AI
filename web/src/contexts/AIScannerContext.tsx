@@ -895,6 +895,15 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                 position?.metadata && typeof position.metadata === "object" ? position.metadata : {};
 
             const mapped = (scanData as any[]).map((row: any) => {
+                if (row.locked === true) {
+                    return {
+                        id: row.id,
+                        locked: true,
+                        created_at: row.created_at,
+                        delayed: true,
+                        snapshot_cutoff: row.snapshot_cutoff || null,
+                    };
+                }
                 let tech = row.technical_score || 0;
                 let fund = row.fundamental_score || 0;
                 let sentiment = row.sentiment_score || 0;
@@ -978,6 +987,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                     updated_at: row.updated_at || row.created_at,
                     delayed: row.delayed === true,
                     anonymous: row.anonymous === true,
+                    locked: row.locked === true,
                     snapshot_cutoff: row.snapshot_cutoff || null,
                 };
             });
@@ -993,10 +1003,11 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                     // Unauthenticated users are treated as Free (delayed)
                     isPro = false;
                 }
-                // Anonymous visitors remain on the delayed public view even
-                // when billing is disabled and authenticated users are treated
-                // as unlimited by the platform policy.
-                if (!user || !isPro) {
+                // The recommendations route row-masks anything newer than the
+                // 15-day delay window for authenticated non-Pro users (rows
+                // with locked=true). Anonymous visitors only ever receive
+                // delayed public rows, filtered here as defense in depth.
+                if (!user) {
                     visibleRecommendations = filterByDelay(mapped, 15);
                 }
             }
