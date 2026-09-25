@@ -33,6 +33,7 @@ _EASYKASH_INSTALLMENT_OPTIONS = [
     26, 27, 28,  # Multiple-bank installments
     29,  # Halan
     32,  # TRU
+    33,  # Klivvr (shown under EasyKash Installments)
     34,  # Forsa
 ]
 _PLANS = {"pro": 30, "pro_6m": 180, "pro_1y": 365}

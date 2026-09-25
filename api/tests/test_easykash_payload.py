@@ -39,7 +39,7 @@ class EasyKashPayloadTests(unittest.TestCase):
         self.assertNotIn("paymentOptions", payload)
         self.assertEqual(
             payload["paymentOptionsExcluded"],
-            [3, 8, 9, 10, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 32, 34],
+            [3, 8, 9, 10, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 32, 33, 34],
         )
         for allowed_option in (1, 2, 4, 5, 6, 31, 33, 35):
             self.assertNotIn(allowed_option, payload["paymentOptionsExcluded"])
@@ -72,7 +72,7 @@ class EasyKashPayloadTests(unittest.TestCase):
         self.assertNotIn("paymentOptions", sent_payload)
         self.assertEqual(
             sent_payload["paymentOptionsExcluded"],
-            [3, 8, 9, 10, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 32, 34],
+            [3, 8, 9, 10, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 32, 33, 34],
         )
 
     def test_callback_signature_uses_easykash_documented_field_order(self):
