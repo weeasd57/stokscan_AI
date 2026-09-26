@@ -19,6 +19,7 @@ const TABLES: Record<string, string> = {
   current_public_recommendations: TAGS.recommendations,
 };
 const TTL = 14 * 86400; // retention, NOT a daily refresh timer
+const HOT_TTL = 3 * 86400;
 const CHUNK = 900_000;
 const MAX_BODY = 16 * 1024 * 1024;
 const SHARDS = 16;
@@ -29,6 +30,7 @@ type Entry = { digest: string; chunks: number; bytes: number; storedBytes: numbe
 type Scope = { url: string; key: string };
 const pending = new Map<string, Promise<Response>>();
 const registryLocks = new Map<string, Promise<void>>();
+const recentTouches = new Map<string, number>();
 
 function cache() {
   return getCache({ namespace: `egxbots-market-v1-${process.env.VERCEL_PROJECT_ID || "local"}`, keyHashFunction: hash });
@@ -37,6 +39,7 @@ function scopeId(scope: Scope) { return hash(`${scope.url}|${scope.key}`); }
 function versionKey(scope: string, tag: string) { return `version:${scope}:${tag}`; }
 function priorKey(scope: string, tag: string) { return `prior:${scope}:${tag}`; }
 function entryKey(q: Query, version: string) { return `entry:${q.scope}:${q.id}:${version}`; }
+function hotKey(q: Query) { return `hot:${q.scope}:${q.id}`; }
 async function version(q: Query) { return (await cache().get(versionKey(q.scope, q.tag)) as string) || "bootstrap"; }
 
 function describe(input: RequestInfo | URL, init: RequestInit | undefined, scope: Scope): Query | null {
@@ -111,6 +114,15 @@ async function register(q: Query) {
   try { await work; } finally { if (registryLocks.get(key) === work) registryLocks.delete(key); }
 }
 
+async function touch(q: Query) {
+  const key = hotKey(q);
+  const now = Date.now();
+  // One cache write per query per warm instance at most every 12 hours.
+  if ((recentTouches.get(key) || 0) > now - 12 * 3600_000) return;
+  await cache().set(key, true, { ttl: HOT_TTL, name: "market-recent-query" });
+  recentTouches.set(key, now);
+}
+
 async function origin(q: Query, scope: Scope, fetcher: typeof fetch) {
   return fetcher(q.url, {
     headers: { ...q.headers, apikey: scope.key, authorization: `Bearer ${scope.key}` },
@@ -125,7 +137,11 @@ export function marketCachedFetch(scope: Scope, fetcher: typeof fetch = fetch): 
     if (!q || process.env.MARKET_QUERY_CACHE_DISABLED === "true") return fetcher(input, init);
     const v = await version(q);
     const hit = await read(q, v);
-    if (hit) return hit;
+    if (hit) {
+      await touch(q).catch(() => {});
+      if (Math.random() < 0.01) console.info("[market-cache]", JSON.stringify({ event: "sampled-hit", table: new URL(q.url).pathname.split("/").pop() }));
+      return hit;
+    }
     const prior = await cache().get(priorKey(q.scope, q.tag)) as string | null;
     const old = prior && prior !== v ? await read(q, prior) : null;
     const key = entryKey(q, v);
@@ -141,6 +157,7 @@ export function marketCachedFetch(scope: Scope, fetcher: typeof fetch = fetch): 
         }
         const entry = await save(q, v, response.clone());
         await register(q);
+        await touch(q).catch(() => {});
         console.info("[market-cache]", JSON.stringify({ event: "cold-fill", table: new URL(q.url).pathname.split("/").pop(), bytes: entry.bytes, storedBytes: entry.storedBytes }));
         const headers = new Headers(response.headers);
         headers.set("x-market-cache", "MISS");
@@ -160,7 +177,7 @@ export async function refreshMarketQueries(tags: string[], eventId: string, fetc
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   const keys = [...new Set([process.env.SUPABASE_SERVICE_ROLE_KEY, process.env.SUPABASE_SERVICE_KEY, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, process.env.SUPABASE_ANON_KEY, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY].filter(Boolean))] as string[];
   if (!url || !keys.length) throw new Error("Missing market origin configuration");
-  const summary = { queries: 0, bytes: 0, storedBytes: 0, unchanged: 0, completed: [] as string[] };
+  const summary = { queries: 0, bytes: 0, storedBytes: 0, unchanged: 0, coldSkipped: 0, completed: [] as string[] };
   for (const tag of tags) {
     if (!Object.values(TABLES).includes(tag)) continue;
     for (const key of keys) {
@@ -169,7 +186,10 @@ export async function refreshMarketQueries(tags: string[], eventId: string, fetc
       const current = (await cache().get(versionKey(id, tag)) as string) || "bootstrap";
       if (current === eventId || (current !== "bootstrap" && Date.parse(current) > Date.parse(eventId))) continue;
       const groups = await Promise.all(Array.from({ length: SHARDS }, (_, i) => cache().get(`registry:${id}:${tag}:${i}`)));
-      const queries = (groups.flatMap(group => Array.isArray(group) ? group : []) as Query[]);
+      const registered = (groups.flatMap(group => Array.isArray(group) ? group : []) as Query[]);
+      const activity = await Promise.all(registered.map(q => cache().get(hotKey(q))));
+      const queries = registered.filter((_, i) => Boolean(activity[i]));
+      summary.coldSkipped += registered.length - queries.length;
       // Stage each new generation before switching readers. Failed refreshes
       // leave the entire previous generation available, and do not purge CDN.
       for (let i = 0; i < queries.length; i += 4) {
@@ -195,5 +215,6 @@ export async function refreshMarketQueries(tags: string[], eventId: string, fetc
     }
     summary.completed.push(tag);
   }
+  console.info("[market-cache]", JSON.stringify({ event: "daily-refresh", ...summary }));
   return summary;
 }

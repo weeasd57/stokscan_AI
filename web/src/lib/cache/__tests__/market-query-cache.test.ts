@@ -10,12 +10,16 @@ jest.mock("@vercel/functions", () => ({
 import { marketCachedFetch, refreshMarketQueries } from "../market-query-cache";
 import { DAILY_CACHE_TAGS } from "../daily";
 
-const scope = { url: "https://example.supabase.co", key: "server-test-key" };
-const query = `${scope.url}/rest/v1/stock_prices?select=symbol%2Cclose&symbol=eq.COMI`;
-const options = { headers: { Authorization: `Bearer ${scope.key}` } };
+let scope = { url: "https://example.supabase.co", key: "server-test-key" };
+let query = `${scope.url}/rest/v1/stock_prices?select=symbol%2Cclose&symbol=eq.COMI`;
+let options = { headers: { Authorization: `Bearer ${scope.key}` } };
+let testId = 0;
 
 beforeEach(() => {
   entries.clear();
+  scope = { ...scope, key: `server-test-key-${++testId}` };
+  query = `${scope.url}/rest/v1/stock_prices?select=symbol%2Cclose&symbol=eq.COMI`;
+  options = { headers: { Authorization: `Bearer ${scope.key}` } };
   process.env.NEXT_PUBLIC_SUPABASE_URL = scope.url;
   process.env.SUPABASE_SERVICE_ROLE_KEY = scope.key;
   delete process.env.SUPABASE_SERVICE_KEY;
@@ -70,4 +74,14 @@ it("does not download the same unchanged payload chunk on daily refresh", async 
   const after = [...entries.keys()].filter(key => key.startsWith("blob:"));
   expect(result.unchanged).toBe(1);
   expect(after).toEqual(before);
+});
+
+it("skips inactive stock queries during the next daily refresh", async () => {
+  const origin = jest.fn(async () => Response.json([{ symbol: "COMI", close: 10 }]));
+  await marketCachedFetch(scope, origin as typeof fetch)(query, options);
+  for (const key of [...entries.keys()]) if (key.startsWith("hot:")) entries.delete(key);
+  const result = await refreshMarketQueries([DAILY_CACHE_TAGS.market], "2026-09-26T17:00:00.000Z", origin as typeof fetch);
+  expect(result.coldSkipped).toBe(1);
+  expect(result.queries).toBe(0);
+  expect(origin).toHaveBeenCalledTimes(1);
 });

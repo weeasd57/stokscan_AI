@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, toNumber } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
-export const revalidate = 120; // 2 min (market status can change intraday)
+export const revalidate = 86400;
+const headers = dailyCacheHeaders(DAILY_CACHE_TAGS.market);
 
 export async function GET() {
   try {
@@ -13,20 +15,8 @@ export async function GET() {
       .eq("cache_key", "market_status_Egypt")
       .maybeSingle();
 
-    if (error || !data?.payload) {
-      return NextResponse.json(
-        {
-          egx30: [],
-          egx100: [],
-          usdegp: [],
-          regime: "unknown",
-          egx30_return: 0,
-          reject_buys: false,
-          updated_at: new Date().toISOString(),
-        },
-        { status: 200, headers: { "Vercel-CDN-Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" } }
-      );
-    }
+    if (error) throw error;
+    if (!data?.payload) throw new Error("Market status snapshot is missing");
 
     const payload = (typeof data.payload === "string" ? JSON.parse(data.payload) : data.payload) || {};
     const safePayload = {
@@ -43,10 +33,10 @@ export async function GET() {
           .from("stock_prices")
           .select("date, open, high, low, close, volume")
           .eq("symbol", "USDEGP")
-          .order("date", { ascending: true })
+          .order("date", { ascending: false })
           .limit(365);
         if (usdRows && usdRows.length > 0) {
-          safePayload.usdegp = usdRows.map((r: any) => ({
+          safePayload.usdegp = [...usdRows].reverse().map((r: any) => ({
             date: r.date,
             open: toNumber(r.open, 0),
             high: toNumber(r.high, 0),
@@ -60,25 +50,9 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json(safePayload, {
-      headers: {
-        "Cache-Control": "public, max-age=30",
-        "Vercel-CDN-Cache-Control": "public, s-maxage=120, stale-while-revalidate=300",
-      }
-    });
+    return NextResponse.json(safePayload, { headers });
   } catch (error) {
     console.error("market status error:", error);
-    return NextResponse.json(
-      {
-        egx30: [],
-        egx100: [],
-        usdegp: [],
-        regime: "unknown",
-        egx30_return: 0,
-        reject_buys: false,
-        updated_at: new Date().toISOString(),
-      },
-      { status: 200, headers: { "Vercel-CDN-Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" } }
-    );
+    return NextResponse.json({ error: "Market status temporarily unavailable" }, { status: 503 });
   }
 }

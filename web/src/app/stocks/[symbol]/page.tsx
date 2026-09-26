@@ -2,6 +2,7 @@ import { getPublicMarketClient } from "@/lib/supabase/route-data";
 import { notFound } from "next/navigation";
 import StockDetailClient from "./StockDetailClient";
 import { Metadata } from "next";
+import { cache } from "react";
 
 interface PageProps {
   params: {
@@ -9,16 +10,17 @@ interface PageProps {
   };
 }
 
+// Metadata and page rendering share the same request-scoped fundamentals read.
+const getFundamentals = cache(async (symbol: string) => {
+  const supabase = getPublicMarketClient();
+  const { data } = await supabase.from("stock_fundamentals").select("*").eq("symbol", symbol);
+  return data as any[] | null;
+});
+
 // Generate dynamic metadata for SEO search indexers
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const symbol = params.symbol.toUpperCase();
-  const supabase = getPublicMarketClient();
-
-  // Fetch fundamentals
-  const { data: fundData } = (await supabase
-    .from("stock_fundamentals")
-    .select("*")
-    .eq("symbol", symbol)) as any;
+  const fundData = await getFundamentals(symbol);
 
   const fundRow = fundData?.find((r: any) => r.exchange === "EGX") || fundData?.[0] || null;
   const fund = fundRow?.data || {};
@@ -66,19 +68,16 @@ export default async function StockDetailPage({ params }: PageProps) {
   const supabase = getPublicMarketClient();
 
   // 1. Fetch Fundamentals
-  const { data: fundData } = (await supabase
-    .from("stock_fundamentals")
-    .select("*")
-    .eq("symbol", symbol)) as any;
+  const fundData = await getFundamentals(symbol);
 
   const fundRow = fundData?.find((r: any) => r.exchange === "EGX") || fundData?.[0] || null;
 
   // If no fundamentals, check if we have any price records to verify stock existence
-  const { data: priceCheck } = await supabase
+  const priceCheck = fundRow ? null : (await supabase
     .from("stock_prices")
     .select("symbol, exchange")
     .eq("symbol", symbol)
-    .limit(1);
+    .limit(1)).data;
 
   // If no trace of this stock exists in fundamentals or prices, return 404
   if (!fundRow && (!priceCheck || priceCheck.length === 0)) {

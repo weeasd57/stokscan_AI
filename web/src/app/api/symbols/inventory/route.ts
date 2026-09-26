@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
-export const revalidate = 3600;
+export const revalidate = 86400;
+const headers = dailyCacheHeaders(DAILY_CACHE_TAGS.symbols);
 
 export async function GET() {
   try {
@@ -19,19 +21,18 @@ export async function GET() {
       if (cacheRow?.payload && Array.isArray(cacheRow.payload)) {
         return NextResponse.json({
           inventory: cacheRow.payload,
-        }, {
-          headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400' }
-        });
+        }, { headers });
       }
     } catch (cacheErr) {
       console.warn("Failed to load inventory from market_cache:", cacheErr);
     }
 
     // 2. Fallback to basic fundamentals aggregation
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("stock_fundamentals")
       .select("symbol,exchange,data")
       .limit(1000);
+    if (error) throw error;
 
     const fallbackInventory = (data || []).map((row: Record<string, any>) => {
       const rowData = row.data || {};
@@ -51,11 +52,9 @@ export async function GET() {
 
     return NextResponse.json({
       inventory: fallbackInventory,
-    }, {
-      headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400' }
-    });
+    }, { headers });
   } catch (error) {
     console.error("symbols inventory route error:", error);
-    return NextResponse.json({ inventory: [] });
+    return NextResponse.json({ error: "Inventory temporarily unavailable" }, { status: 503 });
   }
 }
