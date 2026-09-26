@@ -120,12 +120,14 @@ it("removes the safety gate, masks closed identities, and hides wins above 50% f
   expect(rows.find((r: any) => r.id === "threshold-win").identity_locked).toBe(true);
 });
 
-it("hides fresh open signals and >50% wins from anonymous responses", async () => {
+it("encrypts every anonymous open signal and hides >50% wins", async () => {
   const { GET } = await import("@/app/api/ai_bot/recommendations/route");
   const rows = await getRows(await GET(request(null)));
   expect(rows.some((r: any) => r.id === "fresh")).toBe(false);
-  expect(rows.some((r: any) => r.id === "old-high-safety")).toBe(true);
   expect(rows.map((r: any) => r.id)).toEqual(["old-high-safety", "old-safe", "old-loss", "recent-loss", "fresh-loss", "threshold-win"]);
+  expect(rows.find((r: any) => r.id === "old-high-safety")).toMatchObject({ locked: true, exchange: "EGX" });
+  expect(rows.find((r: any) => r.id === "old-safe").symbol).toBeUndefined();
+  expect(rows.filter((r: any) => r.status === "open").every((r: any) => r.locked && !r.symbol && !r.name)).toBe(true);
   expect(rows.find((r: any) => r.id === "fresh-loss")).toMatchObject({ status: "loss", profit_loss_pct: -10, delayed: false, identity_locked: true });
   expect(rows.find((r: any) => r.id === "fresh-loss").symbol).toBeUndefined();
 });

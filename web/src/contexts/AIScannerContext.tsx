@@ -1043,9 +1043,11 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                 // picks for Free users (locked=true rows) and never returns
                 // them to anonymous visitors; no extra quota round trip here.
                 if (!user) {
-                    // Defense in depth: a stale/edge-cached response must not
-                    // leak locked placeholders to logged-out visitors.
-                    visibleRecommendations = mapped.filter((row: any) => !row.locked);
+                    // Anonymous visitors get only API-sanitized encrypted rows;
+                    // never fall back to a row carrying a stock identity.
+                    visibleRecommendations = mapped.filter((row: any) =>
+                        row.locked === true || row.identity_locked === true
+                    );
                 }
             }
             setRecommendations(visibleRecommendations);

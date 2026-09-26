@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
       const createdMs = row.created_at ? new Date(String(row.created_at)).getTime() : Number.NaN;
       const isClosed = closed(row);
       const fresh = !Number.isFinite(createdMs) || createdMs > cutoffTime;
-      const locked = authenticated && delayedVisibility && !isClosed && fresh;
+      const locked = delayedVisibility && !isClosed && (!authenticated || fresh);
       if (locked) {
         return {
           id: row.id,

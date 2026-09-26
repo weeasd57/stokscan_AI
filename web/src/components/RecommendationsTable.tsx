@@ -410,7 +410,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         }
     };
 
-    // Opens the Pro upsell modal when a Free user clicks a locked row.
+    // Opens sign-in for anonymous visitors and Pro upsell for Free members.
     const handleLockedClick = (e: React.MouseEvent) => {
         e.stopPropagation();
         setLockedModalOpen(true);
@@ -440,19 +440,19 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <Lock className="w-8 h-8 text-black" />
                     </div>
                     <div className="text-2xl font-black uppercase tracking-wide text-black dark:text-white">
-                        {isAr ? "توصية لبرو فقط" : "Pro-only signal"}
+                        {!user ? (isAr ? "سجّل الدخول لفتح التوصية" : "Sign in to unlock") : (isAr ? "توصية لبرو فقط" : "Pro-only signal")}
                     </div>
                     <div className="text-sm font-bold text-zinc-600 dark:text-zinc-400 max-w-md leading-relaxed">
-                        {isAr
-                            ? "اسم السهم ده مستتِر وراء قفل البرو — التوصيات الحديثة وأعلى توصيات أماناً بتوصلك فوراً مع خطة Pro بدون انتظار."
-                            : "This stock name sits behind the Pro lock — the freshest and highest-safety recommendations reach you instantly with Pro, no waiting."}
+                        {!user
+                            ? (isAr ? "بيانات السهم مشفرة. سجّل الدخول لعرض التوصيات المجانية المتاحة بعد تأخير 15 يوماً." : "Stock details are encrypted. Sign in to see Free recommendations after the 15-day delay.")
+                            : (isAr ? "بيانات السهم ده متاحة فوراً لمشتركي Pro." : "This stock's details are available instantly to Pro subscribers.")}
                     </div>
                     <button
-                        onClick={() => { setLockedModalOpen(false); router.push("/pricing"); }}
+                        onClick={() => { setLockedModalOpen(false); router.push(!user ? "/login?redirect=%2Fscanner%2Fbacktests%3Ftab%3Dbots" : "/pricing"); }}
                         className="w-full max-w-sm h-14 inline-flex items-center justify-center gap-2 border-4 border-black bg-amber-300 hover:bg-amber-400 text-black text-base font-black uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
                     >
-                        <Crown className="w-5 h-5" />
-                        {isAr ? "اشترك الآن في Pro" : "Subscribe to Pro"}
+                        {!user ? <Lock className="w-5 h-5" /> : <Crown className="w-5 h-5" />}
+                        {!user ? (isAr ? "تسجيل الدخول" : "Sign in") : (isAr ? "اشترك الآن في Pro" : "Subscribe to Pro")}
                     </button>
                     <button
                         onClick={() => setLockedModalOpen(false)}
@@ -855,7 +855,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                     )}
                                                 </div>
                                                 <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[140px]">
-                                                    {landingLocked ? (isAr ? "متاح للبرو فوراً · اضغط للاشتراك" : "Instant with Pro · tap to subscribe") : row.name}
+                                                    {landingLocked ? (!user ? (isAr ? "اضغط لتسجيل الدخول" : "Tap to sign in") : (isAr ? "متاح للبرو فوراً · اضغط للاشتراك" : "Instant with Pro · tap to subscribe")) : row.name}
                                                 </span>
                                             </div>
                                         </div>
@@ -900,7 +900,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                 )}
                                             </div>
                                             <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[200px]">
-                                                {landingLocked ? (isAr ? "متاح للبرو فوراً · اضغط للاشتراك" : "Instant with Pro · tap to subscribe") : row.name}
+                                                {landingLocked ? (!user ? (isAr ? "اضغط لتسجيل الدخول" : "Tap to sign in") : (isAr ? "متاح للبرو فوراً · اضغط للاشتراك" : "Instant with Pro · tap to subscribe")) : row.name}
                                             </span>
                                         </div>
                                     </div>
@@ -2364,7 +2364,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                     </div>
                                                     {locked ? (
                                                         <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium select-none">
-                                                            {isAr ? "متاح للبرو فوراً · اضغط للاشتراك" : "Instant with Pro · tap to subscribe"}
+                                                            {!user ? (isAr ? "اضغط وسجّل الدخول" : "Tap to sign in") : (isAr ? "متاح للبرو فوراً · اضغط للاشتراك" : "Instant with Pro · tap to subscribe")}
                                                         </span>
                                                     ) : (
                                                         <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[140px]" title={row.name}>
@@ -2554,7 +2554,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                                 </span>
                                                             </div>
                                                             <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium select-none">
-                                                                {isAr ? "اسم السهم مشفر — اضغط للاشتراك" : "Name encrypted — tap to subscribe"}
+                                                                {!user ? (isAr ? "اسم السهم مشفر — اضغط لتسجيل الدخول" : "Stock encrypted — tap to sign in") : (isAr ? "اسم السهم مشفر — اضغط للاشتراك" : "Name encrypted — tap to subscribe")}
                                                             </span>
                                                         </div>
                                                     </div>
