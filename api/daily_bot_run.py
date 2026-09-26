@@ -2020,10 +2020,31 @@ async def generate_daily_recommendations(
     bulk_cache_ttl_seconds: Optional[int] = None,
 ):
     """
-    Run fast_scan ML model for Egypt, select the top 10 speculative stocks,
-    generate rich detailed Arabic reports, and insert them into scan_results.
+    Rank EGX candidates and publish only within the configured public capacity.
     """
     from typing import Optional
+    from zoneinfo import ZoneInfo
+
+    daily_limit = max(1, min(5, int(os.getenv("PUBLIC_RECOMMENDATION_DAILY_LIMIT", "1"))))
+    rolling_limit = max(1, min(30, int(os.getenv("PUBLIC_RECOMMENDATION_ROLLING_LIMIT", "20"))))
+    open_limit = max(1, min(20, int(os.getenv("PUBLIC_RECOMMENDATION_OPEN_LIMIT", "10"))))
+    max_sessions = max(1, int(os.getenv("PUBLIC_RECOMMENDATION_MAX_HOLD_SESSIONS", "20")))
+    try:
+        _init_supabase()
+        now_utc = dt.datetime.now(dt.timezone.utc)
+        cairo_day = now_utc.astimezone(ZoneInfo("Africa/Cairo")).replace(
+            hour=0, minute=0, second=0, microsecond=0,
+        ).astimezone(dt.timezone.utc)
+        base = lambda: supabase.table("scan_results").select("id", count="exact").eq("is_public", True).eq("exchange", "EGX").limit(1)
+        daily_count = base().gte("created_at", cairo_day.isoformat()).execute().count or 0
+        rolling_count = base().gte("created_at", (now_utc - dt.timedelta(days=30)).isoformat()).execute().count or 0
+        open_count = base().eq("status", "open").execute().count or 0
+        if daily_count >= daily_limit or rolling_count >= rolling_limit or open_count >= open_limit:
+            print(f"[RECOMMENDATIONS] Capacity reached: day={daily_count}/{daily_limit}, rolling={rolling_count}/{rolling_limit}, open={open_count}/{open_limit}.")
+            return 0
+    except Exception as capacity_error:
+        print(f"[RECOMMENDATIONS] Capacity check unavailable: {capacity_error}")
+        return 0
     resolved_model = "model_EGX.bin"
     
     # ── Load EGX30 index data unconditionally for trend check and adaptive selection ──
@@ -2242,10 +2263,6 @@ async def generate_daily_recommendations(
     results.sort(key=lambda x: x.get("risk_adjusted_return", 0.0), reverse=True)
     
     # The database RPC checks and reserves capacity atomically across workers.
-    daily_limit = max(1, min(5, int(os.getenv("PUBLIC_RECOMMENDATION_DAILY_LIMIT", "1"))))
-    rolling_limit = max(1, min(30, int(os.getenv("PUBLIC_RECOMMENDATION_ROLLING_LIMIT", "20"))))
-    open_limit = max(1, min(20, int(os.getenv("PUBLIC_RECOMMENDATION_OPEN_LIMIT", "10"))))
-    max_sessions = max(1, int(os.getenv("PUBLIC_RECOMMENDATION_MAX_HOLD_SESSIONS", "20")))
 
     # Preserve entry-time scores/features: rescanning must not rewrite the data
     # needed to audit the original decision or advance its evaluation checkpoint.
