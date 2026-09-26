@@ -2369,11 +2369,11 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                     )}
                                                 </div>
                                             </div>
-                                            {renderCircularScore(aiScoreNum, "AI")}
+                                            {locked ? <Lock className="w-5 h-5 text-amber-500" /> : renderCircularScore(aiScoreNum, "AI")}
                                         </div>
                                         <div className="flex items-center justify-between flex-wrap gap-3">
                                             <div className="flex items-center gap-2">
-                                                {renderSignalBadge(row)}
+                                                {!locked && renderSignalBadge(row)}
                                                 {locked ? (
                                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/10 text-amber-500 border border-amber-500/30">
                                                         <Lock className="w-3 h-3" />
@@ -2395,10 +2395,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         </div>
                                         {user && (
                                             <div className="flex items-center justify-between pt-3 border-t border-zinc-200 dark:border-zinc-800">
-                                                {renderCircularScore(row.technical_score || 5, "Tech")}
-                                                {renderCircularScore(row.fundamental_score || 5, "Fund")}
-                                                {renderCircularScore(row.sentiment_score || 5, "Sent")}
-                                                {renderCircularScore(getLowRiskScore(row), "Risk")}
+                                                {locked ? <span className="text-xs text-amber-500">{isAr ? "الدرجات متاحة للبرو" : "Scores available with Pro"}</span> : <>
+                                                    {renderCircularScore(row.technical_score || 5, "Tech")}
+                                                    {renderCircularScore(row.fundamental_score || 5, "Fund")}
+                                                    {renderCircularScore(row.sentiment_score || 5, "Sent")}
+                                                    {renderCircularScore(getLowRiskScore(row), "Risk")}
+                                                </>}
                                             </div>
                                         )}
                                         {!locked && (
@@ -2566,33 +2568,23 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                     })()}
                                                 </td>
                                                 <td className="px-4 py-4 text-center">
-                                                    {String(row.signal).toUpperCase() === "BUY" ? (
-                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 border-2 border-black font-black text-xs bg-emerald-100 text-emerald-800 shadow-[2px_2px_0px_rgba(0,0,0,1)]">
-                                                            <TrendingUp className="w-3.5 h-3.5 shrink-0" />
-                                                            {translate("buy")}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 border-2 border-black font-black text-xs bg-rose-100 text-rose-800 shadow-[2px_2px_0px_rgba(0,0,0,1)]">
-                                                            <TrendingDown className="w-3.5 h-3.5 shrink-0" />
-                                                            {translate("sell")}
-                                                        </span>
-                                                    )}
+                                                    <Lock className="w-4 h-4 mx-auto text-amber-500" />
                                                 </td>
                                                 {user && (
                                                     <>
                                                         <td className="hidden md:table-cell px-4 py-4 text-center">
-                                                            {renderCircularScore(row.technical_score || 5, "Tech")}
+                                                            <span className="text-zinc-500">—</span>
                                                         </td>
                                                         <td className="hidden md:table-cell px-4 py-4 text-center">
-                                                            {renderCircularScore(row.fundamental_score || 5, "Fund")}
+                                                            <span className="text-zinc-500">—</span>
                                                         </td>
                                                         <td className="hidden md:table-cell px-4 py-4 text-center">
-                                                            {renderCircularScore(row.sentiment_score || 5, "Sent")}
+                                                            <span className="text-zinc-500">—</span>
                                                         </td>
                                                     </>
                                                 )}
                                                 <td className="hidden md:table-cell px-4 py-4 text-center">
-                                                    {renderCircularScore(getLowRiskScore(row), "Risk")}
+                                                    <span className="text-zinc-500">—</span>
                                                 </td>
                                                 <td className="px-4 py-4 text-center">
                                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/10 text-amber-500 border border-amber-500/30">

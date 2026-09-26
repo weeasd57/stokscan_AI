@@ -63,6 +63,9 @@ beforeEach(() => {
     { id: "fresh", symbol: "FRESH", name: "Fresh Co", exchange: "EGX", signal: "BUY", status: "open", precision: 0.9, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), top_reasons: ["hot"], is_public: true },
     { id: "old-high-safety", symbol: "SAFE", name: "Safe Co", exchange: "EGX", signal: "BUY", status: "open", precision: 0.8, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 40 * DAY).toISOString(), last_close: 100, stop_loss: 99, is_public: true },
     { id: "old-safe", symbol: "OLD", name: "Old Co", exchange: "EGX", signal: "SELL", status: "open", precision: 0.6, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 40 * DAY).toISOString(), last_close: 100, stop_loss: 70, is_public: true },
+    { id: "old-loss", symbol: "LOSS", name: "Loss Co", exchange: "EGX", signal: "BUY", status: "loss", precision: 0.8, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 20 * DAY).toISOString(), last_close: 90, stop_loss: 89, profit_loss_pct: -10, is_public: true },
+    { id: "recent-loss", symbol: "RECENT", name: "Recent Loss", exchange: "EGX", signal: "BUY", status: "loss", precision: 0.8, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 2 * DAY).toISOString(), last_close: 90, stop_loss: 89, profit_loss_pct: -10, is_public: true },
+    { id: "fresh-loss", symbol: "FLOSS", name: "Fresh Loss", exchange: "EGX", signal: "BUY", status: "loss", precision: 0.8, created_at: new Date(Date.now() - 2 * DAY).toISOString(), updated_at: new Date().toISOString(), last_close: 90, stop_loss: 89, profit_loss_pct: -10, is_public: true },
   );
   globalThis.fetch = jest.fn(async () =>
     Response.json(FETCH_ROWS)) as unknown as typeof fetch;
@@ -85,7 +88,7 @@ async function getRows(res: Response) {
   return (await res.json()) as any[];
 }
 
-it("locks fresh and high-safety rows for Free users, exposing only non-identity fields", async () => {
+it("reveals every settled loss immediately but redacts actionable locked rows for Free users", async () => {
   const { GET } = await import("@/app/api/ai_bot/recommendations/route");
   const rows = await getRows(await GET(request("u-free")));
   const fresh = rows.find((r: any) => r.id === "fresh");
@@ -96,14 +99,20 @@ it("locks fresh and high-safety rows for Free users, exposing only non-identity 
   expect(highSafety.locked).toBe(true);
   expect(normal.locked).toBeUndefined();
 
-  // Hidden: identity + prices + reasons — visible: everything else.
+  // Locked rows reveal no outcome, identity, scores, or prices.
   expect(fresh.symbol).toBeUndefined();
   expect(fresh.name).toBeUndefined();
   expect(fresh.top_reasons).toBeUndefined();
   expect(fresh.last_close).toBeUndefined();
-  expect(Number(fresh.precision)).toBeCloseTo(0.9);
-  expect(highSafety.safety_rate).toBe(10);
+  expect(fresh.precision).toBeUndefined();
+  expect(fresh.status).toBeUndefined();
+  expect(fresh.signal).toBeUndefined();
+  expect(highSafety.safety_rate).toBeUndefined();
   expect(normal.symbol).toBe("OLD");
+  expect(normal.last_close).toBeNull();
+  expect(rows.find((r: any) => r.id === "old-loss").profit_loss_pct).toBe(-10);
+  expect(rows.find((r: any) => r.id === "recent-loss").profit_loss_pct).toBe(-10);
+  expect(rows.find((r: any) => r.id === "fresh-loss").profit_loss_pct).toBe(-10);
 });
 
 it("keeps Pro-only rows out of anonymous responses entirely", async () => {
@@ -111,7 +120,8 @@ it("keeps Pro-only rows out of anonymous responses entirely", async () => {
   const rows = await getRows(await GET(request(null)));
   expect(rows.some((r: any) => r.id === "fresh")).toBe(false);
   expect(rows.some((r: any) => r.id === "old-high-safety")).toBe(false);
-  expect(rows.map((r: any) => r.id)).toEqual(["old-safe"]);
+  expect(rows.map((r: any) => r.id)).toEqual(["old-safe", "old-loss", "recent-loss", "fresh-loss"]);
+  expect(rows.find((r: any) => r.id === "fresh-loss")).toMatchObject({ status: "loss", profit_loss_pct: -10, delayed: false });
 });
 
 it("returns everything unlocked to a Pro subscriber", async () => {
@@ -129,7 +139,7 @@ it("reads only public datasets and delegates auth to the cached viewer context",
   // Two per-request reads for recommendations + sectors, resolved through the
   // service client (whose market reads are cached upstream in the shared
   // market-query cache).
-  expect(calls.filter(call => call === "from:current_public_recommendations")).toHaveLength(2);
+  expect(calls.filter(call => call === "from:scan_results")).toHaveLength(2);
   expect(calls.filter(call => call === "from:stock_fundamentals")).toHaveLength(2);
   expect(calls.filter(call => call === "viewer:u-free")).toHaveLength(2);
   expect(calls).not.toContain("from:subscriptions");

@@ -895,27 +895,25 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
 
             const mapped = (scanData as any[]).map((row: any) => {
                 if (row.locked === true) {
-                    // Only the stock identity is hidden; scores, sector, signal,
-                    // status and dates render like any other recommendation.
-                    const p = Number(row.precision) || 0.5;
-                    const clamp10 = (n: number) => Math.max(1, Math.min(10, Math.round(n)));
+                    // No recommendation outcome, signal, score, sector or
+                    // current quote is sent for a delayed/Pro-only row.
                     return {
                         id: row.id,
                         locked: true,
                         symbol: null,
                         name: null,
                         logo_url: null,
-                        signal: row.signal || "BUY",
-                        precision: p,
-                        exchange: row.exchange || "EGX",
-                        country: row.country || null,
-                        status: row.status || "open",
+                        signal: "LOCKED",
+                        precision: 0,
+                        exchange: null,
+                        country: null,
+                        status: "locked",
                         created_at: row.created_at,
-                        updated_at: row.updated_at || row.created_at,
-                        technical_score: clamp10(p * 10 - 0.5),
-                        fundamental_score: clamp10(p * 10 - 0.8),
-                        sentiment_score: clamp10(p * 10 - 1.2),
-                        sector: row.sector || "General",
+                        updated_at: row.created_at,
+                        technical_score: 0,
+                        fundamental_score: 0,
+                        sentiment_score: 0,
+                        sector: null,
                         last_close: null,
                         entry_price: null,
                         target_price: undefined,
