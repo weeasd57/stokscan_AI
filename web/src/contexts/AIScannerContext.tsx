@@ -905,6 +905,8 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                         status: row.status,
                         precision: Number(row.precision) || 0,
                         profit_loss_pct: row.profit_loss_pct != null ? Number(row.profit_loss_pct) : null,
+                        high_return_pro: row.high_return_pro === true,
+                        recommendation_age_days: row.recommendation_age_days != null ? Number(row.recommendation_age_days) : null,
                         created_at: row.created_at,
                         updated_at: row.updated_at || row.created_at,
                         sector: null,
@@ -946,6 +948,8 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                         profit_loss_pct: row.profit_loss_pct != null && Number.isFinite(Number(row.profit_loss_pct))
                             ? Number(row.profit_loss_pct)
                             : null,
+                        high_return_pro: row.high_return_pro === true,
+                        recommendation_age_days: row.recommendation_age_days != null ? Number(row.recommendation_age_days) : null,
                         change_pct: null,
                         top_reasons: null,
                         delayed: true,

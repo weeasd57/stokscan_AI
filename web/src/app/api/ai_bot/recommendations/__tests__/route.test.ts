@@ -63,6 +63,7 @@ beforeEach(() => {
     { id: "fresh", symbol: "FRESH", name: "Fresh Co", exchange: "EGX", signal: "BUY", status: "open", precision: 0.9, entry_price: 80, last_close: 100, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), top_reasons: ["hot"], is_public: true },
     { id: "old-high-safety", symbol: "SAFE", name: "Safe Co", exchange: "EGX", signal: "BUY", status: "open", precision: 0.8, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 40 * DAY).toISOString(), last_close: 100, stop_loss: 99, is_public: true },
     { id: "old-safe", symbol: "OLD", name: "Old Co", exchange: "EGX", signal: "SELL", status: "open", precision: 0.6, entry_price: 80, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 40 * DAY).toISOString(), last_close: 100, stop_loss: 70, is_public: true },
+    { id: "old-high-return", symbol: "HOT", name: "High Return Co", exchange: "EGX", signal: "BUY", status: "open", precision: 0.8, entry_price: 100, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 40 * DAY).toISOString(), last_close: 160, is_public: true },
     { id: "old-loss", symbol: "LOSS", name: "Loss Co", exchange: "EGX", signal: "BUY", status: "loss", precision: 0.8, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 20 * DAY).toISOString(), last_close: 90, stop_loss: 89, profit_loss_pct: -10, is_public: true },
     { id: "recent-loss", symbol: "RECENT", name: "Recent Loss", exchange: "EGX", signal: "BUY", status: "loss", precision: 0.8, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 2 * DAY).toISOString(), last_close: 90, stop_loss: 89, profit_loss_pct: -10, is_public: true },
     { id: "fresh-loss", symbol: "FLOSS", name: "Fresh Loss", exchange: "EGX", signal: "BUY", status: "loss", precision: 0.8, created_at: new Date(Date.now() - 2 * DAY).toISOString(), updated_at: new Date().toISOString(), last_close: 90, stop_loss: 89, profit_loss_pct: -10, is_public: true },
@@ -90,7 +91,7 @@ async function getRows(res: Response) {
   return (await res.json()) as any[];
 }
 
-it("removes the safety gate, masks closed identities, and hides wins above 50% for Free", async () => {
+it("removes the safety gate and masks open >50% opportunities with a Pro badge and age", async () => {
   const { GET } = await import("@/app/api/ai_bot/recommendations/route");
   const response = await GET(request("u-free"));
   expect(response.headers.get("cache-control")).toContain("no-store");
@@ -98,10 +99,16 @@ it("removes the safety gate, masks closed identities, and hides wins above 50% f
   const fresh = rows.find((r: any) => r.id === "fresh");
   const highSafety = rows.find((r: any) => r.id === "old-high-safety");
   const normal = rows.find((r: any) => r.id === "old-safe");
+  const highReturn = rows.find((r: any) => r.id === "old-high-return");
 
   expect(fresh.locked).toBe(true);
   expect(highSafety.locked).toBeUndefined();
   expect(normal.locked).toBeUndefined();
+  expect(highReturn).toMatchObject({ locked: true, high_return_pro: true, recommendation_age_days: 40, profit_loss_pct: 60 });
+  expect(highReturn.symbol).toBeUndefined();
+  expect(highReturn.name).toBeUndefined();
+  expect(highReturn.entry_price).toBeUndefined();
+  expect(highReturn.last_close).toBeUndefined();
 
   // Locked rows reveal their status and ratings, but never identity or prices.
   expect(fresh.symbol).toBeUndefined();
@@ -129,23 +136,29 @@ it("removes the safety gate, masks closed identities, and hides wins above 50% f
   expect(rows.find((r: any) => r.id === "old-loss").symbol).toBeUndefined();
   expect(rows.find((r: any) => r.id === "recent-loss").profit_loss_pct).toBe(-10);
   expect(rows.find((r: any) => r.id === "fresh-loss").profit_loss_pct).toBe(-10);
-  expect(rows.find((r: any) => r.id === "large-win")).toBeUndefined();
+  expect(rows.find((r: any) => r.id === "large-win")).toMatchObject({ identity_locked: true, high_return_pro: false, recommendation_age_days: null, profit_loss_pct: 51 });
+  expect(rows.find((r: any) => r.id === "large-win").symbol).toBeUndefined();
+  expect(rows.find((r: any) => r.id === "large-win").name).toBeUndefined();
   expect(rows.find((r: any) => r.id === "threshold-win").identity_locked).toBe(true);
+  expect(rows.find((r: any) => r.id === "threshold-win").high_return_pro).toBe(false);
 });
 
-it("encrypts every anonymous open signal and hides >50% wins", async () => {
+it("encrypts anonymous open signals and marks >50% opportunities without exposing identity", async () => {
   const { GET } = await import("@/app/api/ai_bot/recommendations/route");
   const rows = await getRows(await GET(request(null)));
   expect(rows.some((r: any) => r.id === "fresh")).toBe(false);
-  expect(rows.map((r: any) => r.id)).toEqual(["old-high-safety", "old-safe", "old-loss", "recent-loss", "fresh-loss", "threshold-win"]);
+  expect(rows.map((r: any) => r.id)).toEqual(["old-high-safety", "old-safe", "old-high-return", "old-loss", "recent-loss", "fresh-loss", "large-win", "threshold-win"]);
   expect(rows.find((r: any) => r.id === "old-high-safety")).toMatchObject({ locked: true, exchange: "EGX", signal: "BUY", status: "open", precision: 0.8 });
   expect(rows.find((r: any) => r.id === "old-safe")).toMatchObject({ locked: true, exchange: "EGX", signal: "SELL", status: "open", profit_loss_pct: 25 });
   expect(rows.find((r: any) => r.id === "old-safe").symbol).toBeUndefined();
   expect(rows.find((r: any) => r.id === "old-safe").last_close).toBeUndefined();
   expect(rows.find((r: any) => r.id === "old-safe").target_price).toBeUndefined();
   expect(rows.filter((r: any) => r.status === "open").every((r: any) => r.locked && !r.symbol && !r.name)).toBe(true);
+  expect(rows.find((r: any) => r.id === "old-high-return")).toMatchObject({ locked: true, high_return_pro: true, recommendation_age_days: 40, profit_loss_pct: 60 });
   expect(rows.find((r: any) => r.id === "fresh-loss")).toMatchObject({ status: "loss", profit_loss_pct: -10, delayed: false, identity_locked: true });
   expect(rows.find((r: any) => r.id === "fresh-loss").symbol).toBeUndefined();
+  expect(rows.find((r: any) => r.id === "large-win")).toMatchObject({ identity_locked: true, high_return_pro: false, recommendation_age_days: null });
+  expect(rows.find((r: any) => r.id === "large-win").symbol).toBeUndefined();
 });
 
 it("returns everything unlocked to a Pro subscriber", async () => {

@@ -4,7 +4,8 @@ import { DAILY_CACHE_TAGS } from "@/lib/cache/daily";
 import { getViewerContext } from "@/lib/supabase/viewer-context";
 import { paymentsEnabled } from "@/lib/ai/plan-gate";
 
-const FREE_HIDDEN_WIN_RETURN_PCT = 50;
+const FREE_ENCRYPTED_OPEN_RETURN_PCT = 50;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,12 +45,22 @@ export async function GET(req: NextRequest) {
 
     let visibleData = data || [];
     const closed = (row: Record<string, unknown>) => ["win", "loss"].includes(String(row.status || "").toLowerCase());
-    const highReturnWin = (row: Record<string, unknown>) =>
-      String(row.status || "").toLowerCase() === "win" &&
-      toNumber(row.profit_loss_pct, 0) > FREE_HIDDEN_WIN_RETURN_PCT;
-    if (delayedVisibility) {
-      visibleData = visibleData.filter((row: Record<string, unknown>) => !highReturnWin(row));
-    }
+    const recommendationReturnPct = (row: Record<string, unknown>) => {
+      if (closed(row)) return row.profit_loss_pct == null ? null : toNumber(row.profit_loss_pct, 0);
+      const entryPrice = toNumber(row.entry_price, 0);
+      const lastClose = toNumber(row.last_close, 0);
+      if (entryPrice > 0 && lastClose > 0) return ((lastClose - entryPrice) / entryPrice) * 100;
+      return row.profit_loss_pct == null ? null : toNumber(row.profit_loss_pct, 0);
+    };
+    const isHighReturn = (row: Record<string, unknown>) =>
+      (recommendationReturnPct(row) ?? Number.NEGATIVE_INFINITY) > FREE_ENCRYPTED_OPEN_RETURN_PCT;
+    const recommendationAgeDays = (row: Record<string, unknown>) => {
+      const createdMs = row.created_at ? new Date(String(row.created_at)).getTime() : Number.NaN;
+      if (!Number.isFinite(createdMs)) return null;
+      const endAt = closed(row) && row.updated_at ? new Date(String(row.updated_at)).getTime() : Date.now();
+      if (!Number.isFinite(endAt)) return null;
+      return Math.floor(Math.max(0, endAt - createdMs) / DAY_MS);
+    };
     // Anonymous visitors must never receive today's actionable picks.
     // Settled outcomes are public immediately, including losses; a closed
     // recommendation can no longer be traded on its original signal.
@@ -74,12 +85,13 @@ export async function GET(req: NextRequest) {
     ]));
 
     const results = visibleData.map((row: Record<string, unknown>) => {
-      // Closed outcomes below the high-return filter are visible immediately,
-      // but their identity remains Pro-only. Open signals use the 15-day delay.
+      // Closed outcomes are visible immediately but keep their identity Pro-only.
+      // Only open high-return opportunities stay encrypted for Free after the delay.
       const createdMs = row.created_at ? new Date(String(row.created_at)).getTime() : Number.NaN;
       const isClosed = closed(row);
       const fresh = !Number.isFinite(createdMs) || createdMs > cutoffTime;
-      const locked = delayedVisibility && !isClosed && (!authenticated || fresh);
+      const highReturnPro = !isClosed && isHighReturn(row);
+      const locked = delayedVisibility && !isClosed && ((!authenticated || fresh) || highReturnPro);
       if (locked) {
         const precision = toNumber(row.precision, 0);
         const score = (value: number) => Math.max(1, Math.min(10, Math.round(value)));
@@ -106,6 +118,8 @@ export async function GET(req: NextRequest) {
           sentiment_score: score(precision * 10 - 1.2),
           safety_rate: safetyRate,
           profit_loss_pct: sinceRecommendationPct,
+          high_return_pro: highReturnPro,
+          recommendation_age_days: highReturnPro ? recommendationAgeDays(row) : null,
           created_at: row.created_at,
           delayed: true,
           snapshot_cutoff: cutoff,
@@ -119,6 +133,8 @@ export async function GET(req: NextRequest) {
           status: row.status,
           precision: toNumber(row.precision, 0),
           profit_loss_pct: toNumber(row.profit_loss_pct, 0),
+          high_return_pro: false,
+          recommendation_age_days: null,
           created_at: row.created_at,
           updated_at: row.updated_at || row.created_at,
           delayed: false,

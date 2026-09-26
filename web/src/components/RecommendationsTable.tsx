@@ -710,6 +710,22 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         return percentageChangeSinceEntry(Number(row.entry_price) || 0, Number(row.last_close) || 0);
     };
 
+    const renderHighReturnProBadge = (row: any) => {
+        if (row.high_return_pro !== true) return null;
+        const ageDays = Number(row.recommendation_age_days);
+        const hasAge = Number.isFinite(ageDays) && ageDays >= 0;
+        const ageLabel = ageDays === 0
+            ? (isAr ? "أقل من يوم" : "less than a day")
+            : (isAr ? `بقالها ${ageDays} يوم` : `${ageDays} days old`);
+        return (
+            <span className="inline-flex flex-wrap items-center justify-center gap-1 px-2 py-1 rounded border border-amber-400/40 bg-amber-400/10 text-amber-500 text-[10px] font-black leading-tight">
+                <span>PRO</span>
+                <span>{isAr ? "عائد التوصية تعدّى 50%" : "Recommendation return exceeded 50%"}</span>
+                {hasAge && <span className="font-bold">· {ageLabel}</span>}
+            </span>
+        );
+    };
+
     const getStatusBadge = (status: string, plPct: number | null) => {
         if (isAnonymousView) {
             return (
@@ -872,6 +888,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <div className="flex items-center gap-2">
                                             {renderSignalBadge(row)}
                                             {row.identity_locked ? <span className="font-black">{row.status === "loss" ? (isAr ? "خسارة" : "LOSS") : (isAr ? "ربح" : "WIN")}</span> : landingLocked ? getStatusBadge(row.status || "open", null) : getStatusBadge(row.status || "open", isAnonymousView ? null : row.profit_loss_pct)}
+                                            {renderHighReturnProBadge(row)}
+                                            {landingLocked && getVisibleReturnPct(row) != null && (
+                                                <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-black ${getVisibleReturnPct(row)! >= 0 ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"}`}>
+                                                    {getVisibleReturnPct(row)! >= 0 ? "+" : ""}{getVisibleReturnPct(row)!.toFixed(1)}%
+                                                </span>
+                                            )}
                                         </div>
                                         <div className="flex items-center gap-1.5 text-xs font-black text-zinc-500 uppercase">
                                             <span className="text-lg leading-none">{cInfo.flag}</span>
@@ -913,7 +935,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     </div>
                                     <div className="flex justify-center">{landingLocked ? renderCircularScore(aiScoreNum, "AI") : (row.anonymous ? <span className="text-xs font-black text-zinc-500">—</span> : renderCircularScore(aiScoreNum, "AI"))}</div>
                                     <div className="flex justify-center">{renderSignalBadge(row)}</div>
-                                    <div className="flex justify-center">{row.identity_locked ? <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-black ${row.status === "loss" ? "text-rose-400 bg-rose-500/10" : "text-emerald-400 bg-emerald-500/10"}`}>{row.status === "loss" ? (isAr ? "خسارة" : "LOSS") : (isAr ? "ربح" : "WIN")}{row.profit_loss_pct != null && ` ${Number(row.profit_loss_pct) >= 0 ? "+" : ""}${Number(row.profit_loss_pct).toFixed(1)}%`}</span> : landingLocked ? getStatusBadge(row.status || "open", null) : getStatusBadge(row.status || "open", isAnonymousView ? null : row.profit_loss_pct)}</div>
+                                    <div className="flex flex-col items-center gap-1">{row.identity_locked ? <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-black ${row.status === "loss" ? "text-rose-400 bg-rose-500/10" : "text-emerald-400 bg-emerald-500/10"}`}>{row.status === "loss" ? (isAr ? "خسارة" : "LOSS") : (isAr ? "ربح" : "WIN")}{row.profit_loss_pct != null && ` ${Number(row.profit_loss_pct) >= 0 ? "+" : ""}${Number(row.profit_loss_pct).toFixed(1)}%`}</span> : landingLocked ? getStatusBadge(row.status || "open", null) : getStatusBadge(row.status || "open", isAnonymousView ? null : row.profit_loss_pct)}{renderHighReturnProBadge(row)}{landingLocked && getVisibleReturnPct(row) != null && <span className={`text-[10px] font-black ${getVisibleReturnPct(row)! >= 0 ? "text-emerald-400" : "text-rose-400"}`}>{getVisibleReturnPct(row)! >= 0 ? "+" : ""}{getVisibleReturnPct(row)!.toFixed(1)}%</span>}</div>
                                     <div className="flex justify-center text-[11px] font-bold font-mono text-zinc-500 dark:text-zinc-400 whitespace-nowrap">{dateStr}</div>
                                     <div className="text-xs font-black uppercase text-zinc-500 flex items-center gap-1.5">
                                         <span className="text-lg leading-none">{cInfo.flag}</span>
@@ -2403,6 +2425,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                         <span className="ms-1 font-medium">{isAr ? "منذ التوصية" : "since rec."}</span>
                                                     </span>
                                                 )}
+                                                {renderHighReturnProBadge(row)}
                                             </div>
                                             <div className="flex items-center gap-1.5 text-xs font-black text-zinc-500 uppercase">
                                                 <span className="text-lg leading-none">{cInfo.flag}</span>
@@ -2599,11 +2622,14 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                     {row.safety_rate != null ? renderCircularScore(getLowRiskScore(row), "Risk") : <span className="text-zinc-500">—</span>}
                                                 </td>
                                                 <td className="px-4 py-4 text-center">
-                                                    {getVisibleReturnPct(row) == null ? <span className="text-xs font-black text-zinc-500">—</span> : (
-                                                        <span className={`inline-flex px-2 py-1 rounded text-xs font-black ${getVisibleReturnPct(row)! >= 0 ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"}`}>
-                                                            {getVisibleReturnPct(row)! >= 0 ? "+" : ""}{getVisibleReturnPct(row)!.toFixed(2)}%
-                                                        </span>
-                                                    )}
+                                                    <div className="flex flex-col items-center gap-1">
+                                                        {getVisibleReturnPct(row) == null ? <span className="text-xs font-black text-zinc-500">—</span> : (
+                                                            <span className={`inline-flex px-2 py-1 rounded text-xs font-black ${getVisibleReturnPct(row)! >= 0 ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"}`}>
+                                                                {getVisibleReturnPct(row)! >= 0 ? "+" : ""}{getVisibleReturnPct(row)!.toFixed(2)}%
+                                                            </span>
+                                                        )}
+                                                        {renderHighReturnProBadge(row)}
+                                                    </div>
                                                 </td>
                                                 <td className="px-4 py-4 text-center">
                                                     {settledMasked ? <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-black ${row.status === "loss" ? "text-rose-400 bg-rose-500/10" : "text-emerald-400 bg-emerald-500/10"}`}>{row.status === "loss" ? (isAr ? "خسارة" : "LOSS") : (isAr ? "ربح" : "WIN")}</span> : getStatusBadge(row.status || "open", null)}
