@@ -1302,6 +1302,17 @@ def evaluate_old_recommendations(batch_id=None):
         print("[EVALUATE] No open recommendations to evaluate.")
         return 0
 
+    from api.hf_history_cache import load_history_snapshot, merge_snapshot_with_live
+    archive = load_history_snapshot("EGX")
+    symbols = {str(row["symbol"]).upper() for row in open_recs}
+    first_entry = min(str(row["created_at"])[:10] for row in open_recs)
+    archived_by_symbol = (
+        {symbol: frame for symbol, frame in archive.loc[
+            archive["symbol"].isin(symbols) & (archive["date"] >= first_entry)
+        ].groupby("symbol")}
+        if not archive.empty else {}
+    )
+
     print(f"[EVALUATE] Smart-evaluating {len(open_recs)} open recommendations...")
     updated_count = 0
 
@@ -1333,7 +1344,13 @@ def evaluate_old_recommendations(batch_id=None):
             .execute()
         )
 
-        prices = p_res.data
+        archived = archived_by_symbol.get(str(symbol).upper())
+        merged_prices = merge_snapshot_with_live(archived, p_res.data)
+        if not merged_prices.empty:
+            merged_prices = merged_prices.loc[merged_prices["date"] >= pd.Timestamp(created_at_date)]
+        prices = merged_prices.assign(
+            date=merged_prices["date"].dt.strftime("%Y-%m-%d")
+        ).to_dict("records") if not merged_prices.empty else []
         if not prices:
             continue
 
@@ -1357,7 +1374,11 @@ def evaluate_old_recommendations(batch_id=None):
                 pass
 
 
-        from api.recommendation_policy import evaluate_bars
+        from api.recommendation_policy import evaluate_bars, price_basis_matches
+        signal_bar = next((bar for bar in prices if bar["date"] == created_at_date), None)
+        if not signal_bar or not price_basis_matches(entry_price, signal_bar.get("close")):
+            print(f"[EVALUATE] {symbol}: missing or incompatible signal-day price; leaving recommendation open for data review.")
+            continue
         details = rec.get("rich_details") if isinstance(rec.get("rich_details"), dict) else {}
         lifecycle = dict(details.get("evaluation") or {})
         policy = dict(details.get("recommendation_policy") or {})

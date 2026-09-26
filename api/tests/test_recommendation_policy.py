@@ -1,4 +1,6 @@
 import pytest
+import pandas as pd
+from types import SimpleNamespace
 from api.recommendation_policy import evaluate_bars, valid_candidate
 
 
@@ -60,3 +62,76 @@ def test_new_candidate_geometry_does_not_restrict_legacy_profit_stop():
 def test_invalid_data_is_not_silently_marked_reviewed():
     with pytest.raises(ValueError):
         evaluate([bar(2, high=90, low=110)])
+
+
+@pytest.mark.parametrize("signal_close, expected_updates", [(100, 1), (50, 0)])
+def test_daily_evaluator_closes_using_hf_archive_when_supabase_has_no_prices(
+    monkeypatch, signal_close, expected_updates
+):
+    from api import daily_bot_run
+    import api.hf_history_cache as history
+    import api.recommendation_events as events
+
+    recommendation = dict(id="rec-1", symbol="TEST", exchange="EGX", status="open",
+        entry_price=100, target_price=110, stop_loss=95, last_close=100,
+        created_at="2026-09-01T14:00:00+00:00", updated_at="2026-09-01T14:00:00+00:00",
+        adjustments=[], rich_details={"evaluation": {"last_evaluated_date": "2026-09-01"},
+            "recommendation_policy": {"max_sessions": 20}})
+    archive = pd.DataFrame([
+        dict(symbol="TEST", exchange="EGX", date=pd.Timestamp("2026-09-01"),
+             open=signal_close, high=signal_close + 1, low=signal_close - 1,
+             close=signal_close, volume=1000),
+        dict(symbol="TEST", exchange="EGX", date=pd.Timestamp("2026-09-02"),
+             open=100, high=112, low=99, close=111, volume=1000),
+    ])
+
+    class Query:
+        def __init__(self, table):
+            self.table = table
+            self.fields = ""
+            self.patch = None
+
+        def select(self, fields):
+            self.fields = fields
+            return self
+
+        def update(self, patch):
+            self.patch = patch
+            return self
+
+        def eq(self, *_args):
+            return self
+
+        def gte(self, *_args):
+            return self
+
+        def order(self, *_args, **_kwargs):
+            return self
+
+        def execute(self):
+            if self.table == "stock_prices":
+                return SimpleNamespace(data=[])
+            if self.patch is not None:
+                recommendation.update(self.patch)
+                return SimpleNamespace(data=[recommendation.copy()])
+            if self.fields == "id":
+                return SimpleNamespace(data=[{"id": recommendation["id"]}])
+            return SimpleNamespace(data=[recommendation.copy()])
+
+    class Client:
+        def table(self, table):
+            return Query(table)
+
+    monkeypatch.setattr(daily_bot_run, "supabase", Client())
+    monkeypatch.setattr(history, "load_history_snapshot", lambda _exchange: archive)
+    monkeypatch.setattr(events, "record_event", lambda *_args, **_kwargs: {"id": "event-1"})
+    monkeypatch.setattr(daily_bot_run, "_telegram_recommendation_writes_enabled", lambda: False)
+
+    assert daily_bot_run.evaluate_old_recommendations() == expected_updates
+    if expected_updates:
+        assert recommendation["status"] == "win"
+        assert recommendation["exit_price"] == 110
+        assert recommendation["rich_details"]["evaluation"]["closed_on"] == "2026-09-02"
+    else:
+        assert recommendation["status"] == "open"
+        assert "exit_price" not in recommendation

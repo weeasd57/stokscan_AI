@@ -6,6 +6,7 @@ claim that an old trained model was trained with identical labels or barriers.
 from math import isfinite
 
 POLICY_VERSION = "fixed_barriers_v2"
+MAX_ENTRY_CLOSE_MISMATCH = 0.02
 
 
 def positive(value):
@@ -21,6 +22,13 @@ def valid_candidate(row, minimum_rr=1.5):
     if entry is None or target is None or stop is None or not stop < entry < target:
         return False
     return (target - entry) / (entry - stop) >= minimum_rr
+
+
+def price_basis_matches(entry, signal_close, tolerance=MAX_ENTRY_CLOSE_MISMATCH):
+    """Reject a mixed adjusted/raw price history before comparing barriers."""
+    entry, signal_close = positive(entry), positive(signal_close)
+    return (entry is not None and signal_close is not None and
+            abs(signal_close / entry - 1) <= tolerance)
 
 
 def evaluate_bars(*, entry, target, stop, bars, entry_date, cursor, max_sessions=None,
