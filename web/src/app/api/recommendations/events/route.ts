@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
     const trackedRecommendationIds = [...new Set(
       visibleEvents
         .filter((event: any) => event.event_type === "recommendation_closed" || event.event_type === "recommendation_stale")
-        .filter((event: any) => event.telegram_status !== "historical")
+        .filter((event: any) => event.telegram_status === "sent")
         .map((event: any) => String(event.recommendation_id))
         .filter((id: string) => byId.has(id)),
     )];
@@ -71,11 +71,16 @@ export async function GET(request: NextRequest) {
       if (!recommendation) return [];
       const oldValues = event.old_values && typeof event.old_values === "object" ? event.old_values : {};
       const newValues = event.new_values && typeof event.new_values === "object" ? event.new_values : {};
+      const closedOn = newValues.rich_details?.evaluation?.closed_on;
+      const occurredAt = event.event_type === "recommendation_closed" &&
+        typeof closedOn === "string" && /^\d{4}-\d{2}-\d{2}$/.test(closedOn)
+          ? `${closedOn}T12:00:00Z`
+          : event.created_at;
       return [{
         id: String(event.id),
         recommendation_id: String(event.recommendation_id),
         event_type: event.event_type,
-        occurred_at: event.created_at,
+        occurred_at: occurredAt,
         price_at_event: numeric(event.price_at_event),
         source: event.source,
         symbol: recommendation.symbol,

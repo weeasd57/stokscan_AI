@@ -331,6 +331,8 @@ def event_values(row: dict) -> dict:
             "profit_loss_pct",
             "last_close",
             "updated_at",
+            "created_at",
+            "rich_details",
         )
         if key in row
     }

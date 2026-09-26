@@ -858,7 +858,7 @@ export default function RecommendationCalendar({
                     <section className="xl:col-span-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/50 p-3 sm:p-4">
                         <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
                             <div>
-                                <h3 className="text-sm font-black text-zinc-900 dark:text-white">{isAr ? "أداء النظام مقابل السوق والصناديق المدرجة" : "System vs Market and Listed Funds"}</h3>
+                                <h3 className="text-sm font-black text-zinc-900 dark:text-white">{isAr ? "متوسط عائد التوصيات المغلقة مقابل السوق والصناديق" : "Closed recommendation returns vs market and funds"}</h3>
                                 <p className="text-[10px] text-zinc-500 mt-1">
                                     {isAr ? "متوسط عائد التوصيات المغلقة مقابل تغير الأصل في نفس تواريخ الدخول والخروج؛ كل صفقة لها وزن متساوٍ." : "Average closed-trade return versus each asset over the same entry and exit dates; trades are equally weighted."}
                                 </p>
@@ -908,7 +908,7 @@ export default function RecommendationCalendar({
                             </div>
                         )}
                         <p className="mt-3 text-[9px] leading-relaxed text-zinc-500">
-                            {isAr ? "مقارنة سعرية غير مركبة، ولا تشمل توزيعات الأرباح أو الرسوم. لا تُقارن الصفقة إذا كان أقرب سعر محفوظ أقدم من 7 أيام. الصناديق المعروضة شهادات مدرجة متاحة في قاعدة الأسعار، وليست كل صناديق الاستثمار المفتوحة." : "Uncompounded price-return comparison; excludes distributions and fees. Trades are omitted if the nearest stored close is over seven days old. Fund entries are listed certificates in the price database, not all open-ended mutual funds."}
+                            {isAr ? "متوسط بسيط لعوائد الصفقات المغلقة المتساوية الوزن، وليس عائد محفظة قابلة للاستثمار؛ لا يشمل التوصيات المفتوحة أو التوزيعات أو الرسوم. لا تُقارن الصفقة إذا كان أقرب سعر محفوظ أقدم من 7 أيام. الصناديق المعروضة شهادات مدرجة متاحة في قاعدة الأسعار، وليست كل صناديق الاستثمار المفتوحة." : "Simple equal-weight average of closed-trade returns, not an investable portfolio return; excludes open recommendations, distributions and fees. Trades are omitted if the nearest stored close is over seven days old. Fund entries are listed certificates in the price database, not all open-ended mutual funds."}
                         </p>
                     </section>
 

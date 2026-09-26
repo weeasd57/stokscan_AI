@@ -11,6 +11,7 @@ import time
 import asyncio
 import json
 import uuid
+import math
 import urllib.request
 import urllib.parse
 import pandas as pd
@@ -862,7 +863,7 @@ def _rollback_recommendation_change(recommendation_id: Any, expected_status: str
         key: old_row.get(key)
         for key in (
             "status", "exit_price", "last_close", "profit_loss_pct", "target_price",
-            "stop_loss", "adjustments", "top_reasons", "features", "updated_at",
+            "stop_loss", "adjustments", "top_reasons", "features", "updated_at", "rich_details",
         )
         if key in old_row
     }
@@ -902,6 +903,7 @@ def _send_telegram_exit(
     status: str,
     created_at: str = "",
     *,
+    exit_reason: Optional[str] = None,
     event_id: Optional[str] = None,
     claim_token: Optional[str] = None,
     event_client: Any = None,
@@ -914,8 +916,15 @@ def _send_telegram_exit(
     try:
         web_origin = get_web_origin()
         emoji = "🎉" if status == "win" else ("🧹" if status == "stale" else "🛡️")
-        status_text_ar = "تحقيق الهدف ✅" if status == "win" else ("بيانات قديمة / سهم غير نشط" if status == "stale" else "تفعيل وقف الخسارة")
-        status_text_en = "Target Hit" if status == "win" else ("Stale / Inactive" if status == "stale" else "Stop Loss Hit")
+        reason_labels = {
+            "target_hit": ("تحقيق الهدف", "Target hit"),
+            "stop_hit": ("تنفيذ الوقف", "Stop executed"),
+            "time_exit": ("انتهاء مدة الاحتفاظ", "Holding period ended"),
+        }
+        status_text_ar, status_text_en = reason_labels.get(exit_reason, (
+            "إغلاق بربح" if status == "win" else ("بيانات قديمة / سهم غير نشط" if status == "stale" else "إغلاق بخسارة"),
+            "Closed with profit" if status == "win" else ("Stale / Inactive" if status == "stale" else "Closed with loss"),
+        ))
 
         pl_sign = "+" if pl_pct > 0 else ""
 
@@ -937,7 +946,7 @@ def _send_telegram_exit(
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"📈 *سعر الدخول:* `{entry_price:.2f}` EGP\n"
             f"🏁 *سعر الخروج:* `{exit_price:.2f}` EGP\n"
-            f"📊 *صافي العائد:* `{pl_sign}{pl_pct:.2f}%`\n"
+            f"📊 *العائد قبل التكاليف:* `{pl_sign}{pl_pct:.2f}%`\n"
             f"{duration_line}"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🔗 رابط سجل الصفقات: {web_origin}/scanner/backtests?tab=bots"
@@ -974,6 +983,7 @@ def retry_pending_recommendation_telegram_events(limit: int = 10) -> int:
             status = str(new_values.get("status") or ("stale" if event_type == "recommendation_stale" else "loss"))
             delivered = _send_telegram_exit(
                 symbol, exchange, entry, exit_price, pl_pct, status, old_values.get("created_at", ""),
+                exit_reason=((new_values.get("rich_details") or {}).get("evaluation") or {}).get("exit_reason"),
                 event_id=event_id, claim_token=claim_token, event_client=supabase,
             )
         elif event_type == "target_or_stop_adjusted":
@@ -1273,33 +1283,33 @@ def _notify_central_telegram(message: str, service_type: str = "central"):
 
 
 
-def evaluate_old_recommendations():
+def evaluate_old_recommendations(batch_id=None):
     """
-    SMART evaluation of open recommendations with dynamic TP/SL adjustment.
-    
-    Logic:
-    - If stock in strong uptrend (price > EMA50, ADX > 25, RSI 50-75): RAISE target
-    - If stock weakening (RSI dropping < 40, price < EMA50): TIGHTEN stop loss
-    - If stock breaking out (MACD crossover, volume spike): RAISE target aggressively
-    - Track all adjustments in 'adjustments' jsonb field
+    Evaluate public EGX recommendations using the versioned bar policy.
+    Legacy rows preserve their published barriers and do not receive a newly
+    invented time limit. New rows carry their immutable execution policy.
     """
     # PERF: Select only the columns we actually use — avoids pulling large JSONB fields like `top_reasons`/`features`
-    res = supabase.table("scan_results").select(
+    query = supabase.table("scan_results").select(
         "id, symbol, exchange, entry_price, last_close, target_price, stop_loss, "
-        "status, created_at, updated_at, profit_loss_pct, adjustments"
-    ).eq("status", "open").execute()
+        "status, created_at, updated_at, profit_loss_pct, adjustments, rich_details"
+    ).eq("status", "open").eq("is_public", True).eq("exchange", "EGX")
+    if batch_id is not None:
+        query = query.eq("batch_id", batch_id)
+    res = query.execute()
     open_recs = res.data
     if not open_recs:
         print("[EVALUATE] No open recommendations to evaluate.")
-        return
+        return 0
 
     print(f"[EVALUATE] Smart-evaluating {len(open_recs)} open recommendations...")
+    updated_count = 0
 
     for rec in open_recs:
         symbol = rec["symbol"]
         exchange = rec.get("exchange", "EGX")
 
-        entry_val = rec.get("entry_price") or rec.get("last_close")
+        entry_val = rec.get("entry_price")
         if entry_val is None:
             print(f"[EVALUATE] Entry price missing for {symbol}.{exchange}. Skipping.")
             continue
@@ -1315,7 +1325,7 @@ def evaluate_old_recommendations():
         # Fetch price history
         p_res = (
             supabase.table("stock_prices")
-            .select("date,high,low,close")
+            .select("date,open,high,low,close")
             .eq("symbol", symbol)
             .eq("exchange", exchange)
             .gte("date", created_at_date)
@@ -1346,7 +1356,32 @@ def evaluate_old_recommendations():
             except Exception:
                 pass
 
-        if is_delisted_or_stale:
+
+        from api.recommendation_policy import evaluate_bars
+        details = rec.get("rich_details") if isinstance(rec.get("rich_details"), dict) else {}
+        lifecycle = dict(details.get("evaluation") or {})
+        policy = dict(details.get("recommendation_policy") or {})
+        # Legacy rows have no independent bar cursor. Bootstrap once from their
+        # last review, without rewriting old exits using today's raised stop.
+        legacy_cursor = min(
+            str(rec.get("updated_at") or rec.get("created_at"))[:10],
+            str(latest_price_date)[:10],
+        )
+        cursor = str(lifecycle.get("last_evaluated_date") or legacy_cursor)
+        try:
+            if latest_close <= 0:
+                outcome = {"status": "open"}
+            else:
+                outcome = evaluate_bars(
+                    entry=entry_price, target=target_price, stop=stop_loss, bars=prices,
+                    entry_date=created_at_date, cursor=cursor,
+                    max_sessions=policy.get("max_sessions"),
+                    trail_pct=policy.get("trail_pct"),
+                )
+        except (ValueError, TypeError) as error:
+            print(f"[EVALUATE] Invalid data for {symbol}: {error}; leaving checkpoint unchanged.")
+            continue
+        if is_delisted_or_stale and outcome["status"] == "open":
             print(f"[EVALUATE] Closing stale/delisted recommendation for {symbol}.{exchange} — {reason}")
             try:
                 stale_update = {
@@ -1397,301 +1432,43 @@ def evaluate_old_recommendations():
             except Exception as upd_err:
                 print(f"[EVALUATE] Failed to close stale recommendation for {symbol}: {upd_err}")
             continue
-
-        # Get technical snapshot for smart logic
-        tech = _fetch_technical_snapshot(symbol, exchange)
-        pl_pct = ((latest_close - entry_price) / entry_price) * 100
-
-        # Load existing adjustments
+        if outcome["last_close"] is None:
+            continue
+        status = outcome["status"]
+        exit_price = outcome["exit_price"]
+        found_event = exit_price is not None
+        pl_pct = outcome["profit_loss_pct"]
+        new_stop = outcome["stop_loss"]
+        new_adjustments = outcome["adjustments"]
+        update_applied = True
+        trend_strength = policy.get("version", "legacy_preserved_barriers")
         existing_adjustments = rec.get("adjustments") or []
         if isinstance(existing_adjustments, str):
             try:
                 existing_adjustments = json.loads(existing_adjustments)
-            except Exception:
+            except (ValueError, TypeError):
                 existing_adjustments = []
-
-        status = "open"
-        exit_price = None
-        found_event = False
-        new_adjustments = []
-        update_applied = True
-        eps = 0.00001
-
-        # ── SMART ADJUSTMENT LOGIC ──
-        new_target = target_price
-        new_stop = stop_loss
-        trend_strength = "neutral"
-
-        # SMART 1: Cooldown — check if a target-raise adjustment was already made in the last 3 days
-        today_str = dt.datetime.utcnow().strftime("%Y-%m-%d")
-        _three_days_ago = (dt.datetime.utcnow() - dt.timedelta(days=3)).strftime("%Y-%m-%d")
-        recent_target_raise = any(
-            a.get("type") in ("target_raised", "acceleration_breakout")
-            and (a.get("timestamp", "")[:10]) >= _three_days_ago
-            for a in existing_adjustments
+        if not isinstance(existing_adjustments, list):
+            existing_adjustments = []
+        lifecycle.update(
+            last_evaluated_date=outcome["cursor"],
+            sessions_held=outcome["sessions_held"],
+            exit_reason=outcome["exit_reason"],
+            closed_on=outcome["closed_on"],
         )
-
-        # SMART 4: Max holding period — after 45 days start tightening stop to force a close
-        days_held = 0
-        try:
-            days_held = (dt.datetime.utcnow() - dt.datetime.strptime(created_at_date, "%Y-%m-%d")).days
-        except Exception:
-            pass
-
-        # Determine trend strength
-        price_above_ema50 = latest_close > tech["ema_50"] if tech["ema_50"] > 0 else None
-        price_above_ema200 = latest_close > tech["ema_200"] if tech["ema_200"] > 0 else None
-        macd_bullish = tech["macd"] > tech["macd_signal"]
-        
-        # Calculate relative volume for acceleration detection
-        r_vol = 1.0
-        if tech.get("vol_sma20") and tech["vol_sma20"] > 0 and tech.get("volume") and tech["volume"] > 0:
-            r_vol = tech["volume"] / tech["vol_sma20"]
-        
-        # ── NEW: Acceleration Breakout Detection ──
-        # When ADX>50 + Volume>2x + RSI>70, the stock is in full acceleration mode
-        # These are the stocks that generated +72% (TYCN) and +43% (EASB)
-        acceleration_breakout = (
-            tech["adx"] > 50 and
-            r_vol > 2.0 and
-            tech["rsi"] > 70 and
-            (price_above_ema50 is True) and
-            macd_bullish
-        )
-        
-        strong_uptrend = (
-            (price_above_ema50 is True) and
-            tech["adx"] > 25 and
-            tech["rsi"] >= 50 and  # Allow high RSI — momentum, not overbought
-            macd_bullish
-        )
-        weakening = (
-            tech["rsi"] < 40 or
-            (price_above_ema50 is False and tech["adx"] < 20)
-        )
-        breaking_out = (
-            tech["rsi"] > 60 and
-            tech["adx"] > 30 and
-            macd_bullish and
-            tech["change_pct"] > 2.0
-        )
-
-        # ── ACCELERATION BREAKOUT → Maximum target expansion ──
-        # Cap target to max 35% above original entry price to prevent runaway compounding targets
-        max_allowed_target = round(entry_price * 1.35, 2)
-
-        # SMART 1: Only raise if no target-raise done in last 3 days (prevents exponential compounding)
-        if acceleration_breakout and pl_pct > 2.0 and not recent_target_raise:
-            if target_price and target_price < max_allowed_target:
-                old_tp = round(target_price, 2)
-                new_target = min(round(target_price * 1.15, 2), max_allowed_target)
-                # Widen stop loss to give room — move to entry+5% only if safely below current price
-                if stop_loss and pl_pct > 8.0:
-                    cand_stop = round(entry_price * 1.05, 2)
-                    if cand_stop < latest_close * 0.95:
-                        new_stop = cand_stop
-                elif stop_loss and pl_pct > 5.0:
-                    cand_stop = round(entry_price * 1.02, 2)
-                    if cand_stop < latest_close * 0.95:
-                        new_stop = cand_stop
-                adj = {
-                    "type": "acceleration_breakout",
-                    "reason_ar": "تسارع سعري قوي — ADX عالي + سيولة مرتفعة + زخم شرائي — رفع الهدف",
-                    "reason_en": "Acceleration breakout — High ADX + Volume surge + Strong momentum — target raised",
-                    "old_target": old_tp,
-                    "new_target": new_target,
-                    "old_stop": round(stop_loss, 2) if stop_loss else None,
-                    "new_stop": new_stop if new_stop != stop_loss else None,
-                    "adx": round(tech["adx"], 1),
-                    "rsi": round(tech["rsi"], 1),
-                    "r_vol": round(r_vol, 2),
-                    "current_price": round(latest_close, 2),
-                    "pl_pct": round(pl_pct, 2),
-                    "timestamp": dt.datetime.utcnow().isoformat(),
-                }
-                new_adjustments.append(adj)
-                trend_strength = "acceleration"
-                print(f"[SMART_EVAL] {symbol}: ACCELERATION BREAKOUT → target {old_tp}→{new_target} (ADX={tech['adx']:.0f}, R_VOL={r_vol:.1f}x)")
-
-        elif strong_uptrend and pl_pct > 3.0 and not recent_target_raise:
-            # Stock is performing well — raise target by 10% (capped at 35% above entry)
-            if target_price and target_price < max_allowed_target:
-                old_tp = round(target_price, 2)
-                new_target = min(round(target_price * 1.10, 2), max_allowed_target)
-                # Also trail stop loss up to lock profits
-                if stop_loss and pl_pct > 5.0:
-                    cand_stop = round(entry_price * 1.02, 2)
-                    if cand_stop < latest_close * 0.95:
-                        new_stop = cand_stop
-                adj = {
-                    "type": "target_raised",
-                    "reason_ar": "السهم في ترند صاعد قوي - رفع الهدف",
-                    "reason_en": "Strong uptrend - target raised",
-                    "old_target": old_tp,
-                    "new_target": new_target,
-                    "old_stop": round(stop_loss, 2) if stop_loss else None,
-                    "new_stop": new_stop if new_stop != stop_loss else None,
-                    "current_price": round(latest_close, 2),
-                    "rsi": round(tech["rsi"], 1),
-                    "adx": round(tech["adx"], 1),
-                    "pl_pct": round(pl_pct, 2),
-                    "timestamp": dt.datetime.utcnow().isoformat(),
-                }
-                new_adjustments.append(adj)
-                trend_strength = "strong_bull"
-                print(f"[SMART_EVAL] {symbol}: UPTREND → target {old_tp}→{new_target}, SL→{new_stop}")
-
-        elif breaking_out and pl_pct > 1.0 and not recent_target_raise:
-            # Breaking out — raise target up to max cap
-            if target_price and target_price < max_allowed_target:
-                old_tp = round(target_price, 2)
-                new_target = min(round(target_price * 1.15, 2), max_allowed_target)
-                adj = {
-                    "type": "target_raised",
-                    "reason_ar": "اختراق قوي مع زخم شرائي - رفع الهدف",
-                    "reason_en": "Strong breakout - aggressive target raise",
-                    "old_target": old_tp,
-                    "new_target": new_target,
-                    "current_price": round(latest_close, 2),
-                    "rsi": round(tech["rsi"], 1),
-                    "adx": round(tech["adx"], 1),
-                    "pl_pct": round(pl_pct, 2),
-                    "timestamp": dt.datetime.utcnow().isoformat(),
-                }
-                new_adjustments.append(adj)
-                trend_strength = "breakout"
-                print(f"[SMART_EVAL] {symbol}: BREAKOUT → target {old_tp}→{new_target}")
-
-        elif weakening and pl_pct > 0:
-            # Stock weakening but still in profit — tighten stop loss or close if near target
-            # SMART 3: If very close to target (within 2%), just let it close naturally — don't tighten
-            effective_tp_for_weak = new_target if new_target else target_price
-            near_target = (
-                effective_tp_for_weak is not None
-                and latest_close >= effective_tp_for_weak * 0.98
-            )
-            if near_target:
-                print(f"[SMART_EVAL] {symbol}: WEAKENING but within 2% of target — holding, no SL change")
-            elif stop_loss is not None:
-                old_sl = round(stop_loss, 2)
-                # BUG 1 FIX: Only apply the tighter stop if it's ABOVE the current stop loss
-                # Using 0.97 of current price to lock ~50% of unrealised profit
-                candidate_stop = round(latest_close * 0.97, 2)
-                if candidate_stop > stop_loss:
-                    new_stop = candidate_stop
-                    adj = {
-                        "type": "stop_raised",
-                        "reason_ar": "ضعف الزخم - تضييق وقف الخسارة لحماية الأرباح",
-                        "reason_en": "Momentum weakening - stop loss tightened",
-                        "old_stop": old_sl,
-                        "new_stop": new_stop,
-                        "current_price": round(latest_close, 2),
-                        "rsi": round(tech["rsi"], 1),
-                        "adx": round(tech["adx"], 1),
-                        "pl_pct": round(pl_pct, 2),
-                        "timestamp": dt.datetime.utcnow().isoformat(),
-                    }
-                    new_adjustments.append(adj)
-                    print(f"[SMART_EVAL] {symbol}: WEAKENING → SL raised {old_sl}→{new_stop}")
-                else:
-                    print(f"[SMART_EVAL] {symbol}: WEAKENING but proposed SL {candidate_stop} <= current SL {old_sl} — skipping adjustment")
-            trend_strength = "weakening"
-
-        # SMART 4: Max holding period — after 45 days without exit, start tightening stop
-        if days_held >= 45 and not found_event and trend_strength == "neutral":
-            if stop_loss is not None:
-                old_sl = round(stop_loss, 2)
-                # Trail stop aggressively to force a close within the next few sessions
-                candidate_stop = round(latest_close * 0.98, 2)
-                if candidate_stop > stop_loss:
-                    new_stop = candidate_stop
-                    adj = {
-                        "type": "stop_raised",
-                        "reason_ar": f"انتهاء مدة الاحتفاظ ({days_held} يوم) - تضييق وقف الخسارة",
-                        "reason_en": f"Max holding period ({days_held} days) - tightening stop to force close",
-                        "old_stop": old_sl,
-                        "new_stop": new_stop,
-                        "current_price": round(latest_close, 2),
-                        "pl_pct": round(pl_pct, 2),
-                        "days_held": days_held,
-                        "timestamp": dt.datetime.utcnow().isoformat(),
-                    }
-                    new_adjustments.append(adj)
-                    trend_strength = "max_holding"
-                    print(f"[SMART_EVAL] {symbol}: MAX HOLDING ({days_held}d) → SL raised {old_sl}→{new_stop}")
-
-        # ── CHECK EXIT CONDITIONS (with potentially adjusted TP/SL) ──
-        # FIX: If we just raised the target in this run (strong uptrend / breakout),
-        # skip exit evaluation to avoid the contradictory "target raised → immediately closed" behavior.
-        # The new target will be evaluated in the next run.
-        # BUG 6 FIX: Include "weakening" — a stop adjustment also changes effective_stop,
-        # so we skip exit on the same run to avoid contradictory notifications.
-        target_just_raised = trend_strength in ("acceleration", "strong_bull", "breakout", "weakening")
-
-        # BUG 4 FIX: Use `is not None` instead of truthiness to handle stop_loss = 0.0 correctly
-        effective_target = new_target if new_target is not None else target_price
-        effective_stop = new_stop if new_stop is not None else stop_loss
-
-        # FIX: Use updated_at (last bot review date) instead of created_at as the
-        # cutoff for bar evaluation.  This prevents re-discovering old target hits
-        # on bars that were already evaluated in previous runs.
-        last_review_date = (rec.get("updated_at") or rec.get("created_at") or "")[:10]
-
-        if not target_just_raised:
-            for p in prices:
-                p_date = p.get("date", "")
-                # Skip bars already evaluated in previous runs (or the entry day)
-                if p_date <= last_review_date:
-                    continue
-
-                hi = float(p["high"]) if p.get("high") is not None else float(p["close"])
-                lo = float(p["low"]) if p.get("low") is not None else float(p["close"])
-
-                if effective_stop is not None and lo <= (effective_stop + eps):
-                    exit_price = effective_stop
-                    pl_pct = ((effective_stop - entry_price) / entry_price) * 100
-                    status = "win" if pl_pct >= 0.0 else "loss"
-                    found_event = True
-                    break
-
-                if effective_target is not None and hi >= (effective_target - eps):
-                    exit_price = effective_target
-                    pl_pct = ((effective_target - entry_price) / entry_price) * 100
-                    status = "win" if pl_pct >= 0.0 else "loss"
-                    found_event = True
-                    break
-        else:
-            print(f"[EVALUATE] {symbol}: Skipping exit check — target just raised (trend={trend_strength})")
+        details = {**details, "evaluation": lifecycle}
 
         # ── UPDATE DATABASE ──
         all_adjustments = existing_adjustments + new_adjustments
 
         if not found_event:
             update_data = {
+                "rich_details": details,
                 "last_close": latest_close,
                 "profit_loss_pct": round(pl_pct, 4),
                 "status": "open",
                 "updated_at": dt.datetime.utcnow().isoformat(),
             }
-            if new_target is not None and new_target != target_price:
-                update_data["target_price"] = new_target
-                # SYNC FIX: keep target_2 inside top_reasons aligned with the raised
-                # target, otherwise the website shows a first target higher than the
-                # second one after consecutive raises (e.g. EDBM T1=7.08 vs T2=1.67).
-                try:
-                    tr_res = (
-                        supabase.table("scan_results")
-                        .select("top_reasons")
-                        .eq("id", rec["id"])
-                        .single()
-                        .execute()
-                    )
-                    tr = (getattr(tr_res, "data", None) or {}).get("top_reasons")
-                    if isinstance(tr, dict) and tr.get("target_2"):
-                        tr["target_2"] = round(new_target * 1.10, 2)
-                        update_data["top_reasons"] = tr
-                except Exception as tr_err:
-                    print(f"[EVALUATE] Failed to sync target_2 for {symbol}: {tr_err}")
             if new_stop is not None and new_stop != stop_loss:
                 update_data["stop_loss"] = new_stop
             if all_adjustments:
@@ -1719,6 +1496,8 @@ def evaluate_old_recommendations():
             _now_iso = dt.datetime.utcnow().isoformat()
             update_data = {
                 "exit_price": exit_price,
+                "rich_details": details,
+                "stop_loss": new_stop,
                 # BUG 3 FIX: update last_close to exit price so dashboard shows correct current value
                 "last_close": exit_price,
                 "profit_loss_pct": round(pl_pct, 4),
@@ -1765,6 +1544,7 @@ def evaluate_old_recommendations():
                         if claim_token:
                             delivered = _send_telegram_exit(
                                 symbol, exchange, entry_price, exit_price, pl_pct, status,
+                                exit_reason=outcome["exit_reason"],
                                 created_at=created_at_date, event_id=event_rec["id"],
                                 claim_token=claim_token, event_client=supabase,
                             )
@@ -1807,6 +1587,9 @@ def evaluate_old_recommendations():
                     update_telegram_delivery(supabase, event_rec["id"], success=delivered, claim_token=claim_token)
 
         print(f"[EVALUATE] {symbol}: status={status}, return={pl_pct:.2f}%, trend={trend_strength}, adjustments={len(new_adjustments)}")
+        if update_applied:
+            updated_count += 1
+    return updated_count
 
 
 def _split_symbol_exchange(raw_symbol: str, default_exchange: str = "EGX") -> Tuple[str, str, str]:
@@ -2375,6 +2158,8 @@ async def generate_daily_recommendations(
                 score = float(value)
             except Exception:
                 return float(default)
+            if not math.isfinite(score):
+                return float(default)
             if score <= 1.0:
                 score *= 100.0
             return score
@@ -2399,6 +2184,16 @@ async def generate_daily_recommendations(
         if not results:
             print("[RECOMMENDATIONS] No candidates passed council consensus filtering.")
             return 0
+
+    # Validate NEW setups only; a raised stop above entry on an existing trade
+    # can be legitimate profit protection and is not an invalid historical setup.
+    from api.recommendation_policy import valid_candidate, POLICY_VERSION
+    valid_results = [item for item in results if valid_candidate(item)]
+    print(f"[RECOMMENDATIONS] Valid entry/stop/target and R:R >= 1.5: {len(valid_results)} / {len(results)}")
+    results = valid_results
+    if not results:
+        print("[RECOMMENDATIONS] No candidates passed trade-structure quality filters.")
+        return 0
     
     # Calculate risk_adjusted_return for all candidates and adjust with news sentiment
     _init_supabase()
@@ -2407,6 +2202,9 @@ async def generate_daily_recommendations(
         target_p = float(item.get("target_price", 0.0)) if item.get("target_price") is not None else 0.0
         stop_l = float(item.get("stop_loss", 0.0)) if item.get("stop_loss") is not None else 0.0
         prec = float(item.get("precision", 0.5)) if item.get("precision") is not None else 0.5
+        if not math.isfinite(prec):
+            prec = 0.0
+        item["precision"] = prec
         
         expected_ret = target_p - entry_p
         expected_risk = entry_p - stop_l
@@ -2433,26 +2231,30 @@ async def generate_daily_recommendations(
                     if record.get("news_count", 0) > 0:
                         score = record.get("sentiment_score", 0.0)
                         # Adjustment formula: mult = 1 + score * 0.25
-                        sentiment_mult = 1.0 + (score * 0.25)
+                        sentiment_mult = 1.0 + (float(score) * 0.25)
         except Exception as se_err:
             print(f"DEBUG: Error checking sentiment for rank adjustment of {item.get('symbol')}: {se_err}")
             
-        item["risk_adjusted_return"] = raw_rar * sentiment_mult
+        adjusted_return = raw_rar * sentiment_mult
+        item["risk_adjusted_return"] = adjusted_return if math.isfinite(adjusted_return) else 0.0
 
     # Sort by risk_adjusted_return descending to prioritize safer risk-reward profiles
     results.sort(key=lambda x: x.get("risk_adjusted_return", 0.0), reverse=True)
     
-    # Take the top 10 speculative stocks
-    top_10 = results[:10]
+    # The database RPC checks and reserves capacity atomically across workers.
+    daily_limit = max(1, min(5, int(os.getenv("PUBLIC_RECOMMENDATION_DAILY_LIMIT", "1"))))
+    rolling_limit = max(1, min(30, int(os.getenv("PUBLIC_RECOMMENDATION_ROLLING_LIMIT", "20"))))
+    open_limit = max(1, min(20, int(os.getenv("PUBLIC_RECOMMENDATION_OPEN_LIMIT", "10"))))
+    max_sessions = max(1, int(os.getenv("PUBLIC_RECOMMENDATION_MAX_HOLD_SESSIONS", "20")))
 
-    # Only recommendations inserted by this run are new recommendations. Existing
-    # open rows may receive refreshed model scores, but they must not be announced
-    # again with the scanner candidate's temporary entry/target/stop values.
+    # Preserve entry-time scores/features: rescanning must not rewrite the data
+    # needed to audit the original decision or advance its evaluation checkpoint.
     inserted_count = 0
-    refreshed_existing_count = 0
 
     batch_id = str(uuid.uuid4())
-    for i, res_item in enumerate(top_10):
+    for i, res_item in enumerate(results):
+        if inserted_count >= daily_limit:
+            break
         symbol = res_item.get("symbol")
         exchange = res_item.get("exchange", "EGX")
         if not symbol:
@@ -2480,75 +2282,38 @@ async def generate_daily_recommendations(
             "is_public": True,
             "top_reasons": rich_details,  # Stored as jsonb
             "features": res_item.get("features", []),  # Stored as jsonb
+            "rich_details": {
+                "recommendation_policy": {"version": POLICY_VERSION, "max_sessions": max_sessions, "trail_pct": None},
+                "entry_snapshot": {
+                    "target_price": res_item.get("target_price"), "stop_loss": res_item.get("stop_loss"),
+                    "price_date": res_item.get("date"), "feature_names": res_item.get("feature_names", []),
+                    "council_score": res_item.get("council_score"), "validator_score": res_item.get("validator_score"),
+                    "execution": "published_close_reference_not_broker_fill",
+                },
+                "evaluation": {"last_evaluated_date": dt.datetime.now(dt.timezone.utc).date().isoformat()},
+            },
             "created_at": dt.datetime.utcnow().isoformat(),
             "updated_at": dt.datetime.utcnow().isoformat()
         }
         
         try:
-            # Check if there is already an open recommendation for this symbol
-            existing = (
-                supabase.table("scan_results")
-                .select("id, updated_at")
-                .eq("symbol", symbol)
-                .eq("exchange", exchange)
-                .eq("status", "open")
-                .execute()
-            )
-            if existing.data:
-                rec_id = existing.data[0]["id"]
-                update_data = {
-                    "precision": row_data["precision"],
-                    "risk_adjusted_return": row_data["risk_adjusted_return"],
-                    "features": row_data["features"],
-                    "updated_at": row_data["updated_at"]
-                }
-                update_result = (
-                    supabase.table("scan_results")
-                    .update(update_data)
-                    .eq("id", rec_id)
-                    .eq("status", "open")
-                    .eq("updated_at", existing.data[0].get("updated_at"))
-                    .execute()
-                )
-                update_verify = supabase.table("scan_results").select("id").eq("id", rec_id).eq("status", "open").eq("updated_at", update_data["updated_at"]).execute()
-                if not getattr(update_verify, "data", None):
-                    print(f"[RECOMMENDATIONS] Skipped concurrent update for {symbol}.{exchange}")
-                else:
-                    refreshed_existing_count += 1
-                    print(f"[RECOMMENDATIONS] #{i+1} Updated existing open recommendation for {symbol}.{exchange}")
+            publication = supabase.rpc("publish_public_recommendation", {
+                "p_row": row_data, "p_daily_limit": daily_limit,
+                "p_rolling_limit": rolling_limit, "p_open_limit": open_limit,
+                "p_cooldown_days": 7,
+            }).execute()
+            published = publication.data or {}
+            if published.get("status") == "inserted":
+                inserted_count += 1
             else:
-                # Persist the complete recommendation snapshot so the website and
-                # Telegram share the same rationale and second target. Retain the
-                # legacy fallback only for deployments missing the JSONB columns.
-                try:
-                    insert_result = supabase.table("scan_results").insert(row_data).execute()
-                except Exception as full_insert_error:
-                    insert_error_text = str(full_insert_error).lower()
-                    missing_json_columns = (
-                        ("top_reasons" in insert_error_text or "features" in insert_error_text)
-                        and (
-                            "column" in insert_error_text
-                            or "schema cache" in insert_error_text
-                            or "does not exist" in insert_error_text
-                        )
-                    )
-                    if not missing_json_columns:
-                        raise
-                    print(
-                        f"[RECOMMENDATIONS] Full insert failed for {symbol}.{exchange}; "
-                        f"retrying legacy columns only: {full_insert_error}"
-                    )
-                    safe_row_data = dict(row_data)
-                    safe_row_data.pop("top_reasons", None)
-                    safe_row_data.pop("features", None)
-                    insert_result = supabase.table("scan_results").insert(safe_row_data).execute()
-                if getattr(insert_result, "data", None):
-                    inserted_count += 1
-                    print(f"[RECOMMENDATIONS] #{i+1} Saved {symbol}.{exchange} with target1={row_data['target_price']}, target2={rich_details['target_2']}, risk_adjusted_return={row_data['risk_adjusted_return']:.4f}")
-                else:
-                    print(f"[RECOMMENDATIONS] #{i+1} Save returned no row for {symbol}.{exchange}; not published to Telegram")
+                reason = published.get("reason", "unknown")
+                print(f"[RECOMMENDATIONS] Skipped {symbol}: {reason}")
+                if reason in {"daily_capacity", "rolling_capacity", "open_capacity"}:
+                    break
         except Exception as ins_err:
-            print(f"[RECOMMENDATIONS] Failed to save/update recommendation for {symbol}: {ins_err}")
+            # Missing RPC/network failure must never fall back to unbounded inserts.
+            print(f"[RECOMMENDATIONS] Publication unavailable: {ins_err}")
+            break
 
     # Re-read the rows created by this batch from the canonical table. Telegram
     # must use the exact same persisted snapshot that the website reads.
@@ -2571,8 +2336,7 @@ async def generate_daily_recommendations(
             print(f"[RECOMMENDATIONS] Could not re-read newly persisted recommendations: {read_err}")
 
     print(
-        f"[RECOMMENDATIONS] Batch result: {len(persisted_recommendations)} new rows ready for publication, "
-        f"{refreshed_existing_count} existing open rows refreshed."
+        f"[RECOMMENDATIONS] Batch result: {len(persisted_recommendations)} new rows ready for publication."
     )
 
     # Notify Stocks Score subscribers with beautiful detailed summary card

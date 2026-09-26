@@ -610,6 +610,7 @@ def _process_symbol(
                 "signal": "BUY",
                 "top_reasons": get_top_reasons(model, available_predictors),
                 "features": features_list,
+                "feature_names": available_predictors,
                 "technical_score": technical_score,
                 "fundamental_score": fundamental_score,
                 "sentiment_score": sentiment_score,
@@ -1048,6 +1049,10 @@ def evaluate_scan(batch_id: str):
 
         updated_count = 0
         for r in results:
+            # Public recommendations are settled by the scheduled daily job.
+            # Browsing scan history must not close one or emit Telegram events.
+            if r.get("is_public") and r.get("exchange") == "EGX":
+                continue
             # Skip results already closed. Re-evaluating a win/loss row would
             # re-stamp updated_at (pulling it back into the 7-day weekly report)
             # and re-emit a duplicate Telegram exit notification.
