@@ -4,8 +4,7 @@ import { DAILY_CACHE_TAGS } from "@/lib/cache/daily";
 import { getViewerContext } from "@/lib/supabase/viewer-context";
 import { paymentsEnabled } from "@/lib/ai/plan-gate";
 
-/** Recommendations with a safety rate above this are Pro-only too. */
-const PRO_SAFETY_THRESHOLD = 8;
+const FREE_HIDDEN_WIN_RETURN_PCT = 50;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,25 +43,21 @@ export async function GET(req: NextRequest) {
     if (error) throw error;
 
     let visibleData = data || [];
-    // Safety rate mirrors the client's low-risk score (1-10, stop distance);
-    // actionable picks above the Pro threshold are Pro-only regardless of age.
-    const safetyRateOf = (row: Record<string, unknown>) => {
-      const lastClose = toNumber(row.last_close, 0);
-      const stopLoss = toNumber(row.stop_loss, 0);
-      if (!stopLoss || !lastClose) return 0;
-      const distPct = Math.abs((lastClose - stopLoss) / lastClose);
-      return Math.max(1, Math.min(10, Math.round(10 - distPct * 20)));
-    };
+    const closed = (row: Record<string, unknown>) => ["win", "loss"].includes(String(row.status || "").toLowerCase());
+    const highReturnWin = (row: Record<string, unknown>) =>
+      String(row.status || "").toLowerCase() === "win" &&
+      toNumber(row.profit_loss_pct, 0) > FREE_HIDDEN_WIN_RETURN_PCT;
+    if (delayedVisibility) {
+      visibleData = visibleData.filter((row: Record<string, unknown>) => !highReturnWin(row));
+    }
     // Anonymous visitors must never receive today's actionable picks.
     // Settled outcomes are public immediately, including losses; a closed
     // recommendation can no longer be traded on its original signal.
     if (!authenticated) {
       visibleData = visibleData.filter((row: Record<string, unknown>) => {
-        const closed = ["win", "loss"].includes(String(row.status || "").toLowerCase());
-        if (closed) return true;
+        if (closed(row)) return true;
         const createdMs = new Date(String(row.created_at)).getTime();
-        return Number.isFinite(createdMs) && createdMs <= cutoffTime &&
-          safetyRateOf(row) <= PRO_SAFETY_THRESHOLD;
+        return Number.isFinite(createdMs) && createdMs <= cutoffTime;
       });
     }
 
@@ -79,20 +74,33 @@ export async function GET(req: NextRequest) {
     ]));
 
     const results = visibleData.map((row: Record<string, unknown>) => {
-      // Closed outcomes are public immediately. Only actionable recommendations
-      // inside the delay window or with high safety remain locked for Free.
+      // Closed outcomes below the high-return filter are visible immediately,
+      // but their identity remains Pro-only. Open signals use the 15-day delay.
       const createdMs = row.created_at ? new Date(String(row.created_at)).getTime() : Number.NaN;
-      const closed = ["win", "loss"].includes(String(row.status || "").toLowerCase());
+      const isClosed = closed(row);
       const fresh = !Number.isFinite(createdMs) || createdMs > cutoffTime;
-      const locked = authenticated && delayedVisibility &&
-        !closed && (fresh || safetyRateOf(row) > PRO_SAFETY_THRESHOLD);
+      const locked = authenticated && delayedVisibility && !isClosed && fresh;
       if (locked) {
         return {
           id: row.id,
           locked: true,
+          exchange: row.exchange || "EGX",
           created_at: row.created_at,
           delayed: true,
           snapshot_cutoff: cutoff,
+        };
+      }
+      if (delayedVisibility && isClosed) {
+        return {
+          id: row.id,
+          identity_locked: true,
+          exchange: row.exchange || "EGX",
+          status: row.status,
+          precision: toNumber(row.precision, 0),
+          profit_loss_pct: toNumber(row.profit_loss_pct, 0),
+          created_at: row.created_at,
+          updated_at: row.updated_at || row.created_at,
+          delayed: false,
         };
       }
       return {
@@ -103,21 +111,21 @@ export async function GET(req: NextRequest) {
         name: row.name,
         is_public: row.is_public,
         created_at: row.created_at,
-        ...(closed ? {
+        ...(isClosed ? {
           status: row.status,
           updated_at: row.updated_at,
           entry_price: row.entry_price,
           exit_price: row.exit_price,
           profit_loss_pct: row.profit_loss_pct,
         } : {}),
-        delayed: !closed,
+        delayed: !isClosed,
         anonymous: true,
       }),
       sector: sectorMap.get(String(row.symbol)) || "General",
       year: row.created_at ? new Date(String(row.created_at)).getFullYear() : null,
       // The client must not present live-looking values for delayed rows.
-      delayed: delayedVisibility && !closed,
-      snapshot_cutoff: delayedVisibility && !closed ? cutoff : null,
+      delayed: delayedVisibility && !isClosed,
+      snapshot_cutoff: delayedVisibility && !isClosed ? cutoff : null,
       precision: authenticated ? toNumber(row.precision, 0) : null,
       // A delayed recommendation must not carry today's live quote.
       last_close: delayedVisibility ? null : toNumber(row.last_close, 0),

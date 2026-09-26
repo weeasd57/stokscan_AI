@@ -514,9 +514,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         if (searchTerm.trim()) {
             const q = searchTerm.toLowerCase();
             items = items.filter(r =>
-                !isLockedRow(r) && (
+                !isLockedRow(r) && r.identity_locked !== true && (
                     String(r.name || "").toLowerCase().includes(q) ||
-                    r.symbol.toLowerCase().includes(q)
+                    String(r.symbol || "").toLowerCase().includes(q)
                 )
             );
         }
@@ -524,7 +524,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             items = items.filter(r => isLockedRow(r) || r.sector === selectedSector);
         }
         if (selectedSignal) {
-            items = items.filter(r => isLockedRow(r) || r.signal.toUpperCase() === selectedSignal.toUpperCase());
+            items = items.filter(r => isLockedRow(r) || String(r.signal || "").toUpperCase() === selectedSignal.toUpperCase());
         }
         
         // Filter by Tab (Active vs Closed)
@@ -677,7 +677,10 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         if (normEx === "egx" || normEx === "eg" || normEx === "ca") {
             return { flag: "🇪🇬", name: isAr ? "مصر" : "Egypt" };
         }
-        return { flag: "🇺🇸", name: isAr ? "أمريكا" : "USA" };
+        if (normEx === "us" || normEx === "nasdaq" || normEx === "nyse") {
+            return { flag: "🇺🇸", name: isAr ? "أمريكا" : "USA" };
+        }
+        return { flag: "", name: isAr ? "غير محدد" : "Unknown" };
     };
 
     const formatVolume = (row: any) => {
@@ -797,7 +800,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 <div className="flex flex-col">
                     {displayRows.map((row, index) => {
                         const rankNum = limit !== Infinity ? index + 1 : (currentPage - 1) * itemsPerPage + index + 1;
-                        const landingLocked = row.locked === true;
+                        const landingLocked = row.locked === true || row.identity_locked === true;
                         const cInfo = getCountryFlag(row.country, row.exchange);
                         const aiScoreNum = Number(((landingLocked ? row.precision ?? 0 : row.precision) * 10).toFixed(0));
                         const dateStr = row.created_at ? new Date(row.created_at).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
@@ -856,12 +859,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                 </span>
                                             </div>
                                         </div>
-                                         {(row.anonymous || landingLocked) ? <span className="text-xs font-black text-zinc-500">—</span> : renderCircularScore(aiScoreNum, "AI")}
+                                         {landingLocked && row.identity_locked ? renderCircularScore(aiScoreNum, "AI") : (row.anonymous || landingLocked) ? <span className="text-xs font-black text-zinc-500">—</span> : renderCircularScore(aiScoreNum, "AI")}
                                     </div>
                                     <div className="flex items-center justify-between flex-wrap gap-3">
                                         <div className="flex items-center gap-2">
-                                            {renderSignalBadge(row)}
-                            {getStatusBadge(row.status || "open", isAnonymousView ? null : row.profit_loss_pct)}
+                                            {!landingLocked && renderSignalBadge(row)}
+                                            {row.identity_locked ? <span className="font-black">{row.status === "loss" ? (isAr ? "خسارة" : "LOSS") : (isAr ? "ربح" : "WIN")}</span> : getStatusBadge(row.status || "open", isAnonymousView ? null : row.profit_loss_pct)}
                                         </div>
                                         <div className="flex items-center gap-1.5 text-xs font-black text-zinc-500 uppercase">
                                             <span className="text-lg leading-none">{cInfo.flag}</span>
@@ -901,9 +904,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             </span>
                                         </div>
                                     </div>
-                                     <div className="flex justify-center">{(row.anonymous || landingLocked) ? <span className="text-xs font-black text-zinc-500">—</span> : renderCircularScore(aiScoreNum, "AI")}</div>
-                                    <div className="flex justify-center">{renderSignalBadge(row)}</div>
-                                    <div className="flex justify-center">{getStatusBadge(row.status || "open", isAnonymousView ? null : row.profit_loss_pct)}</div>
+                                     <div className="flex justify-center">{landingLocked && row.identity_locked ? renderCircularScore(aiScoreNum, "AI") : (row.anonymous || landingLocked) ? <span className="text-xs font-black text-zinc-500">—</span> : renderCircularScore(aiScoreNum, "AI")}</div>
+                                    <div className="flex justify-center">{!landingLocked && renderSignalBadge(row)}</div>
+                                    <div className="flex justify-center">{row.identity_locked ? <span className="font-black">{row.status === "loss" ? (isAr ? "خسارة" : "LOSS") : (isAr ? "ربح" : "WIN")}</span> : getStatusBadge(row.status || "open", isAnonymousView ? null : row.profit_loss_pct)}</div>
                                     <div className="flex justify-center text-[11px] font-bold font-mono text-zinc-500 dark:text-zinc-400 whitespace-nowrap">{dateStr}</div>
                                     <div className="text-xs font-black uppercase text-zinc-500 flex items-center gap-1.5">
                                         <span className="text-lg leading-none">{cInfo.flag}</span>
@@ -1997,7 +2000,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <div className="p-4 border-4 border-black dark:border-white bg-sky-300 text-black font-bold flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs shadow-[4px_4px_0px_rgba(0,0,0,1)]">
                             <div className="flex items-center gap-2">
                                 <Clock className="w-4 h-4 shrink-0" />
-                                <span>{isAr ? "سجّل الدخول لرؤية نتائج التوصيات القديمة المتاحة بتأخير 15 يوماً." : "Sign in to see available historical recommendations with a 15-day delay."}</span>
+                                <span>{isAr ? "نتائج التوصيات المغلقة ظاهرة فوراً دون رمز السهم؛ الإشارات المفتوحة متأخرة 15 يوماً." : "Closed results appear immediately without stock symbols; open signals are delayed by 15 days."}</span>
                             </div>
                             <a href="/login?redirect=%2Fscanner%2Fbacktests%3Ftab%3Dbots" className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black text-white uppercase tracking-wide hover:bg-zinc-800">
                                 {isAr ? "تسجيل الدخول" : "Sign in"}
@@ -2007,7 +2010,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     <div className="p-4 border-4 border-black dark:border-white bg-amber-300 text-black font-bold flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs shadow-[4px_4px_0px_rgba(0,0,0,1)]">
                         <div className="flex items-center gap-2">
                             <Clock className="w-4 h-4 shrink-0" />
-                            <span>{isAr ? "اشترك في Pro لرؤية توصيات اليوم والبيانات الفورية بدون تأخير. الخطة المجانية متأخرة 15 يوماً." : "Subscribe to Pro to see today's recommendations and live data without delay. The Free plan is delayed by 15 days."}</span>
+                            <span>{isAr ? "Free: الإشارات المفتوحة متأخرة 15 يوماً، والمغلقة بلا رمز، والأرباح فوق 50% غير مدرجة؛ لذلك إحصاءات Free ليست سجل الأداء الكامل. Pro يعرض السجل الكامل." : "Free: open signals are delayed 15 days, closed symbols are hidden, and wins above 50% are excluded. Free statistics are not the full performance record; Pro shows the complete history."}</span>
                         </div>
                         <a href="/pricing" className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black text-white uppercase tracking-wide hover:bg-zinc-800">
                             {isAr ? "اشترك في Pro" : "Subscribe to Pro"}
@@ -2307,7 +2310,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <div className="md:hidden flex flex-col divide-y-4 divide-black dark:divide-white">
                             {displayRows.map((row, index) => {
                                 const rankNum = limit !== Infinity ? index + 1 : (currentPage - 1) * itemsPerPage + index + 1;
-                                const locked = row.locked === true;
+                                const identityLocked = row.identity_locked === true;
+                                const locked = row.locked === true || identityLocked;
                                 const aiScoreNum = Number(((locked ? row.precision ?? 0 : row.precision) * 10).toFixed(0));
                                 const cInfo = getCountryFlag(row.country, row.exchange);
                                 const statusLower = row.status?.toLowerCase() || "open";
@@ -2369,15 +2373,14 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                     )}
                                                 </div>
                                             </div>
-                                            {locked ? <Lock className="w-5 h-5 text-amber-500" /> : renderCircularScore(aiScoreNum, "AI")}
+                                            {locked && !identityLocked ? <Lock className="w-5 h-5 text-amber-500" /> : renderCircularScore(aiScoreNum, "AI")}
                                         </div>
                                         <div className="flex items-center justify-between flex-wrap gap-3">
                                             <div className="flex items-center gap-2">
                                                 {!locked && renderSignalBadge(row)}
                                                 {locked ? (
                                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/10 text-amber-500 border border-amber-500/30">
-                                                        <Lock className="w-3 h-3" />
-                                                        {isAr ? "مقفلة" : "LOCKED"}
+                                                        {identityLocked ? (row.status === "loss" ? (isAr ? "خسارة" : "LOSS") : (isAr ? "ربح" : "WIN")) : <><Lock className="w-3 h-3" />{isAr ? "مقفلة" : "LOCKED"}</>}
                                                     </span>
                                                 ) : (
                                                     getStatusBadge(row.status || "open", row.profit_loss_pct)
@@ -2526,7 +2529,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                 {displayRows.map((row, index) => {
                                     const cInfo = getCountryFlag(row.country, row.exchange);
                                     const rankNum = limit !== Infinity ? index + 1 : (currentPage - 1) * itemsPerPage + index + 1;
-                                    if (row.locked === true) {
+                                    if (row.locked === true || row.identity_locked === true) {
+                                        const settledMasked = row.identity_locked === true;
                                         return (
                                             <tr
                                                 key={row.id}
@@ -2564,7 +2568,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                 <td className="px-4 py-4 text-center">
                                                     {(() => {
                                                         const lockedScore = Number(((row.precision ?? 0) * 10).toFixed(0));
-                                                        return lockedScore > 0 ? renderCircularScore(lockedScore, "AI") : <span className="text-xs font-black text-zinc-500">—</span>;
+                                                        return settledMasked && lockedScore > 0 ? renderCircularScore(lockedScore, "AI") : <span className="text-xs font-black text-zinc-500">—</span>;
                                                     })()}
                                                 </td>
                                                 <td className="px-4 py-4 text-center">
@@ -2587,10 +2591,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                     <span className="text-zinc-500">—</span>
                                                 </td>
                                                 <td className="px-4 py-4 text-center">
-                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/10 text-amber-500 border border-amber-500/30">
-                                                        <Lock className="w-3 h-3" />
-                                                        {isAr ? "مقفلة" : "LOCKED"}
-                                                    </span>
+                                                    {settledMasked ? <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-black ${row.status === "loss" ? "text-rose-400 bg-rose-500/10" : "text-emerald-400 bg-emerald-500/10"}`}>{row.status === "loss" ? (isAr ? "خسارة" : "LOSS") : (isAr ? "ربح" : "WIN")}</span> : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/10 text-amber-500 border border-amber-500/30"><Lock className="w-3 h-3" />{isAr ? "مقفلة" : "LOCKED"}</span>}
                                                 </td>
                                                  <td className="px-4 py-4 text-center text-[11px] font-bold font-mono text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
                                                      {row.created_at ? new Date(row.created_at).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}

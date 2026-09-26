@@ -894,6 +894,29 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                 position?.metadata && typeof position.metadata === "object" ? position.metadata : {};
 
             const mapped = (scanData as any[]).map((row: any) => {
+                if (row.identity_locked === true) {
+                    return {
+                        id: row.id,
+                        identity_locked: true,
+                        symbol: null,
+                        name: null,
+                        logo_url: null,
+                        exchange: row.exchange || "EGX",
+                        status: row.status,
+                        precision: Number(row.precision) || 0,
+                        profit_loss_pct: row.profit_loss_pct != null ? Number(row.profit_loss_pct) : null,
+                        created_at: row.created_at,
+                        updated_at: row.updated_at || row.created_at,
+                        sector: null,
+                        last_close: null,
+                        entry_price: null,
+                        exit_price: null,
+                        technical_score: 0,
+                        fundamental_score: 0,
+                        sentiment_score: 0,
+                        delayed: false,
+                    };
+                }
                 if (row.locked === true) {
                     // No recommendation outcome, signal, score, sector or
                     // current quote is sent for a delayed/Pro-only row.
@@ -905,7 +928,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                         logo_url: null,
                         signal: "LOCKED",
                         precision: 0,
-                        exchange: null,
+                        exchange: row.exchange || "EGX",
                         country: null,
                         status: "locked",
                         created_at: row.created_at,

@@ -841,7 +841,7 @@ export default function RecommendationCalendar({
                             {globalStats.bestTrade ? (
                                 <>
                                     <span className="text-xs sm:text-sm font-black text-emerald-600 dark:text-emerald-400 font-mono truncate max-w-[65px] sm:max-w-[80px]">
-                                        {globalStats.bestTrade.symbol}
+                                        {globalStats.bestTrade.identity_locked ? (isAr ? "سهم مشفر" : "Hidden stock") : globalStats.bestTrade.symbol}
                                     </span>
                                     <span className="text-xs sm:text-xs font-black text-emerald-600 dark:text-emerald-400 font-mono">
                                         +{globalStats.bestTrade.profit_loss_pct?.toFixed(1)}%
@@ -1313,6 +1313,14 @@ export default function RecommendationCalendar({
                                     const isLoss = statusLower === "loss";
                                     const isClosed = isWin || isLoss;
                                     const isAdjustment = item._isAdjustedToday;
+
+                                    if (item.identity_locked === true) {
+                                        return <div key={item._timelineKey || item.id} className="p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 flex items-center justify-between gap-3">
+                                            <span className="font-black text-zinc-600 dark:text-zinc-300">{isAr ? "سهم مشفر" : "Hidden stock"} · {item.exchange || "EGX"}</span>
+                                            <span className={isLoss ? "font-black text-rose-600" : "font-black text-emerald-600"}>{isLoss ? (isAr ? "خسارة" : "Loss") : (isAr ? "ربح" : "Win")}</span>
+                                            <span className="font-mono font-black">{Number(item.precision || 0) > 0 ? `${(Number(item.precision) * 100).toFixed(0)}% AI` : "—"}</span>
+                                        </div>;
+                                    }
 
                                     return (
                                         <div

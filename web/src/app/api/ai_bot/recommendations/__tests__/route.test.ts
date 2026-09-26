@@ -66,6 +66,8 @@ beforeEach(() => {
     { id: "old-loss", symbol: "LOSS", name: "Loss Co", exchange: "EGX", signal: "BUY", status: "loss", precision: 0.8, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 20 * DAY).toISOString(), last_close: 90, stop_loss: 89, profit_loss_pct: -10, is_public: true },
     { id: "recent-loss", symbol: "RECENT", name: "Recent Loss", exchange: "EGX", signal: "BUY", status: "loss", precision: 0.8, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 2 * DAY).toISOString(), last_close: 90, stop_loss: 89, profit_loss_pct: -10, is_public: true },
     { id: "fresh-loss", symbol: "FLOSS", name: "Fresh Loss", exchange: "EGX", signal: "BUY", status: "loss", precision: 0.8, created_at: new Date(Date.now() - 2 * DAY).toISOString(), updated_at: new Date().toISOString(), last_close: 90, stop_loss: 89, profit_loss_pct: -10, is_public: true },
+    { id: "large-win", symbol: "LARGE", name: "Large Win", exchange: "EGX", signal: "BUY", status: "win", precision: 0.9, created_at: new Date(Date.now() - 20 * DAY).toISOString(), updated_at: new Date().toISOString(), profit_loss_pct: 51, is_public: true },
+    { id: "threshold-win", symbol: "FIFTY", name: "Fifty Win", exchange: "EGX", signal: "BUY", status: "win", precision: 0.7, created_at: new Date(Date.now() - 20 * DAY).toISOString(), updated_at: new Date().toISOString(), profit_loss_pct: 50, is_public: true },
   );
   globalThis.fetch = jest.fn(async () =>
     Response.json(FETCH_ROWS)) as unknown as typeof fetch;
@@ -88,7 +90,7 @@ async function getRows(res: Response) {
   return (await res.json()) as any[];
 }
 
-it("reveals every settled loss immediately but redacts actionable locked rows for Free users", async () => {
+it("removes the safety gate, masks closed identities, and hides wins above 50% for Free", async () => {
   const { GET } = await import("@/app/api/ai_bot/recommendations/route");
   const rows = await getRows(await GET(request("u-free")));
   const fresh = rows.find((r: any) => r.id === "fresh");
@@ -96,7 +98,7 @@ it("reveals every settled loss immediately but redacts actionable locked rows fo
   const normal = rows.find((r: any) => r.id === "old-safe");
 
   expect(fresh.locked).toBe(true);
-  expect(highSafety.locked).toBe(true);
+  expect(highSafety.locked).toBeUndefined();
   expect(normal.locked).toBeUndefined();
 
   // Locked rows reveal no outcome, identity, scores, or prices.
@@ -107,21 +109,25 @@ it("reveals every settled loss immediately but redacts actionable locked rows fo
   expect(fresh.precision).toBeUndefined();
   expect(fresh.status).toBeUndefined();
   expect(fresh.signal).toBeUndefined();
-  expect(highSafety.safety_rate).toBeUndefined();
+  expect(highSafety.symbol).toBe("SAFE");
   expect(normal.symbol).toBe("OLD");
   expect(normal.last_close).toBeNull();
-  expect(rows.find((r: any) => r.id === "old-loss").profit_loss_pct).toBe(-10);
+  expect(rows.find((r: any) => r.id === "old-loss")).toMatchObject({ status: "loss", precision: 0.8, identity_locked: true, profit_loss_pct: -10, exchange: "EGX" });
+  expect(rows.find((r: any) => r.id === "old-loss").symbol).toBeUndefined();
   expect(rows.find((r: any) => r.id === "recent-loss").profit_loss_pct).toBe(-10);
   expect(rows.find((r: any) => r.id === "fresh-loss").profit_loss_pct).toBe(-10);
+  expect(rows.find((r: any) => r.id === "large-win")).toBeUndefined();
+  expect(rows.find((r: any) => r.id === "threshold-win").identity_locked).toBe(true);
 });
 
-it("keeps Pro-only rows out of anonymous responses entirely", async () => {
+it("hides fresh open signals and >50% wins from anonymous responses", async () => {
   const { GET } = await import("@/app/api/ai_bot/recommendations/route");
   const rows = await getRows(await GET(request(null)));
   expect(rows.some((r: any) => r.id === "fresh")).toBe(false);
-  expect(rows.some((r: any) => r.id === "old-high-safety")).toBe(false);
-  expect(rows.map((r: any) => r.id)).toEqual(["old-safe", "old-loss", "recent-loss", "fresh-loss"]);
-  expect(rows.find((r: any) => r.id === "fresh-loss")).toMatchObject({ status: "loss", profit_loss_pct: -10, delayed: false });
+  expect(rows.some((r: any) => r.id === "old-high-safety")).toBe(true);
+  expect(rows.map((r: any) => r.id)).toEqual(["old-high-safety", "old-safe", "old-loss", "recent-loss", "fresh-loss", "threshold-win"]);
+  expect(rows.find((r: any) => r.id === "fresh-loss")).toMatchObject({ status: "loss", profit_loss_pct: -10, delayed: false, identity_locked: true });
+  expect(rows.find((r: any) => r.id === "fresh-loss").symbol).toBeUndefined();
 });
 
 it("returns everything unlocked to a Pro subscriber", async () => {
@@ -129,6 +135,7 @@ it("returns everything unlocked to a Pro subscriber", async () => {
   const rows = await getRows(await GET(request("u-pro")));
   expect(rows.every((r: any) => !r.locked)).toBe(true);
   expect(rows.find((r: any) => r.id === "fresh").name).toBe("Fresh Co");
+  expect(rows.find((r: any) => r.id === "large-win").symbol).toBe("LARGE");
 });
 
 it("reads only public datasets and delegates auth to the cached viewer context", async () => {
