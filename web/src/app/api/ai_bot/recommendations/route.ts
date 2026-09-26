@@ -137,13 +137,15 @@ export async function GET(req: NextRequest) {
       }),
       sector: sectorMap.get(String(row.symbol)) || "General",
       year: row.created_at ? new Date(String(row.created_at)).getFullYear() : null,
-      // The client must not present live-looking values for delayed rows.
-      delayed: delayedVisibility && !isClosed,
-      snapshot_cutoff: delayedVisibility && !isClosed ? cutoff : null,
+      // Rows reaching this branch are visible now (Pro, or Free after the
+      // 15-day delay); only rows returned by the locked branch are delayed.
+      delayed: false,
+      snapshot_cutoff: null,
       precision: authenticated ? toNumber(row.precision, 0) : null,
-      // A delayed recommendation must not carry today's live quote.
-      last_close: delayedVisibility ? null : toNumber(row.last_close, 0),
-      top_reasons: delayedVisibility ? null : row.top_reasons,
+      // Locked rows returned above never carry quotes or analysis. Once the
+      // delay expires, visible recommendations can safely include their data.
+      last_close: toNumber(row.last_close, 0) > 0 ? toNumber(row.last_close, 0) : null,
+      top_reasons: row.top_reasons,
       };
     });
 
@@ -153,7 +155,7 @@ export async function GET(req: NextRequest) {
         // CDN-shared response cross between anonymous and authenticated users.
         // Keep plan-specific responses private, but allow the same browser
         // tab to reuse the daily snapshot while navigating between tabs.
-        "Cache-Control": "private, max-age=300, stale-while-revalidate=300",
+        "Cache-Control": "private, no-store, max-age=0, must-revalidate",
         "Vercel-Cache-Tag": DAILY_CACHE_TAGS.recommendations,
       },
     });

@@ -92,7 +92,9 @@ async function getRows(res: Response) {
 
 it("removes the safety gate, masks closed identities, and hides wins above 50% for Free", async () => {
   const { GET } = await import("@/app/api/ai_bot/recommendations/route");
-  const rows = await getRows(await GET(request("u-free")));
+  const response = await GET(request("u-free"));
+  expect(response.headers.get("cache-control")).toContain("no-store");
+  const rows = await getRows(response);
   const fresh = rows.find((r: any) => r.id === "fresh");
   const highSafety = rows.find((r: any) => r.id === "old-high-safety");
   const normal = rows.find((r: any) => r.id === "old-safe");
@@ -117,7 +119,10 @@ it("removes the safety gate, masks closed identities, and hides wins above 50% f
   });
   expect(highSafety.symbol).toBe("SAFE");
   expect(normal.symbol).toBe("OLD");
-  expect(normal.last_close).toBeNull();
+  // An aged open recommendation is now released to Free, including its quote;
+  // a still-locked signal above must continue to have no identity or price.
+  expect(normal).toMatchObject({ last_close: 100, delayed: false, snapshot_cutoff: null });
+  expect(fresh.last_close).toBeUndefined();
   expect(rows.find((r: any) => r.id === "old-loss")).toMatchObject({ status: "loss", precision: 0.8, identity_locked: true, profit_loss_pct: -10, exchange: "EGX" });
   expect(rows.find((r: any) => r.id === "old-loss").symbol).toBeUndefined();
   expect(rows.find((r: any) => r.id === "recent-loss").profit_loss_pct).toBe(-10);
@@ -135,6 +140,7 @@ it("encrypts every anonymous open signal and hides >50% wins", async () => {
   expect(rows.find((r: any) => r.id === "old-safe")).toMatchObject({ locked: true, exchange: "EGX", signal: "SELL", status: "open" });
   expect(rows.find((r: any) => r.id === "old-safe").symbol).toBeUndefined();
   expect(rows.find((r: any) => r.id === "old-safe").last_close).toBeUndefined();
+  expect(rows.find((r: any) => r.id === "old-safe").target_price).toBeUndefined();
   expect(rows.filter((r: any) => r.status === "open").every((r: any) => r.locked && !r.symbol && !r.name)).toBe(true);
   expect(rows.find((r: any) => r.id === "fresh-loss")).toMatchObject({ status: "loss", profit_loss_pct: -10, delayed: false, identity_locked: true });
   expect(rows.find((r: any) => r.id === "fresh-loss").symbol).toBeUndefined();

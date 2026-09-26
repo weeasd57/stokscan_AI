@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAIScanner } from "@/contexts/AIScannerContext";
+import { percentageChangeSinceEntry } from "@/lib/recommendationMetrics";
 import StockLogo from "./StockLogo";
 import { useTheme } from "@/contexts/ThemeContext";
 import TradingViewChart from "./TradingViewChartDynamic";
@@ -986,8 +987,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         const changePct = row.change_pct ?? null;
         const lastUpdated = isAnonymousView ? row.created_at || null : (row.updated_at || row.created_at || null);
         const pctChangeSinceRec = isAnonymousView ? null : (isClosed
-            ? (row.exit_price && entryPrice > 0 ? ((row.exit_price - entryPrice) / entryPrice) * 100 : (plPct ?? 0))
-            : (entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0));
+            ? (row.exit_price && entryPrice > 0 ? ((row.exit_price - entryPrice) / entryPrice) * 100 : plPct)
+            : percentageChangeSinceEntry(entryPrice, currentPrice));
 
         const formatDate = (ts: string) => new Date(ts).toLocaleDateString(isAr ? "ar-EG" : "en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -1479,8 +1480,11 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         
         const isClosed = row.status?.toLowerCase() === "win" || row.status?.toLowerCase() === "loss";
         const pctChangeSinceRec = isAnonymousView ? null : (isClosed
-            ? (row.exit_price && entryPrice > 0 ? ((row.exit_price - entryPrice) / entryPrice) * 100 : (plPct ?? 0))
-            : (entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0));
+            ? (row.exit_price && entryPrice > 0 ? ((row.exit_price - entryPrice) / entryPrice) * 100 : plPct)
+            : percentageChangeSinceEntry(entryPrice, currentPrice));
+        const tradeReturnText = pctChangeSinceRec == null
+            ? (isAr ? "غير متاح" : "N/A")
+            : `${pctChangeSinceRec >= 0 ? "+" : ""}${pctChangeSinceRec.toFixed(2)}%`;
 
         const shareText = isAr 
             ? `🚨 توصية صفقة بالذكاء الاصطناعي - EGX BOTS 🚨\n\n` +
@@ -1491,7 +1495,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
               `وقف الخسارة: ${stopLoss.toFixed(2)} ج.م\n` +
               `تقييم الذكاء الاصطناعي: ${aiScoreNum}/10\n` +
               `القطاع: ${row.sector || "N/A"}\n` +
-              `أداء الصفقة: ${pctChangeSinceRec >= 0 ? "+" : ""}${pctChangeSinceRec.toFixed(2)}%\n` +
+              `أداء الصفقة: ${tradeReturnText}\n` +
               `التاريخ: ${scanDate}\n\n` +
               `👉 التفاصيل والتحليل: https://egxbots.com/scanner/backtests?tab=bots`
             : `🚨 EGX BOTS AI Trade Signal 🚨\n\n` +
@@ -1502,7 +1506,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
               `Stop Loss: ${stopLoss.toFixed(2)} EGP\n` +
               `AI Score: ${aiScoreNum}/10\n` +
               `Sector: ${row.sector || "N/A"}\n` +
-              `Trade Return: ${pctChangeSinceRec >= 0 ? "+" : ""}${pctChangeSinceRec.toFixed(2)}%\n` +
+              `Trade Return: ${tradeReturnText}\n` +
               `Date: ${scanDate}\n\n` +
               `👉 Analyze here: https://egxbots.com/scanner/backtests?tab=bots`;
 
@@ -1677,8 +1681,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
                                             {isAr ? "أداء الصفقة" : "Trade Return"}
                                         </span>
-                                        <span className={`text-base font-black ${pctChangeSinceRec >= 0 ? "text-emerald-500 dark:text-emerald-400" : "text-rose-500 dark:text-rose-400"}`}>
-                                            {pctChangeSinceRec >= 0 ? "+" : ""}{pctChangeSinceRec.toFixed(2)}%
+                                        <span className={`text-base font-black ${pctChangeSinceRec == null ? "text-zinc-500" : pctChangeSinceRec >= 0 ? "text-emerald-500 dark:text-emerald-400" : "text-rose-500 dark:text-rose-400"}`}>
+                                            {tradeReturnText}
                                         </span>
                                     </div>
 
@@ -1730,7 +1734,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                 const getY = (price: number) => (chartHeight - paddingY) - ((price - minPrice) / (maxPrice - minPrice)) * (chartHeight - 2 * paddingY);
                                 
                                 const isClosed = row.status?.toLowerCase() === "win" || row.status?.toLowerCase() === "loss";
-                                const lineColor = pctChangeSinceRec >= 0 ? "#10b981" : "#f43f5e";
+                                const lineColor = pctChangeSinceRec == null ? "#71717a" : pctChangeSinceRec >= 0 ? "#10b981" : "#f43f5e";
                                 const exitColor = (row.status || '').toLowerCase() === 'win' ? '#10b981' : '#f43f5e';
                                 
                                 const signalDateStr = new Date(row.created_at).toISOString().split('T')[0];
