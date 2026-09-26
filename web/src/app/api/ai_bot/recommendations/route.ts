@@ -81,10 +81,24 @@ export async function GET(req: NextRequest) {
       const fresh = !Number.isFinite(createdMs) || createdMs > cutoffTime;
       const locked = delayedVisibility && !isClosed && (!authenticated || fresh);
       if (locked) {
+        const precision = toNumber(row.precision, 0);
+        const score = (value: number) => Math.max(1, Math.min(10, Math.round(value)));
+        const lastClose = toNumber(row.last_close, 0);
+        const stopLoss = toNumber(row.stop_loss, 0);
+        const safetyRate = lastClose > 0 && stopLoss > 0
+          ? score(10 - Math.abs((lastClose - stopLoss) / lastClose) * 20)
+          : 5;
         return {
           id: row.id,
           locked: true,
           exchange: row.exchange || "EGX",
+          signal: row.signal || "BUY",
+          status: row.status || "open",
+          precision,
+          technical_score: score(precision * 10 - 0.5),
+          fundamental_score: score(precision * 10 - 0.8),
+          sentiment_score: score(precision * 10 - 1.2),
+          safety_rate: safetyRate,
           created_at: row.created_at,
           delayed: true,
           snapshot_cutoff: cutoff,

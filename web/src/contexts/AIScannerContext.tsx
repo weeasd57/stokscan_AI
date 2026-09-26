@@ -918,24 +918,25 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                     };
                 }
                 if (row.locked === true) {
-                    // No recommendation outcome, signal, score, sector or
-                    // current quote is sent for a delayed/Pro-only row.
+                    // Keep the identity and prices encrypted while retaining
+                    // the public status and model/risk ratings.
                     return {
                         id: row.id,
                         locked: true,
                         symbol: null,
                         name: null,
                         logo_url: null,
-                        signal: "LOCKED",
-                        precision: 0,
+                        signal: row.signal || "BUY",
+                        precision: Number(row.precision) || 0,
                         exchange: row.exchange || "EGX",
                         country: null,
-                        status: "locked",
+                        status: row.status || "open",
                         created_at: row.created_at,
                         updated_at: row.created_at,
-                        technical_score: 0,
-                        fundamental_score: 0,
-                        sentiment_score: 0,
+                        technical_score: Number(row.technical_score) || 0,
+                        fundamental_score: Number(row.fundamental_score) || 0,
+                        sentiment_score: Number(row.sentiment_score) || 0,
+                        safety_rate: Number(row.safety_rate) || null,
                         sector: null,
                         last_close: null,
                         entry_price: null,

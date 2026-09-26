@@ -101,14 +101,20 @@ it("removes the safety gate, masks closed identities, and hides wins above 50% f
   expect(highSafety.locked).toBeUndefined();
   expect(normal.locked).toBeUndefined();
 
-  // Locked rows reveal no outcome, identity, scores, or prices.
+  // Locked rows reveal their status and ratings, but never identity or prices.
   expect(fresh.symbol).toBeUndefined();
   expect(fresh.name).toBeUndefined();
   expect(fresh.top_reasons).toBeUndefined();
   expect(fresh.last_close).toBeUndefined();
-  expect(fresh.precision).toBeUndefined();
-  expect(fresh.status).toBeUndefined();
-  expect(fresh.signal).toBeUndefined();
+  expect(fresh).toMatchObject({
+    precision: 0.9,
+    status: "open",
+    signal: "BUY",
+    technical_score: 9,
+    fundamental_score: 8,
+    sentiment_score: 8,
+    safety_rate: 5,
+  });
   expect(highSafety.symbol).toBe("SAFE");
   expect(normal.symbol).toBe("OLD");
   expect(normal.last_close).toBeNull();
@@ -125,8 +131,10 @@ it("encrypts every anonymous open signal and hides >50% wins", async () => {
   const rows = await getRows(await GET(request(null)));
   expect(rows.some((r: any) => r.id === "fresh")).toBe(false);
   expect(rows.map((r: any) => r.id)).toEqual(["old-high-safety", "old-safe", "old-loss", "recent-loss", "fresh-loss", "threshold-win"]);
-  expect(rows.find((r: any) => r.id === "old-high-safety")).toMatchObject({ locked: true, exchange: "EGX" });
+  expect(rows.find((r: any) => r.id === "old-high-safety")).toMatchObject({ locked: true, exchange: "EGX", signal: "BUY", status: "open", precision: 0.8 });
+  expect(rows.find((r: any) => r.id === "old-safe")).toMatchObject({ locked: true, exchange: "EGX", signal: "SELL", status: "open" });
   expect(rows.find((r: any) => r.id === "old-safe").symbol).toBeUndefined();
+  expect(rows.find((r: any) => r.id === "old-safe").last_close).toBeUndefined();
   expect(rows.filter((r: any) => r.status === "open").every((r: any) => r.locked && !r.symbol && !r.name)).toBe(true);
   expect(rows.find((r: any) => r.id === "fresh-loss")).toMatchObject({ status: "loss", profit_loss_pct: -10, delayed: false, identity_locked: true });
   expect(rows.find((r: any) => r.id === "fresh-loss").symbol).toBeUndefined();
