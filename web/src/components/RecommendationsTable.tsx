@@ -704,6 +704,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         return Math.max(1, Math.min(10, score));
     };
 
+    const getVisibleReturnPct = (row: any): number | null => {
+        const value = row.profit_loss_pct;
+        if (value != null && Number.isFinite(Number(value))) return Number(value);
+        return percentageChangeSinceEntry(Number(row.entry_price) || 0, Number(row.last_close) || 0);
+    };
+
     const getStatusBadge = (status: string, plPct: number | null) => {
         if (isAnonymousView) {
             return (
@@ -2382,15 +2388,20 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <div className="flex items-center justify-between flex-wrap gap-3">
                                             <div className="flex items-center gap-2">
                                                 {renderSignalBadge(row)}
-                                                {locked ? (
+                                        {locked ? (
                                                     identityLocked ? (
                                                         <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-black ${row.status === "loss" ? "text-rose-400 bg-rose-500/10" : "text-emerald-400 bg-emerald-500/10"}`}>
                                                             {row.status === "loss" ? (isAr ? "خسارة" : "LOSS") : (isAr ? "ربح" : "WIN")}
-                                                            {row.profit_loss_pct != null && ` ${Number(row.profit_loss_pct) >= 0 ? "+" : ""}${Number(row.profit_loss_pct).toFixed(1)}%`}
                                                         </span>
                                                     ) : getStatusBadge(row.status || "open", null)
                                                 ) : (
                                                     getStatusBadge(row.status || "open", row.profit_loss_pct)
+                                                )}
+                                                {getVisibleReturnPct(row) != null && (
+                                                    <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-black ${getVisibleReturnPct(row)! >= 0 ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"}`}>
+                                                        {getVisibleReturnPct(row)! >= 0 ? "+" : ""}{getVisibleReturnPct(row)!.toFixed(1)}%
+                                                        <span className="ms-1 font-medium">{isAr ? "منذ التوصية" : "since rec."}</span>
+                                                    </span>
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-1.5 text-xs font-black text-zinc-500 uppercase">
@@ -2405,10 +2416,10 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         </div>
                                         {(user || locked) && (
                                             <div className="flex items-center justify-between pt-3 border-t border-zinc-200 dark:border-zinc-800">
-                                                {renderCircularScore(row.technical_score || 5, "Tech")}
-                                                {renderCircularScore(row.fundamental_score || 5, "Fund")}
-                                                {renderCircularScore(row.sentiment_score || 5, "Sent")}
-                                                {renderCircularScore(getLowRiskScore(row), "Risk")}
+                                                {row.technical_score > 0 ? renderCircularScore(row.technical_score, "Tech") : <span className="text-xs text-zinc-500">—</span>}
+                                                {row.fundamental_score > 0 ? renderCircularScore(row.fundamental_score, "Fund") : <span className="text-xs text-zinc-500">—</span>}
+                                                {row.sentiment_score > 0 ? renderCircularScore(row.sentiment_score, "Sent") : <span className="text-xs text-zinc-500">—</span>}
+                                                {row.safety_rate != null || (row.stop_loss && row.last_close) ? renderCircularScore(getLowRiskScore(row), "Risk") : <span className="text-xs text-zinc-500">—</span>}
                                             </div>
                                         )}
                                         {!locked && (
@@ -2469,8 +2480,6 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         {translate("signal")}
                                     </th>
 
-                                    {user && (
-                                        <>
                                             <th 
                                                 onClick={() => handleHeaderClick("technical_score")}
                                                 className="hidden md:table-cell bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
@@ -2498,11 +2507,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                     {renderSortIcon("sentiment_score")}
                                                 </div>
                                             </th>
-                                        </>
-                                    )}
 
                                     <th className="hidden md:table-cell bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center">
                                         {translate("lowRisk")}
+                                    </th>
+                                    <th className="bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-36 text-center">
+                                        {isAr ? "التغير منذ التوصية" : "Since Rec."}
                                     </th>
                                     <th 
                                         onClick={() => handleHeaderClick("profit_loss_pct")}
@@ -2577,19 +2587,26 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                     {renderSignalBadge(row)}
                                                 </td>
                                                 <td className="hidden md:table-cell px-4 py-4 text-center">
-                                                    {renderCircularScore(row.technical_score || 5, "Tech")}
+                                                    {row.technical_score > 0 ? renderCircularScore(row.technical_score, "Tech") : <span className="text-zinc-500">—</span>}
                                                 </td>
                                                 <td className="hidden md:table-cell px-4 py-4 text-center">
-                                                    {renderCircularScore(row.fundamental_score || 5, "Fund")}
+                                                    {row.fundamental_score > 0 ? renderCircularScore(row.fundamental_score, "Fund") : <span className="text-zinc-500">—</span>}
                                                 </td>
                                                 <td className="hidden md:table-cell px-4 py-4 text-center">
-                                                    {renderCircularScore(row.sentiment_score || 5, "Sent")}
+                                                    {row.sentiment_score > 0 ? renderCircularScore(row.sentiment_score, "Sent") : <span className="text-zinc-500">—</span>}
                                                 </td>
                                                 <td className="hidden md:table-cell px-4 py-4 text-center">
-                                                    <span className="text-zinc-500">—</span>
+                                                    {row.safety_rate != null ? renderCircularScore(getLowRiskScore(row), "Risk") : <span className="text-zinc-500">—</span>}
                                                 </td>
                                                 <td className="px-4 py-4 text-center">
-                                                    {settledMasked ? <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-black ${row.status === "loss" ? "text-rose-400 bg-rose-500/10" : "text-emerald-400 bg-emerald-500/10"}`}>{row.status === "loss" ? (isAr ? "خسارة" : "LOSS") : (isAr ? "ربح" : "WIN")}{row.profit_loss_pct != null && ` ${Number(row.profit_loss_pct) >= 0 ? "+" : ""}${Number(row.profit_loss_pct).toFixed(1)}%`}</span> : getStatusBadge(row.status || "open", null)}
+                                                    {getVisibleReturnPct(row) == null ? <span className="text-xs font-black text-zinc-500">—</span> : (
+                                                        <span className={`inline-flex px-2 py-1 rounded text-xs font-black ${getVisibleReturnPct(row)! >= 0 ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"}`}>
+                                                            {getVisibleReturnPct(row)! >= 0 ? "+" : ""}{getVisibleReturnPct(row)!.toFixed(2)}%
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-4 text-center">
+                                                    {settledMasked ? <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-black ${row.status === "loss" ? "text-rose-400 bg-rose-500/10" : "text-emerald-400 bg-emerald-500/10"}`}>{row.status === "loss" ? (isAr ? "خسارة" : "LOSS") : (isAr ? "ربح" : "WIN")}</span> : getStatusBadge(row.status || "open", null)}
                                                 </td>
                                                  <td className="px-4 py-4 text-center text-[11px] font-bold font-mono text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
                                                      {row.created_at ? new Date(row.created_at).toLocaleDateString(isAr ? "ar-EG" : "en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—"}
@@ -2704,6 +2721,15 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             {/* Low Risk */}
                                             <td className="hidden md:table-cell px-4 py-4 text-center">
                                                 {renderCircularScore(getLowRiskScore(row), "Risk")}
+                                            </td>
+
+                                            {/* Return since recommendation; the percentage reveals no ticker or raw price. */}
+                                            <td className="px-4 py-4 text-center">
+                                                {getVisibleReturnPct(row) == null ? <span className="text-xs font-black text-zinc-500">—</span> : (
+                                                    <span className={`inline-flex px-2 py-1 rounded text-xs font-black ${getVisibleReturnPct(row)! >= 0 ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"}`}>
+                                                        {getVisibleReturnPct(row)! >= 0 ? "+" : ""}{getVisibleReturnPct(row)!.toFixed(2)}%
+                                                    </span>
+                                                )}
                                             </td>
 
                                             {/* Status */}

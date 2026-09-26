@@ -943,7 +943,9 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                         target_price: undefined,
                         stop_loss: undefined,
                         exit_price: null,
-                        profit_loss_pct: null,
+                        profit_loss_pct: row.profit_loss_pct != null && Number.isFinite(Number(row.profit_loss_pct))
+                            ? Number(row.profit_loss_pct)
+                            : null,
                         change_pct: null,
                         top_reasons: null,
                         delayed: true,

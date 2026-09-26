@@ -60,9 +60,9 @@ beforeEach(() => {
   process.env.FREE_SIGNAL_DELAY_DAYS = "15";
   FETCH_ROWS.length = 0;
   FETCH_ROWS.push(
-    { id: "fresh", symbol: "FRESH", name: "Fresh Co", exchange: "EGX", signal: "BUY", status: "open", precision: 0.9, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), top_reasons: ["hot"], is_public: true },
+    { id: "fresh", symbol: "FRESH", name: "Fresh Co", exchange: "EGX", signal: "BUY", status: "open", precision: 0.9, entry_price: 80, last_close: 100, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), top_reasons: ["hot"], is_public: true },
     { id: "old-high-safety", symbol: "SAFE", name: "Safe Co", exchange: "EGX", signal: "BUY", status: "open", precision: 0.8, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 40 * DAY).toISOString(), last_close: 100, stop_loss: 99, is_public: true },
-    { id: "old-safe", symbol: "OLD", name: "Old Co", exchange: "EGX", signal: "SELL", status: "open", precision: 0.6, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 40 * DAY).toISOString(), last_close: 100, stop_loss: 70, is_public: true },
+    { id: "old-safe", symbol: "OLD", name: "Old Co", exchange: "EGX", signal: "SELL", status: "open", precision: 0.6, entry_price: 80, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 40 * DAY).toISOString(), last_close: 100, stop_loss: 70, is_public: true },
     { id: "old-loss", symbol: "LOSS", name: "Loss Co", exchange: "EGX", signal: "BUY", status: "loss", precision: 0.8, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 20 * DAY).toISOString(), last_close: 90, stop_loss: 89, profit_loss_pct: -10, is_public: true },
     { id: "recent-loss", symbol: "RECENT", name: "Recent Loss", exchange: "EGX", signal: "BUY", status: "loss", precision: 0.8, created_at: new Date(Date.now() - 40 * DAY).toISOString(), updated_at: new Date(Date.now() - 2 * DAY).toISOString(), last_close: 90, stop_loss: 89, profit_loss_pct: -10, is_public: true },
     { id: "fresh-loss", symbol: "FLOSS", name: "Fresh Loss", exchange: "EGX", signal: "BUY", status: "loss", precision: 0.8, created_at: new Date(Date.now() - 2 * DAY).toISOString(), updated_at: new Date().toISOString(), last_close: 90, stop_loss: 89, profit_loss_pct: -10, is_public: true },
@@ -116,7 +116,9 @@ it("removes the safety gate, masks closed identities, and hides wins above 50% f
     fundamental_score: 8,
     sentiment_score: 8,
     safety_rate: 5,
+    profit_loss_pct: 25,
   });
+  expect(fresh.entry_price).toBeUndefined();
   expect(highSafety.symbol).toBe("SAFE");
   expect(normal.symbol).toBe("OLD");
   // An aged open recommendation is now released to Free, including its quote;
@@ -137,7 +139,7 @@ it("encrypts every anonymous open signal and hides >50% wins", async () => {
   expect(rows.some((r: any) => r.id === "fresh")).toBe(false);
   expect(rows.map((r: any) => r.id)).toEqual(["old-high-safety", "old-safe", "old-loss", "recent-loss", "fresh-loss", "threshold-win"]);
   expect(rows.find((r: any) => r.id === "old-high-safety")).toMatchObject({ locked: true, exchange: "EGX", signal: "BUY", status: "open", precision: 0.8 });
-  expect(rows.find((r: any) => r.id === "old-safe")).toMatchObject({ locked: true, exchange: "EGX", signal: "SELL", status: "open" });
+  expect(rows.find((r: any) => r.id === "old-safe")).toMatchObject({ locked: true, exchange: "EGX", signal: "SELL", status: "open", profit_loss_pct: 25 });
   expect(rows.find((r: any) => r.id === "old-safe").symbol).toBeUndefined();
   expect(rows.find((r: any) => r.id === "old-safe").last_close).toBeUndefined();
   expect(rows.find((r: any) => r.id === "old-safe").target_price).toBeUndefined();

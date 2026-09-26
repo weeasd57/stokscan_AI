@@ -84,6 +84,12 @@ export async function GET(req: NextRequest) {
         const precision = toNumber(row.precision, 0);
         const score = (value: number) => Math.max(1, Math.min(10, Math.round(value)));
         const lastClose = toNumber(row.last_close, 0);
+        const entryPrice = toNumber(row.entry_price, 0);
+        const sinceRecommendationPct = entryPrice > 0 && lastClose > 0
+          ? ((lastClose - entryPrice) / entryPrice) * 100
+          : row.profit_loss_pct != null
+            ? toNumber(row.profit_loss_pct, 0)
+            : null;
         const stopLoss = toNumber(row.stop_loss, 0);
         const safetyRate = lastClose > 0 && stopLoss > 0
           ? score(10 - Math.abs((lastClose - stopLoss) / lastClose) * 20)
@@ -99,6 +105,7 @@ export async function GET(req: NextRequest) {
           fundamental_score: score(precision * 10 - 0.8),
           sentiment_score: score(precision * 10 - 1.2),
           safety_rate: safetyRate,
+          profit_loss_pct: sinceRecommendationPct,
           created_at: row.created_at,
           delayed: true,
           snapshot_cutoff: cutoff,
