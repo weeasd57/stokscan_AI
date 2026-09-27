@@ -1336,7 +1336,7 @@ def evaluate_old_recommendations(batch_id=None):
         # Fetch price history
         p_res = (
             supabase.table("stock_prices")
-            .select("date,open,high,low,close")
+            .select("symbol,exchange,date,open,high,low,close,volume")
             .eq("symbol", symbol)
             .eq("exchange", exchange)
             .gte("date", created_at_date)
@@ -2057,9 +2057,13 @@ async def generate_daily_recommendations(
             hour=0, minute=0, second=0, microsecond=0,
         ).astimezone(dt.timezone.utc)
         base = lambda: supabase.table("scan_results").select("id", count="exact").eq("is_public", True).eq("exchange", "EGX").limit(1)
+        # Legacy recommendations predate the versioned publication policy. Keep
+        # the daily cap global, but do not let that historical backlog consume
+        # the rolling/open capacity reserved for newly governed publications.
+        governed = lambda: base().filter("rich_details->recommendation_policy->>version", "not.is", "null")
         daily_count = base().gte("created_at", cairo_day.isoformat()).execute().count or 0
-        rolling_count = base().gte("created_at", (now_utc - dt.timedelta(days=30)).isoformat()).execute().count or 0
-        open_count = base().eq("status", "open").execute().count or 0
+        rolling_count = governed().gte("created_at", (now_utc - dt.timedelta(days=30)).isoformat()).execute().count or 0
+        open_count = governed().eq("status", "open").execute().count or 0
         if daily_count >= daily_limit or rolling_count >= rolling_limit or open_count >= open_limit:
             print(f"[RECOMMENDATIONS] Capacity reached: day={daily_count}/{daily_limit}, rolling={rolling_count}/{rolling_limit}, open={open_count}/{open_limit}.")
             return 0
