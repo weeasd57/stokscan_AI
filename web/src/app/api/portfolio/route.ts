@@ -32,7 +32,7 @@ export async function GET() {
 
         return NextResponse.json(
             { ...snapshot, market_symbols: marketSymbols, portfolio_limit: pro ? null : portfolioLimit, is_pro: pro },
-            { headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=120" } },
+            { headers: { "Cache-Control": "private, no-cache, no-store, must-revalidate" } },
         );
     } catch (e: any) {
         console.error("[api/portfolio] GET error:", e);

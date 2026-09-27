@@ -204,11 +204,9 @@ async function symbolExistsInMarket(supabase: any, symbol: string): Promise<bool
 /** Insert a position, tolerating a restrictive positions.source enum. */
 async function insertPositionRow(supabase: any, row: Record<string, any>): Promise<{ data: any; error: any }> {
     const { data, error } = await supabase.from("positions").insert(row).select("id").single();
-    if (error && /symbol_source|enum/i.test(`${error?.message || ""} ${error?.details || ""}`) && row.source !== undefined) {
-        // The source enum doesn't accept this value — retry without source
-        const { source, ...rest } = row;
-        void source;
-        return await supabase.from("positions").insert(rest).select("id").single();
+    if (error && /symbol_source|enum/i.test(`${error?.message || ""} ${error?.details || ""}`)) {
+        // The source enum doesn't accept this value — fallback to universally supported 'chatbot' source
+        return await supabase.from("positions").insert({ ...row, source: "chatbot" }).select("id").single();
     }
     return { data, error };
 }
@@ -452,7 +450,7 @@ export async function bulkAddPortfolioPositions(
                 quantity: item.quantity,
                 entry_price: item.price,
                 status: "open",
-                source: "profile_bulk",
+                source: "chatbot",
             });
             if (!error) {
                 successCount++;

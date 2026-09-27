@@ -89,7 +89,7 @@ export default function MyPortfolioSection({ onPortfolioUpdated }: { onPortfolio
             } else {
                 toast.error(data.message || "Failed");
             }
-            await load();
+            await load(true);
             onPortfolioUpdated?.();
             return data.ok;
         } catch (e: any) {
@@ -112,12 +112,13 @@ export default function MyPortfolioSection({ onPortfolioUpdated }: { onPortfolio
                 return;
             }
             const exactMatch = symbolList.find((s) => s.symbol === sym);
-            if (!exactMatch) {
-                toast.error(isAr ? `الرمز ${sym} مش موجود في البورصة — اختاره من القائمة` : `${sym} is not listed on EGX — pick from the list`);
+            const cleanSym = exactMatch ? exactMatch.symbol : sym;
+            if (!/^[A-Z0-9]{2,10}$/.test(cleanSym)) {
+                toast.error(isAr ? `الرمز ${sym} غير صالح — اختر من القائمة أو اكتب رمزاً صحيحاً` : `Invalid symbol ${sym} — pick from the list`);
                 return;
             }
             const price = row.price.trim() ? parseFloat(row.price) : null;
-            validItems.push({ symbol: exactMatch.symbol, quantity: qty, price });
+            validItems.push({ symbol: cleanSym, quantity: qty, price });
         }
 
         if (validItems.length === 0) {

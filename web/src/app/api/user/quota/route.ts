@@ -35,21 +35,36 @@ export async function GET() {
     const planName = pro ? "pro" : "free";
     const limits = planLimits(planName);
 
-    // 2. Chatbot messages used this month
+    // 2. Chatbot messages used this month (permanent ledger via ai_chatbot_limits)
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
+    const monthStartStr = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, "0")}-01`;
 
-    const { data: chatRows, error: chatErr } = await supabase
-      .from("ai_chat_messages")
-      .select("id, client_message_id")
-      .eq("user_id", user.id)
-      .eq("role", "user")
-      .gte("created_at", monthStart.toISOString());
+    const [chatRowsRes, limitRowsRes] = await Promise.all([
+      supabase
+        .from("ai_chat_messages")
+        .select("id, client_message_id")
+        .eq("user_id", user.id)
+        .eq("role", "user")
+        .gte("created_at", monthStart.toISOString()),
+      supabase
+        .from("ai_chatbot_limits")
+        .select("chat_count")
+        .eq("user_id", user.id)
+        .gte("date", monthStartStr),
+    ]);
 
-    if (chatErr) {
-      console.warn("[api/user/quota] chat count error:", chatErr);
+    if (chatRowsRes.error) {
+      console.warn("[api/user/quota] chat count error:", chatRowsRes.error);
     }
+    if (limitRowsRes.error) {
+      console.warn("[api/user/quota] limits count error:", limitRowsRes.error);
+    }
+
+    const messagesCount = new Set((chatRowsRes.data || []).map((row: any) => row.client_message_id || row.id)).size;
+    const limitsCount = (limitRowsRes.data || []).reduce((acc: number, row: any) => acc + (Number(row.chat_count) || 0), 0);
+    const chatUsed = Math.max(messagesCount, limitsCount);
 
     // 3. Portfolio stocks currently open
     const { data: positionRows, error: posErr } = await supabase
@@ -68,7 +83,6 @@ export async function GET() {
     const portfolioStocksCount = uniqueSymbols.size;
 
     const chatLimit = limits.chat_messages_per_month;
-    const chatUsed = new Set((chatRows || []).map((row: any) => row.client_message_id || row.id)).size;
     const portfolioLimit = limits.portfolio_stocks;
 
     return NextResponse.json({

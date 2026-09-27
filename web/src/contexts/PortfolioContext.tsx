@@ -43,7 +43,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
     if (!user) { setSnapshot(null); return; }
     setLoading(true);
     try {
-      const response = await fetch("/api/portfolio", { cache: force ? "no-store" : "default" });
+      const response = await fetch("/api/portfolio", { cache: "no-store" });
       if (response.ok) setSnapshot(await response.json());
     } finally {
       setLoading(false);

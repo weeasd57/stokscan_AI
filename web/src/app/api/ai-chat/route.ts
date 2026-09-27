@@ -451,32 +451,70 @@ export async function POST(req: NextRequest) {
 
         const today = new Date().toISOString().split("T")[0];
         let limitData: { chat_count: number } | null = null;
-        if (!isUnlimited) {
-            const { data: quotaRows, error: quotaError } = await supabase.rpc("consume_ai_chat_quota", { p_user_id: userId, p_date: today, p_limit: AI_CONFIG.limits.dailyMessages });
-            if (quotaError) return NextResponse.json({ detail: "Unable to reserve chat quota" }, { status: 503 });
-            const quota = Array.isArray(quotaRows) ? quotaRows[0] : quotaRows;
-            if (!quota?.allowed) return NextResponse.json({ detail: `Daily limit reached. You can send up to ${AI_CONFIG.limits.dailyMessages} messages per day.` }, { status: 429 });
-            limitData = { chat_count: Number(quota.chat_count || 0) };
-        }
+        let monthlyUsed = 0;
 
-        // Monthly budget gate. Applied only when PAYMENTS_ENABLED=true; when the
-        // platform is in free mode the cap is unlimited so the site stays free.
+        // 1. Monthly budget gate (permanent ledger via ai_chatbot_limits and ai_chat_messages).
+        // Deleting old chats must NEVER reduce or refund consumed quota.
         if (billingOn && !isUnlimited) {
             const monthStart = new Date();
             monthStart.setDate(1);
             monthStart.setHours(0, 0, 0, 0);
-            const { data: monthRows, error: monthErr } = await supabase
-                .from("ai_chat_messages")
-                .select("id, client_message_id")
-                .eq("user_id", userId)
-                .gte("created_at", monthStart.toISOString());
-            const monthCount = new Set((monthRows || []).map((row: any) => row.client_message_id || row.id)).size;
-            if (monthErr) {
-                console.warn("[ai-chat] monthly count query failed:", monthErr);
-            } else if (monthCount >= userMonthlyCap) {
-                return NextResponse.json({ detail: `Monthly message limit reached (${userMonthlyCap}). Upgrade to Pro for ${planLimits("pro").chat_messages_per_month} messages/month.` }, { status: 429 });
+            const monthStartStr = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, "0")}-01`;
+
+            const [limitRowsRes, monthRowsRes] = await Promise.all([
+                supabase
+                    .from("ai_chatbot_limits")
+                    .select("chat_count")
+                    .eq("user_id", userId)
+                    .gte("date", monthStartStr),
+                supabase
+                    .from("ai_chat_messages")
+                    .select("id, client_message_id")
+                    .eq("user_id", userId)
+                    .eq("role", "user")
+                    .gte("created_at", monthStart.toISOString()),
+            ]);
+
+            const limitsSum = (limitRowsRes.data || []).reduce((acc: number, row: any) => acc + (Number(row.chat_count) || 0), 0);
+            const msgsCount = new Set((monthRowsRes.data || []).map((row: any) => row.client_message_id || row.id)).size;
+            monthlyUsed = Math.max(limitsSum, msgsCount);
+
+            if (monthlyUsed >= userMonthlyCap) {
+                return NextResponse.json({
+                    detail: `Monthly message limit reached (${userMonthlyCap}). Upgrade to Pro for ${planLimits("pro").chat_messages_per_month} messages/month.`
+                }, { status: 429 });
             }
         }
+
+        // 2. Consume / record chat quota in ai_chatbot_limits
+        if (!isUnlimited) {
+            const effectiveDailyLimit = billingOn
+                ? Math.max(AI_CONFIG.limits.dailyMessages, userMonthlyCap)
+                : AI_CONFIG.limits.dailyMessages;
+            const { data: quotaRows, error: quotaError } = await supabase.rpc("consume_ai_chat_quota", {
+                p_user_id: userId,
+                p_date: today,
+                p_limit: effectiveDailyLimit,
+            });
+            if (quotaError) return NextResponse.json({ detail: "Unable to reserve chat quota" }, { status: 503 });
+            const quota = Array.isArray(quotaRows) ? quotaRows[0] : quotaRows;
+            if (!quota?.allowed) {
+                return NextResponse.json({
+                    detail: `Daily limit reached. You can send up to ${effectiveDailyLimit} messages per day.`
+                }, { status: 429 });
+            }
+            limitData = { chat_count: Number(quota.chat_count || 0) };
+            monthlyUsed += 1;
+        }
+
+        const calcRemainingQuota = () => {
+            if (isUnlimited) return 999;
+            if (billingOn) {
+                return Math.max(0, userMonthlyCap - monthlyUsed);
+            }
+            const todayCount = limitData?.chat_count || 0;
+            return Math.max(0, AI_CONFIG.limits.dailyMessages - todayCount);
+        };
 
         const keysToTry = getNvidiaApiKeys();
 
@@ -730,7 +768,7 @@ export async function POST(req: NextRequest) {
                                         type: "done",
                                         reply: replyText,
                                         session_id: activeSessionId,
-                                        remaining_quota: isUnlimited ? 999 : Math.max(0, AI_CONFIG.limits.dailyMessages - newCount),
+                                        remaining_quota: calcRemainingQuota(),
                                         suggested_buttons: suggestedButtons,
                                         session_state: sessionUpdate,
                                         tables: event.data.tables || [],
@@ -911,7 +949,7 @@ export async function POST(req: NextRequest) {
             reply: replyText,
             tables: pipelineResult.tables,
             session_id: activeSessionId,
-            remaining_quota: isUnlimited ? 999 : Math.max(0, AI_CONFIG.limits.dailyMessages - newCount),
+            remaining_quota: calcRemainingQuota(),
             suggested_buttons: suggestedButtons,
             session_state: pipelineResult.session_update,
             latency_ms: totalLatencyMs
@@ -961,23 +999,40 @@ export async function GET(req: NextRequest) {
             const billingOn = paymentsEnabled();
             let isUnlimited = !billingOn && isUnlimitedChatUser(user);
             let quotaLimit = AI_CONFIG.limits.dailyMessages;
+            let usedCount = 0;
+
             if (billingOn) {
                 const { data: planRows } = await authClient.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", userId);
                 const pro = gateIsPro(planRows || []);
                 quotaLimit = planLimits(pro ? "pro" : "free").chat_messages_per_month;
                 isUnlimited = false;
-            }
 
-            const { data: limitData } = await supabase
-                .from("ai_chatbot_limits")
-                .select("chat_count")
-                .eq("user_id", userId)
-                .eq("date", today)
-                .maybeSingle();
+                const monthStart = new Date();
+                monthStart.setDate(1);
+                monthStart.setHours(0, 0, 0, 0);
+                const monthStartStr = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, "0")}-01`;
+
+                const [limitRowsRes, msgRowsRes] = await Promise.all([
+                    supabase.from("ai_chatbot_limits").select("chat_count").eq("user_id", userId).gte("date", monthStartStr),
+                    supabase.from("ai_chat_messages").select("id, client_message_id").eq("user_id", userId).eq("role", "user").gte("created_at", monthStart.toISOString()),
+                ]);
+
+                const limitsCount = (limitRowsRes.data || []).reduce((acc: number, row: any) => acc + (Number(row.chat_count) || 0), 0);
+                const msgCount = new Set((msgRowsRes.data || []).map((row: any) => row.client_message_id || row.id)).size;
+                usedCount = Math.max(limitsCount, msgCount);
+            } else {
+                const { data: limitData } = await supabase
+                    .from("ai_chatbot_limits")
+                    .select("chat_count")
+                    .eq("user_id", userId)
+                    .eq("date", today)
+                    .maybeSingle();
+                usedCount = limitData?.chat_count || 0;
+            }
 
             return NextResponse.json({
                 sessions: sessions || [],
-                remaining_quota: isUnlimited ? 999 : Math.max(0, quotaLimit - (limitData?.chat_count || 0))
+                remaining_quota: isUnlimited ? 999 : Math.max(0, quotaLimit - usedCount)
             });
         }
 
