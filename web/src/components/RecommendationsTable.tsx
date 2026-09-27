@@ -208,6 +208,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     // Outdated warning retry state
     const [isOutdated, setIsOutdated] = useState(false);
     const [hasProAccess, setHasProAccess] = useState(false);
+    const proRefreshViewerRef = useRef<string | null>(null);
 
     // Detail dialog state
     const [selectedRow, setSelectedRow] = useState<any>(null);
@@ -223,14 +224,57 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             setHasProAccess(false);
             return () => { active = false; };
         }
-        fetch("/api/user/quota", { cache: "no-store" })
-            .then(response => response.ok ? response.json() : null)
-            .then(payload => {
+        setHasProAccess(false);
+        let lastCheckAt = 0;
+        let checking = false;
+        const checkPlan = async () => {
+            if (checking) return;
+            checking = true;
+            lastCheckAt = Date.now();
+            try {
+                const response = await fetch("/api/user/quota", { cache: "no-store" });
+                const payload = response.ok ? await response.json() : null;
                 if (active) setHasProAccess(payload?.plan?.is_pro === true);
-            })
-            .catch(() => { if (active) setHasProAccess(false); });
-        return () => { active = false; };
+            } catch {
+                if (active) setHasProAccess(false);
+            } finally {
+                checking = false;
+            }
+        };
+        const checkOnReturn = () => {
+            if (!document.hidden && Date.now() - lastCheckAt >= 60_000) void checkPlan();
+        };
+        void checkPlan();
+        window.addEventListener("focus", checkOnReturn);
+        document.addEventListener("visibilitychange", checkOnReturn);
+        return () => {
+            active = false;
+            window.removeEventListener("focus", checkOnReturn);
+            document.removeEventListener("visibilitychange", checkOnReturn);
+        };
     }, [user?.id]);
+
+    // The market snapshot is cached for a day, but its redaction level is not.
+    // If quota confirms Pro while the cached rows are still encrypted, reload
+    // once immediately and retry only while that mismatch remains.
+    const hasEncryptedRecommendations = useMemo(
+        () => recommendations.some(row => row.locked === true || row.identity_locked === true),
+        [recommendations],
+    );
+    useEffect(() => {
+        if (!user || !hasProAccess || !hasEncryptedRecommendations) {
+            proRefreshViewerRef.current = null;
+            return;
+        }
+        if (proRefreshViewerRef.current !== user.id) {
+            proRefreshViewerRef.current = user.id;
+            void loadRecommendations(isLandingPage, true, limit !== Infinity ? limit : undefined);
+        }
+        const retry = window.setInterval(() => {
+            void loadRecommendations(isLandingPage, true, limit !== Infinity ? limit : undefined);
+        }, 65_000);
+        return () => window.clearInterval(retry);
+    }, [user?.id, hasProAccess, hasEncryptedRecommendations, isLandingPage, limit, loadRecommendations]);
 
     // Interactive Filters (Scanner or Authenticated Landing Page)
     const [searchTerm, setSearchTerm] = useState("");

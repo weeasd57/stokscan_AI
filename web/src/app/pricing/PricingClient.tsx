@@ -85,6 +85,7 @@ export default function PricingClient() {
           ? "failed"
           : data.status;
         setOrderStatus(settledStatus);
+        if (settledStatus === "approved") setIsPro(true);
         if (data.plan_id) setSelectedPlan(data.plan_id);
         setSubscriptionEnd(data.subscription?.current_period_end || null);
         setTelegramProUrl(data.telegram_pro_url || "");
@@ -149,13 +150,41 @@ export default function PricingClient() {
   useEffect(() => {
     if (!user) {
       setIsPro(false);
+      setSubscriptionEnd(null);
       return;
     }
-    fetch("/api/user/quota", { cache: "no-store" })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => setIsPro(data?.plan?.is_pro === true))
-      .catch(() => setIsPro(false));
-  }, [user?.id]);
+    let active = true;
+    let inFlight = false;
+    const refreshPlan = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch("/api/user/quota", { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!active) return;
+        setIsPro(data?.plan?.is_pro === true);
+        setSubscriptionEnd(data?.plan?.current_period_end || null);
+      } catch {
+        // Keep the last known state on a temporary network failure.
+      } finally {
+        inFlight = false;
+      }
+    };
+    setIsPro(false);
+    void refreshPlan();
+    const onFocus = () => void refreshPlan();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshPlan();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [user?.id, orderStatus]);
 
   const copyOrderId = () => {
     if (!localOrder) return;
@@ -701,6 +730,13 @@ export default function PricingClient() {
           </p>
         </div>
 
+        {isPro && (
+          <div className="border-2 border-emerald-500 bg-emerald-500/10 px-5 py-4 text-center text-sm font-bold text-emerald-800 dark:text-emerald-200" role="status">
+            {isAr ? "اشتراك Pro نشط على حسابك الآن" : "Your Pro subscription is active"}
+            {subscriptionEnd && ` · ${isAr ? "ساري حتى" : "Valid until"} ${new Date(subscriptionEnd).toLocaleDateString(isAr ? "ar-EG" : "en-US")}`}
+          </div>
+        )}
+
         {/* Plans Grid */}
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
           {/* ── 01. Free Plan Card ── */}
@@ -747,7 +783,7 @@ export default function PricingClient() {
               disabled
               className="w-full border-3 border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 text-zinc-400 dark:text-zinc-600 py-3 text-xs font-black uppercase tracking-wider cursor-not-allowed"
             >
-              {isAr ? "خطتك الحالية" : "Current Plan"}
+              {isPro ? (isAr ? "الخطة المجانية متاحة" : "Free plan available") : (isAr ? "خطتك الحالية" : "Current Plan")}
             </button>
           </div>
 

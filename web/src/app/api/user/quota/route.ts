@@ -100,9 +100,9 @@ export async function GET() {
         },
       },
     }, {
-      // Quotas are private to the signed-in user, but they do not need a
-      // database round trip on every mounted component within the same minute.
-      headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=120" },
+      // Entitlement changes must be visible immediately after payment or an
+      // admin adjustment. Never serve a stale Free/Pro result from HTTP caches.
+      headers: { "Cache-Control": "private, no-store" },
     });
   } catch (err: any) {
     console.error("[api/user/quota] GET error:", err);

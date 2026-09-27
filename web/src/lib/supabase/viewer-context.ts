@@ -17,7 +17,10 @@ import { hasActiveProSubscription, paymentsEnabled } from "@/lib/ai/plan-gate";
  */
 
 const IDENTITY_TTL_SEC = 300; // per-token re-confirmation every 5 min
-const PLAN_TTL_SEC = 6 * 3600; // plan changes propagate within 6 h
+// A six-hour negative cache left newly paid accounts looking Free in the
+// scanner long after the profile page already showed Pro. Entitlements must
+// become visible promptly, including revocations, without polling per view.
+const PLAN_TTL_SEC = 60;
 const MAX_ENTRIES = 3000;
 
 interface Identity { userId: string | null; exp: number; }
@@ -112,10 +115,11 @@ async function resolvePro(userId: string | null): Promise<boolean> {
     const admin = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    const { data } = await admin
+    const { data, error } = await admin
       .from("subscriptions")
       .select("plan_id,status,current_period_end")
       .eq("user_id", userId);
+    if (error) return false; // transient lookup failures must not cache Free
     const pro = hasActiveProSubscription(data || []);
     prune(planCache);
     planCache.set(userId, { pro, exp: now + PLAN_TTL_SEC * 1000 });

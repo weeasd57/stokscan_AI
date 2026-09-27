@@ -129,7 +129,7 @@ export default function RecommendationCalendar({
         const controller = new AbortController();
         void loadSentEvents(controller.signal);
         return () => controller.abort();
-    }, [loadSentEvents, refreshToken]);
+    }, [loadSentEvents, refreshToken, isPro]);
 
     useRealtimeRefresh(
         [
