@@ -391,6 +391,85 @@ export async function addPortfolioPosition(
     };
 }
 
+/** Add multiple holdings to the portfolio at once in a single batch. */
+export async function bulkAddPortfolioPositions(
+    supabase: any,
+    userId: string,
+    items: Array<{ symbol: string; quantity: number; price?: number | null }>,
+): Promise<{ ok: boolean; message: string; addedCount?: number }> {
+    if (!Array.isArray(items) || items.length === 0) {
+        return { ok: false, message: "لم يتم تحديد أي أسهم للإضافة." };
+    }
+
+    const validatedItems: Array<{ symbol: string; quantity: number; price: number | null }> = [];
+    for (const item of items) {
+        const sym = String(item.symbol || "").trim().toUpperCase();
+        const qty = Number(item.quantity);
+        const price = item.price !== undefined && item.price !== null && !isNaN(Number(item.price)) ? Number(item.price) : null;
+        if (!/^[A-Z0-9]{2,10}$/.test(sym) || !Number.isFinite(qty) || qty <= 0) {
+            continue;
+        }
+        validatedItems.push({ symbol: sym, quantity: qty, price: price !== null && Number.isFinite(price) && price > 0 ? price : null });
+    }
+
+    if (validatedItems.length === 0) {
+        return { ok: false, message: "تأكد من اختيار رموز أسهم صحيحة وتحديد كميات صالحة أكبر من الصفر." };
+    }
+
+    const openPositions = await fetchOpenPositions(supabase, userId);
+    const existingSymbols = new Set(openPositions.map(p => p.symbol));
+    const newDistinctSymbols = new Set(validatedItems.map(item => item.symbol).filter(sym => !existingSymbols.has(sym)));
+
+    if (newDistinctSymbols.size > 0) {
+        const capacity = await canAddPortfolioPositions(supabase, userId, newDistinctSymbols.size);
+        if (!capacity.ok) {
+            return { ok: false, message: capacity.message || "تجاوزت الحد الأقصى للأسهم المسموحة في خطتك." };
+        }
+    }
+
+    let successCount = 0;
+    for (const item of validatedItems) {
+        const existing = openPositions.find(p => p.symbol === item.symbol);
+        const name = await fetchStockName(supabase, item.symbol);
+        if (existing) {
+            const newQty = (existing.quantity || 0) + item.quantity;
+            const avgEntry = existing.entry_price && item.price
+                ? ((existing.entry_price * (existing.quantity || 0)) + (item.price * item.quantity)) / newQty
+                : item.price ?? existing.entry_price;
+            const { error } = await supabase
+                .from("positions")
+                .update({ quantity: newQty, entry_price: avgEntry, name: existing.name || name })
+                .eq("id", existing.id);
+            if (!error) {
+                successCount++;
+                await recordEvent(supabase, userId, existing.id, "portfolio_add", { symbol: item.symbol, quantity: item.quantity, entry_price: item.price });
+            }
+        } else {
+            const { data: inserted, error } = await insertPositionRow(supabase, {
+                user_id: userId,
+                symbol: item.symbol,
+                name,
+                quantity: item.quantity,
+                entry_price: item.price,
+                status: "open",
+                source: "profile_bulk",
+            });
+            if (!error) {
+                successCount++;
+                await recordEvent(supabase, userId, inserted?.id || null, "portfolio_add", { symbol: item.symbol, quantity: item.quantity, entry_price: item.price });
+            }
+        }
+    }
+
+    return {
+        ok: successCount > 0,
+        message: successCount > 0
+            ? `تم بنجاح حفظ وإضافة ${successCount} سهم إلى محفظتك ✅`
+            : "تعذر حفظ الأسهم. حاول مرة أخرى.",
+        addedCount: successCount,
+    };
+}
+
 /** Update quantity / entry price of an open position. */
 export async function updatePortfolioPosition(
     supabase: any,

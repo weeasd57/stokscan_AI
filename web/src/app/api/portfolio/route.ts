@@ -59,6 +59,12 @@ export async function POST(req: NextRequest) {
         const tools = await import("@/lib/ai/portfolio-tools");
         let result: { ok: boolean; message: string };
         switch (action) {
+            case "bulk_add":
+                if (!Array.isArray(body.items) || body.items.length === 0) {
+                    return NextResponse.json({ ok: false, message: "قائمة الأسهم مطلوبة" }, { status: 400 });
+                }
+                result = await tools.bulkAddPortfolioPositions(supabase, user.id, body.items);
+                break;
             case "add":
                 if (!symbol || quantity === null || !Number.isFinite(quantity) || quantity <= 0) {
                     return NextResponse.json({ ok: false, message: "symbol و quantity مطلوبان" }, { status: 400 });

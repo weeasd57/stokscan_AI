@@ -2016,31 +2016,14 @@ async function* runPipelineCore(
             }
             const missing = items.find(item => item.quantity == null || item.quantity <= 0 || item.price == null || item.price <= 0);
             if (missing) {
-                const pending = {
-                    items,
-                    current_index: items.indexOf(missing),
-                };
-                const summarySaved = await updateSessionSummary(supabase, sessionId, userId, {
-                    pending_portfolio_import: pending,
-                    last_topic: "portfolio_import_pending",
+                await updateSessionSummary(supabase, sessionId, userId, {
+                    pending_portfolio_import: null,
+                    last_topic: "portfolio",
                 });
-                if (!summarySaved) {
-                    yield { type: "vision_error", data: "portfolio_pending_context_not_saved" };
-                    yield { type: "done", data: {
-                        response: "الصورة مفهومة، لكن تعذر حفظ البيانات الناقصة للجلسة. اكتب الكمية ومتوسط الشراء مرة أخرى مع رموز الأسهم حتى لا أفقد السياق.",
-                        session_update: { current_symbol: missing.symbol, last_symbols: items.map(item => item.symbol), summary: "تعذر حفظ البيانات الناقصة للمحفظة" },
-                        tables: [],
-                    } };
-                    return;
-                }
-                const missingParts = [
-                    missing.quantity == null || missing.quantity <= 0 ? "الكمية" : "",
-                    missing.price == null || missing.price <= 0 ? "متوسط الشراء" : "",
-                ].filter(Boolean).join(" و");
-                const response = `تمام، دي محفظتك. محتاج ${missingParts} لسهم ${missing.symbol} أولاً. اكتب مثلاً: ${missing.symbol} 100 سهم بسعر 9.50. بعد إدخال بيانات كل الأسهم هحفظ المحفظة، ومش هحذف أي مركز حالي قبل اكتمال البيانات.`;
+                const response = `تمام يا غالي. بما أن لقطة الشاشة لا توضح جميع الكميات ومتوسطات الشراء بدقة لكل سهم، يمكنك التوجه إلى [صفحة المحفظة في حسابك](https://egxbots.com/profile#portfolio) وتسجيل جميع أسهمك وكمياتك دفعة واحدة وبضغطة زر لحفظها وتتبع أرباحك وخسائرك تلقائياً بدقة.\n\nهل تود أن نراجع الآن أي سهم محدد من أسهمك الفنية (الدعوم والمقاومات وفرص التعويض)؟`;
                 yield { type: "done", data: {
                     response,
-                    session_update: { current_symbol: missing.symbol, last_symbols: items.map(item => item.symbol), summary: "بانتظار بيانات كميات ومتوسطات محفظة الصورة" },
+                    session_update: { current_symbol: null, last_symbols: items.map(item => item.symbol), summary: "توجيه المستخدم لصفحة البروفايل لتسجيل المحفظة" },
                     tables: [],
                 } };
                 return;
@@ -2237,43 +2220,20 @@ async function* runPipelineCore(
 
             vision = await reconcileVisionWithMarket(vision, supabase);
             yield { type: "vision_result", data: vision };
-            // A portfolio screenshot plus a portfolio word ("محفظتي") must start
-            // the import/confirmation flow even when the model labels the image
-            // as a generic "table"; otherwise the deterministic portfolio
-            // snapshot silently ignores the uploaded image.
-            const portfolioImageIntent = vision.image_type === "portfolio"
-                || (vision.symbols.length > 0 && /(?:محفظ|بورتفوليو|portfolio)/i.test(userMessage));
-            if (portfolioImageIntent) {
-                // Persist the extracted holdings before returning the confirmation
-                // prompt. The next user message is a separate request and loads
-                // this summary from Supabase; without this write it sees an empty
-                // portfolio and the confirmation flow loses the image context.
-                const summarySaved = await updateSessionSummary(supabase, sessionId, userId, {
-                    current_symbols: vision.symbols.map(symbol => symbol.symbol),
-                    last_image_symbols: vision.symbols.map(symbol => symbol.symbol),
-                    last_topic: "portfolio",
+            // When an image contains stock symbols, extract them, persist them to session,
+            // and let the pipeline continue to analyze them directly like standard stock queries!
+            if (vision.symbols.length > 0) {
+                const extractedSymbols = vision.symbols.map(s => s.symbol).filter(Boolean);
+                sessionState.current_symbol = extractedSymbols[0];
+                sessionState.last_symbols = extractedSymbols;
+                await updateSessionSummary(supabase, sessionId, userId, {
+                    current_symbols: extractedSymbols,
+                    last_image_symbols: extractedSymbols,
+                    last_topic: "portfolio_image_analysis",
                     last_vision_context: vision,
                     pending_portfolio_import: null,
                     last_data_date: new Date().toISOString().split("T")[0],
                 });
-                if (!summarySaved) {
-                    yield { type: "vision_error", data: "portfolio_context_not_saved" };
-                    yield { type: "done", data: {
-                        response: "حللت الصورة، لكن تعذر حفظ الأسهم المستخرجة للجلسة. أعد إرسال الصورة مرة أخرى قبل تأكيد المحفظة حتى لا أفقد البيانات.",
-                        session_update: { current_symbol: null, last_symbols: vision.symbols.map(s => s.symbol), summary: "تعذر حفظ سياق صورة المحفظة" },
-                        tables: [],
-                    } };
-                    return;
-                }
-                const visible = vision.symbols.length
-                    ? vision.symbols.map(s => `${s.symbol}${s.visible_values.quantity != null ? ` (${s.visible_values.quantity} سهم)` : ""}`).join("، ")
-                    : "لم أتعرف على رموز أسهم واضحة";
-                yield { type: "done", data: {
-                    response: `حللت الصورة ووجدت: ${visible}. هل دي محفظتك؟ لو أيوه اكتب «دي محفظتي» وسأطلب أي كمية أو متوسط شراء ناقص، ولن أستخدم بيانات قديمة من الجلسة.`,
-                    session_update: { current_symbol: null, last_symbols: vision.symbols.map(s => s.symbol), summary: "تحليل صورة محفظة بانتظار التأكيد" },
-                    tables: [],
-                } };
-                return;
             }
             // Vision ran but returned unknown type with no symbols → image unreadable
             if (vision.image_type === "unknown" && vision.symbols.length === 0) {
@@ -2343,7 +2303,27 @@ async function* runPipelineCore(
         }
     }
 
-    if (portfolioAnalysisSymbols.length > 0) {
+    const imageSymbols = (hasImages && vision?.symbols?.length)
+        ? vision.symbols.map(s => s.symbol).filter(Boolean)
+        : [];
+
+    if (imageSymbols.length > 0) {
+        // Route every extracted stock from the image through the normal stock-analysis tools!
+        plannerResult = {
+            intent: "stock_analysis",
+            confidence: 1,
+            entities: {
+                symbols: imageSymbols,
+                sector: null,
+                wants_table: true,
+                timeframe: "current",
+                requested_date: null,
+                scan_direction: null,
+            },
+            tools: ["get_stock", "get_stock_levels", "get_signals"],
+            session_update: { current_symbol: imageSymbols[0], last_symbols: imageSymbols, summary: userMessage },
+        } as any;
+    } else if (portfolioAnalysisSymbols.length > 0) {
         // Route every saved holding through the normal stock-analysis tools so
         // the reply mirrors the per-symbol analysis the user gets manually.
         plannerResult = {

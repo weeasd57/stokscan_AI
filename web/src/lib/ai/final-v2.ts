@@ -292,16 +292,16 @@ export function buildV2FinalMessages(
             summary: visionContext.user_relevant_summary,
             confidence: visionContext.confidence
         }, null, 2));
-        // Portfolio screenshots: the bot manages the user's holdings — after
-        // analyzing the image it MUST ask whether this is the user's own
-        // portfolio so the next turn can save it upon confirmation.
-        if (visionContext.image_type === "portfolio") {
+        // Image stocks analysis rule: analyze all extracted stocks directly from technical data.
+        if (visionContext.symbols.length > 0) {
             sections.push([
-                "=== PORTFOLIO IMAGE RULE (محفظتى) ===",
-                "هذه صورة محفظة أسهم. حلل الأسهم الظاهرة بإيجاز (الرموز والكميات والأسعار لو ظاهرة)،",
-                "ثم اختم سؤالك الإلزامي بالضبط:",
-                "\"دي محفظتك؟ أأكد حفظها في حسابك عشان تقدر تسألني عنها وتعدلها في أي وقت؟\"",
-                "لا تحفظ أي بيانات من الصورة في حساب المستخدم قبل تأكيده.",
+                "=== IMAGE STOCKS / PORTFOLIO ANALYSIS RULE ===",
+                "قام المستخدم برفع صورة تحتوي على أسهم (لقطة شاشة لمحفظة أو جدول أسهم).",
+                "المطلوب:",
+                "1. حلل جميع الأسهم المستخرجة من الصورة بشكل مباشر وشامل فنياً (الدعوم، المقاومات، الاتجاه، التوصيات، والتعامل مع الخسائر إن وُجدت) اعتماداً على بيانات الأدوات المنفذة (get_stock / get_stock_levels / get_signals)، تماماً كما لو كتب المستخدم أسماء الأسهم بنفسه في الشات.",
+                "2. لا تسأل المستخدم عن الرموز أو الكميات أو متوسطات الشراء سهماً بسهماً في الشات ولا تطلب منه إدخالها في المحادثة.",
+                "3. اختم ردك بملاحظة مختصرة ومفيدة للمستخدم:",
+                "   '💡 ملاحظة: لتسجيل محفظتك الرسمية وتتبع أرباحك وخسائرك وحساب السيولة تلقائياً بدقة، يمكنك تسجيل وتعديل كامل أسهمك من [صفحة المحفظة](https://egxbots.com/profile#portfolio) دفعة واحدة.'",
             ].join("\n"));
         }
     }

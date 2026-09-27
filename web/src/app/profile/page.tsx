@@ -69,6 +69,24 @@ export default function ProfilePage() {
     return () => document.removeEventListener("visibilitychange", refreshWhenVisible);
   }, [reloadProfile, user]);
 
+  // Auto-scroll smoothly to portfolio section if hash is #portfolio
+  useEffect(() => {
+    const handleHashScroll = () => {
+      if (typeof window !== "undefined" && (window.location.hash === "#portfolio" || window.location.hash === "#my-portfolio")) {
+        const timer = setTimeout(() => {
+          const el = document.getElementById("portfolio");
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        }, 200);
+        return () => clearTimeout(timer);
+      }
+    };
+    handleHashScroll();
+    window.addEventListener("hashchange", handleHashScroll);
+    return () => window.removeEventListener("hashchange", handleHashScroll);
+  }, []);
+
   function beginEditWatchlistItem(item: SavedSymbol) {
     setEditingSymbolId(item.id);
     setWatchlistDraft({ name: item.name || item.symbol });
@@ -109,10 +127,12 @@ export default function ProfilePage() {
       <PlanQuotaCard refreshTrigger={portfolioVersion} />
 
       {/* ── My Portfolio (محفظتى) ── */}
-      <MyPortfolioSection
-        key={portfolioVersion}
-        onPortfolioUpdated={() => setPortfolioVersion((v) => v + 1)}
-      />
+      <div id="portfolio" className="scroll-mt-8">
+        <MyPortfolioSection
+          key={portfolioVersion}
+          onPortfolioUpdated={() => setPortfolioVersion((v) => v + 1)}
+        />
+      </div>
 
       {/* ── Account + Telegram ── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative z-10">

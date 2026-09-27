@@ -34,12 +34,28 @@ export default function MyPortfolioSection({ onPortfolioUpdated }: { onPortfolio
     const { snapshot, loading, refresh: load } = usePortfolio();
     const [busy, setBusy] = useState(false);
 
-    // add form
+    // add form (multi-row bulk add)
+    interface AddRow {
+        id: string;
+        symbol: string;
+        quantity: string;
+        price: string;
+        menuOpen?: boolean;
+    }
     const [showAdd, setShowAdd] = useState(false);
-    const [addSymbol, setAddSymbol] = useState("");
-    const [addQty, setAddQty] = useState("");
-    const [addPrice, setAddPrice] = useState("");
-    const [symbolMenuOpen, setSymbolMenuOpen] = useState(false);
+    const [addRows, setAddRows] = useState<AddRow[]>([{ id: "row-1", symbol: "", quantity: "", price: "" }]);
+
+    const updateRow = (id: string, field: keyof AddRow, val: any) => {
+        setAddRows(prev => prev.map(r => r.id === id ? { ...r, [field]: val } : r));
+    };
+
+    const addRow = () => {
+        setAddRows(prev => [...prev, { id: `row-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, symbol: "", quantity: "", price: "" }]);
+    };
+
+    const removeRow = (id: string) => {
+        setAddRows(prev => prev.length > 1 ? prev.filter(r => r.id !== id) : prev);
+    };
 
     // inline edit
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -51,6 +67,12 @@ export default function MyPortfolioSection({ onPortfolioUpdated }: { onPortfolio
     const [editingCash, setEditingCash] = useState(false);
 
     useEffect(() => { if (snapshot) setCashDraft(snapshot.cash_balance ? String(Math.round(snapshot.cash_balance)) : "0"); }, [snapshot]);
+
+    useEffect(() => {
+        if (typeof window !== "undefined" && (window.location.hash === "#portfolio" || window.location.hash === "#my-portfolio")) {
+            setShowAdd(true);
+        }
+    }, []);
 
     const api = useCallback(async (body: Record<string, unknown>) => {
         setBusy(true);
@@ -78,29 +100,35 @@ export default function MyPortfolioSection({ onPortfolioUpdated }: { onPortfolio
         }
     }, [load, onPortfolioUpdated]);
 
-    const handleAdd = async () => {
-        const qty = parseFloat(addQty);
-        if (!addSymbol.trim() || !Number.isFinite(qty) || qty <= 0) {
-            toast.error(isAr ? "اكتب رمز سهم صحيح من القائمة وعدد صحيح للأسهم" : "Pick a valid symbol and enter a valid quantity");
-            return;
-        }
+    const handleBulkSave = async () => {
+        const validItems: Array<{ symbol: string; quantity: number; price: number | null }> = [];
         const symbolList = snapshot?.market_symbols || [];
-        const exactMatch = symbolList.find((s) => s.symbol === addSymbol.trim().toUpperCase());
-        if (!exactMatch) {
-            toast.error(isAr ? `الرمز ${addSymbol} مش موجود في البورصة — اختاره من القائمة` : `${addSymbol} is not listed on EGX — pick from the list`);
+        for (const row of addRows) {
+            const sym = row.symbol.trim().toUpperCase();
+            if (!sym && !row.quantity) continue;
+            const qty = parseFloat(row.quantity);
+            if (!sym || !Number.isFinite(qty) || qty <= 0) {
+                toast.error(isAr ? `تأكد من اختيار الرمز والكمية بشكل صحيح لجميع الأسهم` : "Please ensure valid symbol and quantity for all stocks");
+                return;
+            }
+            const exactMatch = symbolList.find((s) => s.symbol === sym);
+            if (!exactMatch) {
+                toast.error(isAr ? `الرمز ${sym} مش موجود في البورصة — اختاره من القائمة` : `${sym} is not listed on EGX — pick from the list`);
+                return;
+            }
+            const price = row.price.trim() ? parseFloat(row.price) : null;
+            validItems.push({ symbol: exactMatch.symbol, quantity: qty, price });
+        }
+
+        if (validItems.length === 0) {
+            toast.error(isAr ? "يرجى كتابة بيانات سهم واحد على الأقل" : "Please fill in at least one stock");
             return;
         }
-        if (snapshot?.portfolio_limit !== null && snapshot?.portfolio_limit !== undefined && !positions.some((p) => p.symbol === exactMatch.symbol) && positions.length >= snapshot.portfolio_limit) {
-            toast.error(isAr ? `لقد وصلت للحد الأقصى في خطتك: ${snapshot.portfolio_limit} أسهم مختلفة. اشترك في Pro للوصول إلى 10 أسهم.` : `You reached your plan limit of ${snapshot.portfolio_limit} different stocks. Upgrade to Pro for up to 10 stocks.`);
-            return;
-        }
-        const price = addPrice.trim() ? parseFloat(addPrice) : null;
-        const ok = await api({ action: "add", symbol: exactMatch.symbol, quantity: qty, price });
+
+        const ok = await api({ action: "bulk_add", items: validItems });
         if (ok) {
             setShowAdd(false);
-            setAddSymbol("");
-            setAddQty("");
-            setAddPrice("");
+            setAddRows([{ id: `row-${Date.now()}`, symbol: "", quantity: "", price: "" }]);
         }
     };
 
@@ -258,75 +286,123 @@ export default function MyPortfolioSection({ onPortfolioUpdated }: { onPortfolio
                 </div>
             </div>
 
-            {/* Add form */}
+            {/* Add form — Multi-stock bulk add */}
             {showAdd && (
-                <div className="border-4 border-dashed border-black/50 dark:border-white/40 bg-emerald-50 dark:bg-emerald-950/20 p-4 space-y-3">
-                    <div className="flex flex-col sm:flex-row gap-3">
-                        {/* Symbol autocomplete — only real EGX symbols */}
-                        <div className="relative flex-1 min-w-[160px]">
-                            <input
-                                value={addSymbol}
-                                onChange={(e) => { setAddSymbol(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setSymbolMenuOpen(true); }}
-                                onFocus={() => setSymbolMenuOpen(true)}
-                                onBlur={() => setTimeout(() => setSymbolMenuOpen(false), 150)}
-                                placeholder={isAr ? "ابحث عن رمز (COMI)" : "Search symbol (COMI)"}
-                                autoComplete="off"
-                                className="h-11 w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-sm font-black font-mono text-black dark:text-white outline-none shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]"
-                            />
-                            {symbolMenuOpen && (() => {
-                                const list = (snapshot?.market_symbols || []);
-                                const query = addSymbol.trim().toUpperCase();
-                                const filtered = query
-                                    ? list.filter((s) => s.symbol.includes(query) || (s.name || "").toUpperCase().includes(query))
-                                    : list;
-                                const shown = filtered.slice(0, 8);
-                                if (shown.length === 0) return null;
-                                return (
-                                    <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
-                                        {shown.map((s) => (
-                                            <button
-                                                key={s.symbol}
-                                                type="button"
-                                                onMouseDown={(e) => { e.preventDefault(); setAddSymbol(s.symbol); setSymbolMenuOpen(false); }}
-                                                className="w-full text-right px-3 py-2 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 flex items-center justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800 last:border-b-0"
-                                            >
-                                                <span className="font-black font-mono text-black dark:text-white">{s.symbol}</span>
-                                                <span className="text-[10px] text-zinc-500 font-bold truncate max-w-[180px]">{s.name}</span>
-                                            </button>
-                                        ))}
-                                        {filtered.length > 8 && (
-                                            <div className="px-3 py-1.5 text-[10px] text-zinc-500 font-bold text-center">{isAr ? `و ${filtered.length - 8} رمز آخر...` : `+${filtered.length - 8} more...`}</div>
-                                        )}
-                                    </div>
-                                );
-                            })()}
-                        </div>
-                        <input
-                            value={addQty}
-                            onChange={(e) => setAddQty(numericOnly(e.target.value))}
-                            inputMode="decimal"
-                            placeholder={isAr ? "العدد (200)" : "Quantity (200)"}
-                            className="h-11 flex-1 min-w-[100px] border-4 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-sm font-black font-mono text-black dark:text-white outline-none shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]"
-                        />
-                        <input
-                            value={addPrice}
-                            onChange={(e) => setAddPrice(numericOnly(e.target.value))}
-                            inputMode="decimal"
-                            placeholder={isAr ? "سعر الشراء (اختياري)" : "Entry price (optional)"}
-                            className="h-11 flex-1 min-w-[130px] border-4 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-sm font-black font-mono text-black dark:text-white outline-none shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]"
-                        />
-                        <button
-                            onClick={() => void handleAdd()}
-                            disabled={busy}
-                            className="h-11 px-6 flex items-center justify-center gap-2 border-4 border-black dark:border-white bg-emerald-400 text-black font-black text-xs uppercase tracking-widest shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-50"
-                        >
-                            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                            {isAr ? "حفظ" : "Save"}
-                        </button>
+                <div className="border-4 border-dashed border-black/50 dark:border-white/40 bg-emerald-50 dark:bg-emerald-950/20 p-4 sm:p-5 space-y-4">
+                    <div className="flex items-center justify-between border-b-2 border-emerald-200 dark:border-emerald-800 pb-2">
+                        <span className="font-black text-xs uppercase tracking-widest text-emerald-800 dark:text-emerald-300">
+                            {isAr ? "إضافة أسهمك دفعة واحدة" : "Bulk Add Portfolio Stocks"}
+                        </span>
+                        <span className="text-[11px] font-bold text-zinc-500">
+                            {isAr ? "أضف كل أسهمك واضغط حفظ مرة واحدة" : "Add all your stocks and save once"}
+                        </span>
                     </div>
-                    <p className="text-[10px] text-zinc-500 font-bold">
-                        {isAr ? "اختر الرمز من القائمة — الأسهم المضافة لازم تكون موجودة فعلاً في البورصة المصرية" : "Pick the symbol from the list — only real EGX-listed stocks can be added"}
-                    </p>
+
+                    <div className="space-y-3">
+                        {addRows.map((row, index) => (
+                            <div key={row.id} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                <span className="font-mono font-black text-xs w-6 text-zinc-400 hidden sm:inline-block">
+                                    #{index + 1}
+                                </span>
+                                {/* Symbol autocomplete */}
+                                <div className="relative flex-1 min-w-[160px]">
+                                    <input
+                                        value={row.symbol}
+                                        onChange={(e) => {
+                                            updateRow(row.id, "symbol", e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""));
+                                            updateRow(row.id, "menuOpen", true);
+                                        }}
+                                        onFocus={() => updateRow(row.id, "menuOpen", true)}
+                                        onBlur={() => setTimeout(() => updateRow(row.id, "menuOpen", false), 150)}
+                                        placeholder={isAr ? "رمز السهم (مثلاً COMI)" : "Symbol (e.g. COMI)"}
+                                        autoComplete="off"
+                                        className="h-11 w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-sm font-black font-mono text-black dark:text-white outline-none shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]"
+                                    />
+                                    {row.menuOpen && (() => {
+                                        const list = (snapshot?.market_symbols || []);
+                                        const query = row.symbol.trim().toUpperCase();
+                                        const filtered = query
+                                            ? list.filter((s) => s.symbol.includes(query) || (s.name || "").toUpperCase().includes(query))
+                                            : list;
+                                        const shown = filtered.slice(0, 8);
+                                        if (shown.length === 0) return null;
+                                        return (
+                                            <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
+                                                {shown.map((s) => (
+                                                    <button
+                                                        key={s.symbol}
+                                                        type="button"
+                                                        onMouseDown={(e) => { e.preventDefault(); updateRow(row.id, "symbol", s.symbol); updateRow(row.id, "menuOpen", false); }}
+                                                        className="w-full text-right px-3 py-2 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 flex items-center justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800 last:border-b-0"
+                                                    >
+                                                        <span className="font-black font-mono text-black dark:text-white">{s.symbol}</span>
+                                                        <span className="text-[10px] text-zinc-500 font-bold truncate max-w-[180px]">{s.name}</span>
+                                                    </button>
+                                                ))}
+                                                {filtered.length > 8 && (
+                                                    <div className="px-3 py-1.5 text-[10px] text-zinc-500 font-bold text-center">{isAr ? `و ${filtered.length - 8} رمز آخر...` : `+${filtered.length - 8} more...`}</div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                                <input
+                                    value={row.quantity}
+                                    onChange={(e) => updateRow(row.id, "quantity", numericOnly(e.target.value))}
+                                    inputMode="decimal"
+                                    placeholder={isAr ? "الكمية / عدد الأسهم" : "Quantity"}
+                                    className="h-11 flex-1 min-w-[110px] border-4 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-sm font-black font-mono text-black dark:text-white outline-none shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]"
+                                />
+                                <input
+                                    value={row.price}
+                                    onChange={(e) => updateRow(row.id, "price", numericOnly(e.target.value))}
+                                    inputMode="decimal"
+                                    placeholder={isAr ? "سعر الشراء (اختياري)" : "Entry price (optional)"}
+                                    className="h-11 flex-1 min-w-[130px] border-4 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-sm font-black font-mono text-black dark:text-white outline-none shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]"
+                                />
+                                {addRows.length > 1 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => removeRow(row.id)}
+                                        className="h-11 w-11 flex items-center justify-center border-4 border-black dark:border-white bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/40 text-rose-600 shadow-[2px_2px_0px_rgba(0,0,0,1)]"
+                                        title={isAr ? "حذف هذا السطر" : "Remove row"}
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                        <button
+                            type="button"
+                            onClick={addRow}
+                            className="h-10 px-3 flex items-center gap-1.5 border-2 border-black dark:border-white bg-white dark:bg-zinc-800 text-black dark:text-white font-black text-xs uppercase shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px]"
+                        >
+                            <Plus className="h-4 w-4" />
+                            {isAr ? "إضافة سهم آخر للقائمة" : "Add Another Stock"}
+                        </button>
+
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowAdd(false)}
+                                className="h-10 px-4 border-2 border-black dark:border-white bg-zinc-200 dark:bg-zinc-700 text-black dark:text-white font-black text-xs uppercase shadow-[2px_2px_0px_rgba(0,0,0,1)]"
+                            >
+                                {isAr ? "إلغاء" : "Cancel"}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void handleBulkSave()}
+                                disabled={busy}
+                                className="h-10 px-5 flex items-center gap-2 border-4 border-black dark:border-white bg-emerald-400 text-black font-black text-xs uppercase tracking-widest shadow-[3px_3px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] disabled:opacity-50"
+                            >
+                                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                {isAr ? "حفظ وإضافة كل الأسهم دفعة واحدة" : "Save All Stocks"}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 
