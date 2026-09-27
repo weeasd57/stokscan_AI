@@ -435,6 +435,8 @@ export function buildV2FinalMessages(
     sections.push("=== RESPONSE RULES ===");
     sections.push("=== CONVERSATION TONE ===");
     sections.push("- كن مساعداً مالياً محادثياً: ابدأ بإجابة السؤال مباشرة، ثم اذكر أقوى دليل رقمي، ثم اسأل سؤال متابعة واحداً فقط إذا كانت معلومة لازمة ناقصة.");
+    sections.push("- إذا كتب المستخدم اسم سهم أو رمزه فقط، قدم ملخصاً قصيراً: السعر المتاح ونوعه وتوقيته، أهم إشارة فنية واحدة أو اثنتين، والخلاصة في 3 إلى 5 أسطر. لا تكرر بطاقة التوصية أو درجات النماذج أو رابط القناة إلا إذا طلبها صراحة.");
+    sections.push("- لا تدّعِ أنك تراقب سهماً لاحقاً أو سترسل تنبيهاً من تلقاء نفسك؛ اعرض فقط ما يستطيع النظام فعله فعلاً الآن.");
     sections.push("- للمبتدئ: بسّط المصطلح بمثال قصير ولا تكدّس المؤشرات. للخبير: اختصر التعريفات واذكر القيم والفروق والافتراضات. للمستخدم القلق: اعرض عوامل الخطر بالأرقام ولا تطمئنه بعبارات عامة.");
     sections.push("- لا تعرض ML Scores إلا إذا كانت موجودة ومرتبطة بالسؤال أو بتحليل السهم؛ لا تكررها في كل رد عام.");
     sections.push("- كلمة 'طبيعي' مسموحة فقط إذا طلب المستخدم تفسيراً مقارناً للحركة؛ لا تستخدمها كحكم مطمئن بلا دليل.");
@@ -455,11 +457,11 @@ export function buildV2FinalMessages(
     sections.push("- اذكر مصدر كل رقم (صورة، بيانات حية، بيانات تاريخية)");
     sections.push("- إذا كان مستوى الدعم أو المقاومة المحسوب في === LIVE DATA === بعيداً جداً عن السعر الحالي (بمسافة تزيد عن 40%)، نبّه العميل بوضوح أن هذا المستوى بعيد جداً ولا يعتبر نقطة مرجعية موثوقة أو عمليّة للتداول قصير المدى ولا يُنصح بالاعتماد عليه.");
     sections.push("- اكتب بعربية واضحة وطبيعية، ويمكن استخدام تعبير مصري خفيف إذا كان مناسباً لأسلوب المستخدم.");
-    sections.push("- تحليل السيولة المصاحب: اشرح RSI و MACD ونسبة السيولة من البيانات إن وجدت");
+    sections.push("- في التحليل المفصل فقط، اذكر RSI وMACD ونسبة السيولة إن كانت متاحة وذات صلة؛ لا تكدّسها في سؤال عن اسم سهم فقط.");
     sections.push("- لا تنشئ جدول Markdown من نفسك؛ سيضيف النظام الجدول المنظم المستخرج من البيانات بعد ردك");
     sections.push("- لا تذكر أو تسرد أي رمز أو اسم شركة غير موجود في مصادر البيانات والجداول أعلاه");
     sections.push("- لا تعيد سرد قوائم الأسهم في النص؛ اشرح الاتجاهات فقط واترك القائمة للجدول المنظم");
-    sections.push("- عند تقديم توصيات أو إشارات أو إجابة عن اختيار أسهم للاستثمار، أشر باختصار إلى قناة EGX Bots العامة لمتابعة التنبيهات والتحديثات: https://t.me/egxbots");
+    sections.push("- اذكر قناة EGX Bots العامة فقط إذا طلب المستخدم طريقة متابعة التنبيهات: https://t.me/egxbots");
     sections.push("- عندما يسأل المستخدم عن سبب هبوط أو صعود أو حركة سهم معين (مثل: ما سبب هبوط/صعود... أو ليه نزل/طلع...):");
     sections.push("  1. إذا كانت هناك أخبار في === LIVE DATA ===، اشرح العوامل والأخبار المرتبطة بالسهم أولاً.");
     sections.push("  2. قدم تحليلاً فنياً ومالياً مفسراً لسبب الحركة (مثل: عمليات جني أرباح فنية بعد وصول مؤشر RSI لمناطق تشبع شرائي مرتفعة، أو ضعف السيولة وانخفاض التداول عن المتوسط، أو اختبار مستويات مقاومة وتراجع السعر منها، أو حركات تصحيحية في المسار الصاعد).");
@@ -511,8 +513,8 @@ export function buildV2FinalMessages(
     sections.push("  • يمنع تماماً استخدام عنوان '🎯 موقف توصيات المنصة للسهم' في الاستعلامات العامة للتوصيات؛ هذا العنوان مخصص فقط للسهم الفردي.");
     sections.push("  • لا تقل أبداً '📋 جدول توصيات...' أو تعد بجدول تالٍ في ردك، بل ادخل مباشرة في التحليل الفني النوعي.");
     sections.push("  • قدم تحليلاً نوعياً ذكياً وموجزاً يصنف التوصيات إلى: 🟢 الأفضل أداءً (الرابحة مع نسب العائد)، ⚪ المتعادلة (0.00% صفقات راكدة لم تتحرك)، 🔴 المتراجعة (خسائر غير محققة)، و🏁 المنتهية (المغلقة بتحقيق الهدف أو ضرب الوقف إن وُجدت).");
-    sections.push("- 🎯 موقف توصيات منصة EGX Bots للسهم (مخصص حصرياً وإلزامي عند تحليل أو الاستعلام عن سهم واحد بعينه مثل: حلل ABUK، سعر COMI، أو هل له توصية):");
-    sections.push("  • في ردود الأسهم الفردية فقط، خصص قسماً بعنوان '🎯 موقف توصيات المنصة للسهم' يوضح بدقة:");
+    sections.push("- 🎯 موقف توصيات منصة EGX Bots للسهم (عند طلب تحليل مفصل أو سؤال صريح عن التوصية، وليس عند كتابة اسم السهم وحده):");
+    sections.push("  • عند سؤال المستخدم صراحة عن توصية سهم واحد أو طلب تحليل مفصل له، خصص قسماً بعنوان '🎯 موقف توصيات المنصة للسهم' يوضح بدقة:");
     sections.push("    1. إذا كانت هناك توصية نشطة (مفتوحة / open): اذكر نوع الإشارة (شراء BUY أو بيع SELL)، سعر الدخول، المستهدف، وقف الخسارة، تاريخ صدورها والمدة المنقضية (مثال: 'صدرت منذ 4 أيام بتاريخ 2026-08-31')، والعائد المحقق حتى الآن (مثال: +14.20%).");
     sections.push("    2. إذا كانت هناك توصية سابقة مغلقة (حققت الهدف win أو ضربت الوقف loss): اذكر متى صدرت، وكيف انتهت (حققت الهدف بنجاح بربح X% أو ضربت وقف الخسارة بنسبة Y%).");
     sections.push("    3. إذا لم تكن هناك أي توصيات سابقة أو حالية مسجلة للسهم: وضح بصراحة واختصار أنه لا توجد توصيات مسجلة لهذا السهم على المنصة حالياً.");
@@ -992,6 +994,9 @@ export function buildDeterministicNewsResponse(
 
     const newsResult = toolResults.find(r => r.tool === "get_news");
     if (!newsResult) return null;
+    // When the database is empty but web search found usable sources, let the
+    // sourced answer below handle them instead of claiming there is no news.
+    if (toolResults.some(r => r.tool === "search_web" && Array.isArray(r.data?.results) && r.data.results.length > 0)) return null;
 
     // Corporate actions complement the headlines and must never be hidden by
     // this deterministic template.
@@ -1011,14 +1016,19 @@ export function buildDeterministicNewsResponse(
 
     const items = Array.isArray(newsResult.data) ? newsResult.data : [];
     const rangeLabel = plan.entities.requested_start_date && plan.entities.requested_end_date
-        ? ` من ${plan.entities.requested_start_date} إلى ${plan.entities.requested_end_date}`
-        : " الحالية";
+        ? `من ${plan.entities.requested_start_date} إلى ${plan.entities.requested_end_date}`
+        : plan.entities.requested_date
+            ? `بتاريخ ${plan.entities.requested_date}`
+            : /(?:اليوم|today)/i.test(normMsg)
+                ? `بتاريخ ${todayInCairo()}`
+                : "للفترة المطلوبة";
+    const noVerifiedNews = `لم أجد خبراً موثّقاً في المصادر المتاحة ${rangeLabel}${plan.entities.symbols?.length ? ` للأسهم ${plan.entities.symbols.join("، ")}` : ""}. هذا لا يؤكد عدم صدور أخبار.`;
 
     if (items.length === 0) {
         if (caItems.length > 0) {
-            return [`لا توجد أخبار عامة مسجلة خلال الفترة${rangeLabel}، لكن توجد أحداث مالية مؤثرة:`, ...formatCaSection(caItems)].join("\n");
+            return [`${noVerifiedNews} لكن توجد أحداث مالية مؤثرة:`, ...formatCaSection(caItems)].join("\n");
         }
-        return `لا توجد أخبار أو بيانات معنويات مسجلة خلال الفترة${rangeLabel}${plan.entities.symbols?.length ? ` للأسهم ${plan.entities.symbols.join("، ")}` : ""}.`;
+        return noVerifiedNews;
     }
 
     // Deduplicate by title (case-insensitive and trimmed)
@@ -1043,14 +1053,14 @@ export function buildDeterministicNewsResponse(
 
     if (uniqueItems.length === 0) {
         if (caItems.length > 0) {
-            return [`لا توجد عناوين أخبار عامة مسجلة خلال الفترة${rangeLabel}، لكن توجد أحداث مالية مؤثرة:`, ...formatCaSection(caItems)].join("\n");
+            return [`${noVerifiedNews} لكن توجد أحداث مالية مؤثرة:`, ...formatCaSection(caItems)].join("\n");
         }
-        return `لا توجد أخبار أو بيانات معنويات مسجلة خلال الفترة${rangeLabel}.`;
+        return noVerifiedNews;
     }
 
     // Filter and limit to 5 headlines
     const headlines = uniqueItems.slice(0, 5);
-    const lines = [`أهم الأخبار الفعلية المتاحة خلال الفترة${rangeLabel}:`];
+    const lines = [`أهم الأخبار الفعلية المتاحة ${rangeLabel}:`];
     
     headlines.forEach((item: any) => {
         const title = item.title;
@@ -1395,7 +1405,11 @@ export function normalizeStockFreshnessLanguage(reply: string, toolResults: Tool
     if ((stockResults.length > 0 || hasRecordedPriceEvidence) && !hasVerifiedLivePrice) {
         return reply
             .replace(/السعر الحالي/g, "آخر إغلاق مسجل")
-            .replace(/بيانات حية/g, "أحدث البيانات المتاحة");
+            .replace(/بيانات حية/g, "أحدث البيانات المتاحة")
+            .replace(/تداولات حية/g, "آخر تداولات مسجلة")
+            .replace(/تداولات لحظية/g, "آخر تداولات مسجلة")
+            .replace(/يقف الآن عند/g, "كان آخر إغلاق مسجل عند")
+            .replace(/يتداول الآن عند/g, "كان آخر إغلاق مسجل عند");
     }
     return reply;
 }
@@ -2461,9 +2475,10 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         const items = Array.isArray(news.data) ? news.data : [];
         const rangeLabel = plan.entities.requested_start_date && plan.entities.requested_end_date
             ? ` من ${plan.entities.requested_start_date} إلى ${plan.entities.requested_end_date}`
-            : " الحالية";
+            : plan.entities.requested_date ? ` بتاريخ ${plan.entities.requested_date}` : " المطلوبة";
         if (items.length === 0 && !(compoundMessage && (stockResults.length || levelResults.length))) {
-            return `لا توجد أخبار أو بيانات معنويات مسجلة خلال الفترة${rangeLabel}${news.symbols.length ? ` للأسهم ${news.symbols.join("، ")}` : ""}.`;
+            return buildDeterministicNewsResponse(userMessage, plan, toolResults)
+                || `لم أجد خبراً موثّقاً في المصادر المتاحة للفترة${rangeLabel}${news.symbols.length ? ` للأسهم ${news.symbols.join("، ")}` : ""}. هذا لا يؤكد عدم صدور أخبار.`;
         }
         const headlines = items.filter((item: any) => item?.title).slice(0, 5);
         const sentiment = items.filter((item: any) => item?.sentiment_score != null).slice(0, 3);

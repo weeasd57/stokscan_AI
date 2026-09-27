@@ -1860,8 +1860,14 @@ async function* runPipelineCore(
     // so the user could provide the missing quantity/average price without the
     // position ever being written.
     const pendingImport = sessionSummary?.pending_portfolio_import;
-    if (!hasImages && pendingImport?.items?.length) {
-        if (/(?:^|\s)(?:الغاء|إلغاء|الغي|ألغي|مش عايز|سيبها|cancel)(?:$|\s)/i.test(userMessage.trim())) {
+    const analyzeSavedPortfolio = isPortfolioAnalysisRequest(userMessage) && /المحفوظ/i.test(normalizeArabicIntent(userMessage));
+    const pendingImportAnalysis = isPortfolioAnalysisRequest(userMessage);
+    const cancelsPendingImport = /(?:^|\s)(?:الغاء|إلغاء|الغي|ألغي|مش عايز|سيبها|cancel)(?:$|\s)/i.test(userMessage.trim());
+    const answersPendingImport = /[0-9٠-٩]/.test(userMessage)
+        && !/(?:اخبار|أخبار|حلل|تحليل|سعر|ليه|لماذا|ازاي|إزاي|هل|؟|\?)/i.test(userMessage);
+    if (!hasImages && pendingImport?.items?.length && !analyzeSavedPortfolio
+        && (pendingImportAnalysis || cancelsPendingImport || answersPendingImport)) {
+        if (cancelsPendingImport) {
             await updateSessionSummary(supabase, sessionId, userId, {
                 pending_portfolio_import: null,
                 last_topic: "portfolio",
@@ -1891,6 +1897,21 @@ async function* runPipelineCore(
             yield { type: "done", data: {
                 response,
                 session_update: { current_symbol: expected, last_symbols: pendingImport.items.map(item => item.symbol), summary: response },
+                tables: [],
+            } };
+            return;
+        }
+        // A new analysis request is not a quantity/average-price answer. The
+        // screenshot is still unsaved, so do not analyse an older holding (or
+        // the previously discussed ticker) as if it came from that screenshot.
+        if (pendingImportAnalysis) {
+            const missing = pendingImport.items.find(item => item.quantity == null || item.quantity <= 0 || item.price == null || item.price <= 0);
+            const response = missing
+                ? `الصورة لسه ما اتسجلتش كمحفظة؛ بيانات ${missing.symbol} ناقصة. ${portfolioMissingQuestion(missing)} لو تقصد محفظتك المحفوظة قبل الصورة، اكتب «حلل المحفظة المحفوظة».`
+                : "الصورة لسه ما اتسجلتش كمحفظة. أكمل تأكيد بياناتها أولاً، أو اكتب «حلل المحفظة المحفوظة».";
+            yield { type: "done", data: {
+                response,
+                session_update: { current_symbol: missing?.symbol || null, last_symbols: pendingImport.items.map(item => item.symbol), summary: response },
                 tables: [],
             } };
             return;
@@ -2122,7 +2143,9 @@ async function* runPipelineCore(
                 } };
                 return;
             }
-            await updateSessionSummary(supabase, sessionId, userId, { pending_portfolio_import: null });
+            if (!analyzeSavedPortfolio) {
+                await updateSessionSummary(supabase, sessionId, userId, { pending_portfolio_import: null });
+            }
         } else if (directPortfolioOperation) {
             const symbols = extractExplicitSymbols(effectivePortfolioMessage);
             const directPlan: IntentPlan = {
@@ -2862,6 +2885,9 @@ while (attempts < maxAttempts) {
 
         responderMeta.source = undefined;
         responderMeta.degraded = false;
+        const briefStockMention = plan.entities.symbols.length === 1
+            && userMessage.trim().split(/\s+/).length <= 3
+            && !/(?:حلل|تحليل|اخبار|أخبار|توصي|هدف|مقارن|سعر|ليه|لماذا|ازاي|إزاي|هل|؟|\?)/i.test(userMessage);
         const stream = generateV2Stream(
             userMessage, plan, vision, tools.results,
             scopedMemory,
@@ -2876,7 +2902,7 @@ while (attempts < maxAttempts) {
                 ? AI_CONFIG.limits.portfolioResponseTokens.large
                 : portfolioAnalysisSymbols.length > 4
                     ? AI_CONFIG.limits.portfolioResponseTokens.medium
-                    : undefined
+                    : briefStockMention ? 550 : undefined
         );
 
         for await (const chunk of stream) {
