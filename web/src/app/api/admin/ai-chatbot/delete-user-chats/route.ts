@@ -21,7 +21,10 @@ export async function POST(req: NextRequest) {
         // 2. Delete messages from ai_chat_messages
         await supabase.from("ai_chat_messages").delete().eq("user_id", userId);
 
-        // 3. Delete sessions from ai_chat_sessions
+        // 3. Delete fact-snapshots (saved stocks/summary/intention memory)
+        await supabase.from("ai_chat_facts").delete().eq("user_id", userId);
+
+        // 4. Delete sessions from ai_chat_sessions
         await supabase.from("ai_chat_sessions").delete().eq("user_id", userId);
 
         return NextResponse.json({ ok: true, message: `All chats deleted for user: ${userId}` });

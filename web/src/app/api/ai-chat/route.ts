@@ -1114,7 +1114,13 @@ export async function DELETE(req: NextRequest) {
             return NextResponse.json({ detail: "session_id required" }, { status: 400 });
         }
 
-        await supabase.from("ai_chat_messages").delete().eq("session_id", sessionId).eq("user_id", user.id);
+        // Delete messages, fact-snapshots (saved stocks/summary/intention in memory),
+        // and the session record itself. Order matters: messages & facts first, then
+        // the session so foreign-key constraints (if any) are satisfied.
+        await Promise.all([
+            supabase.from("ai_chat_messages").delete().eq("session_id", sessionId).eq("user_id", user.id),
+            supabase.from("ai_chat_facts").delete().eq("session_id", sessionId).eq("user_id", user.id),
+        ]);
         await supabase.from("ai_chat_sessions").delete().eq("id", sessionId).eq("user_id", user.id);
 
         return NextResponse.json({ success: true });
