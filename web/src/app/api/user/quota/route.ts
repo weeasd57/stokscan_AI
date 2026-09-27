@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseServiceClient } from "@/lib/supabase/route-data";
 import { hasActiveProSubscription, planLimits } from "@/lib/ai/plan-gate";
 
 export const runtime = "nodejs";
@@ -41,6 +42,13 @@ export async function GET() {
     monthStart.setHours(0, 0, 0, 0);
     const monthStartStr = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, "0")}-01`;
 
+    let serviceClient: any = null;
+    try {
+      serviceClient = getSupabaseServiceClient();
+    } catch (e) {
+      serviceClient = supabase;
+    }
+
     const [chatRowsRes, limitRowsRes] = await Promise.all([
       supabase
         .from("ai_chat_messages")
@@ -48,7 +56,7 @@ export async function GET() {
         .eq("user_id", user.id)
         .eq("role", "user")
         .gte("created_at", monthStart.toISOString()),
-      supabase
+      serviceClient
         .from("ai_chatbot_limits")
         .select("chat_count")
         .eq("user_id", user.id)
