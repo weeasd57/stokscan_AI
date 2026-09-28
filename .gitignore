@@ -66,6 +66,7 @@ api/*.log
 council_debug.log
 logs/structured.json
 logs/*.log
+probe_runs/
 api/intraday_sync_state.json
 
 .kiro/
