@@ -8,6 +8,7 @@
 - أرشيف HF الحالي ليس افتراضًا: Dataset خاص `weeasdwee/egx-historical-prices` وفيه **515,731 شمعة يومية EGX** من 2001-06-28 إلى 2026-09-24 بحسب metadata المقروءة اليوم. `api/hf_history_cache.py` يحفظ `prices/EGX/stock_prices.json.gz` ويصل التاريخ مع ذيل Supabase، مع أولوية Supabase عند التداخل.
 - الشارت في `api/routers/bot.py` والتدريب في `api/train_exchange_model.py` يقرآن بالفعل من HF مع Supabase. نافذة تصحيح التاريخ الحالية 45 يومًا، وإعادة نشر أرشيف HF اليومية تتم تقريبًا كل 30 يومًا. نقلها إلى حد ستة أشهر يحتاج قارئًا وأرشيفًا جديدين، ولا يُضبط بتغيير متغير `HF_HISTORY_LIVE_TAIL_DAYS` فقط.
 - المفتاح المقدم استجاب لطلب EOD لسهم `COMI.EGX` بحالة 200، بينما `COMI.EG` أعاد 404. طلب Intraday `5m` أعاد 403 برسالة **Only EOD data allowed for free users** لكل من الرمزين. إذًا رمز EOD الصحيح الذي ثبت اليوم هو `.EGX`، وخطوة إثبات شموع 5m أثناء الجلسة **متوقفة على صلاحية Intraday**. اشتراك Free موثق بحد 20 API calls يوميًا؛ لا يكفي لمزامنة عشرات أو مئات الأسهم.
+- خيار **Buy extra API calls** يزيد رصيد النداءات بعد نفاد الحد اليومي، ولا يفتح صلاحية Intraday ولا يمد تاريخ Free لأكثر من سنة. خطة `EOD+Intraday — All World Extended` تذكر صلاحية Intraday للاستخدام الشخصي؛ لأن الخدمة هنا تُقدَّم للمستخدمين، يجب تأكيد ترخيص الاستخدام التجاري والتخزين/العرض من EODHD قبل شراء خطة شخصية للاستخدام الإنتاجي. المراجع: [حدود EODHD](https://eodhd.com/financial-apis/api-limits)، [الأسعار](https://eodhd.com/pricing)، [الترخيص التجاري](https://eodhd.com/financial-apis/commercial-vs-personal-license-use).
 
 ## ترتيب التنفيذ بعد توفر صلاحية Intraday
 

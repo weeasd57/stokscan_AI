@@ -124,7 +124,9 @@ def main() -> int:
                 if latest else None,
             })
 
-    if open_window:
+    if results and all(r["error_kind"] == "eod_only_plan" for r in results):
+        verdict = "blocked_by_intraday_entitlement"
+    elif open_window:
         verdict = "today_bars_seen_during_session" if any(r["today_5m_count"] for r in results) else "no_today_bars_seen_during_session"
     else:
         verdict = "outside_session_inconclusive_for_live_availability"
