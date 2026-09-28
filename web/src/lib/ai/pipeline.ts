@@ -6,10 +6,10 @@ import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
 import { buildDeterministicResponse, buildBothAccumulationDistributionResponse, generateV2Response, generateV2Stream, getResponderCooldownMs, normalizeStockFreshnessLanguage } from "./final-v2";
 import { validateResponse, autoFixNumbers } from "./validator";
 import { sanitizeReply } from "./sanitizer";
-import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState, loadPersistentInvestorProfile } from "./session";
+import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState, loadPersistentInvestorProfile, isUuid } from "./session";
 import { buildExcelTables, ExcelTable } from "./excel-tables";
 import { AI_CONFIG } from "./config";
-import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion, detectPortfolioIntent, detectPortfolioConfirmation, isPortfolioAnalysisRequest, isPortfolioRankingRequest } from "./intent-policy";
+import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion, detectPortfolioIntent, detectPortfolioConfirmation, isPortfolioAnalysisRequest, isPortfolioRankingRequest, isNileExchangeQuestion, isConversationalChoiceOrFollowUp } from "./intent-policy";
 import { extractExcludedSectorNames, extractMentionedSectorNames } from "./sector-taxonomy";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { isEgxSessionOpen } from "./live-stock-updater";
@@ -17,6 +17,8 @@ import { replacePortfolioFromImage, checkPortfolioImportCapacity } from "./portf
 import { getDeepSeekApiKey } from "./server-secrets";
 import { createExecutionScope, awaitExecution, executionFetch, executionSupabase, getExecutionSignal, remainingExecutionMs, withExecutionTimeout } from "./execution";
 import { attachEvidenceContract } from "./evidence";
+import { buildFactRecords } from "./facts";
+import { runAnswerGate, buildGateCorrectionBlock } from "./answer-gate";
 
 export interface PipelineResult {
     vision: VisionContext | null;
@@ -188,7 +190,7 @@ export function getMarketRankingMode(message: string, requested?: PlannerResult[
     if (requested?.ranking_metric === "liquidity" && marketRanking) return "liquidity_unavailable";
     if (/(?:تجميع|accumulation)/i.test(normalized)) return "accumulation";
     if (!sectorScoped && !historicalPeriod && /(?:اعلى|اعلي|اقوى|اقوي|اكبر|اكبر).{0,35}(?:ارتفاع|صعود|رابح|مكسب|gainer)/i.test(normalized)) return "price_change";
-    const bareDailyGainers = /(?:اقوى|اعلى)\s+(?:الاسهم|اسهم)(?:\s+(?:اليوم|النهارده|اخر\s+جلسه))?$/i.test(normalized.trim());
+    const bareDailyGainers = /(?:اقوى|اقوي|اعلى|اعلي)\s+(?:الاسهم|اسهم)(?:\s+(?:اليوم|النهارده|النهاردة|اخر\s+جلسه|اخر\s+جلسة))?$/i.test(normalized.trim());
     if (!sectorScoped && !historicalPeriod && bareDailyGainers
         && !/(?:استثمار|فن[ىي]|توزيع|ارباح|عائد|سيول|حجم|تجميع|تصريف|زخم|مؤشرات)/i.test(normalized)) return "price_change";
     if (requested?.ranking_metric === "price_change" && !sectorScoped && !historicalPeriod) return "price_change";
@@ -198,6 +200,16 @@ export function getMarketRankingMode(message: string, requested?: PlannerResult[
 export function resolveGroupReferenceSymbols(message: string, candidates: string[]): string[] {
     const refersToPriorGroup = /(?:فيهم|منهم|بينهم|وسطهم|واحد\s+منهم|واحد\s+فيهم|among\s+them|between\s+them)/i.test(normalizeArabicIntent(message));
     return refersToPriorGroup ? Array.from(new Set(candidates.map(symbol => String(symbol).toUpperCase()))).slice(0, 15) : [];
+}
+
+export function shouldClarifySingularGroupReference(message: string, candidates: string[], lastAssistant: string, currentSymbol: string | null = null): boolean {
+    const symbols = Array.from(new Set(candidates.map(symbol => String(symbol).toUpperCase())));
+    if (symbols.length < 2 || extractExplicitSymbols(message).length > 0) return false;
+    const normalized = normalizeArabicIntent(message);
+    if (!/(?:السهم\s+د[ها]|^د[ها]$|عليه|عنه|خسارته|ربحه|توقعه|مقاومته|دعمه|وقف\s+خسارته)/i.test(normalized)
+        || /(فيهم|منهم|بينهم|كلهم|الاسهم|أسهم)/i.test(message)) return false;
+    const mentioned = symbols.filter(symbol => new RegExp(`\\b${symbol}\\b`, "i").test(lastAssistant));
+    return mentioned.length !== 1 || mentioned[0] !== String(currentSymbol || symbols[0]).toUpperCase();
 }
 
 export function scopeImplicitSingleStockRequest(
@@ -272,6 +284,9 @@ async function saveFactSnapshots(
     messageId: string
 ): Promise<void> {
     try {
+        if (!supabase || !sessionId || !isUuid(sessionId)) {
+            return;
+        }
         const now = new Date().toISOString();
         const rows: any[] = [];
 
@@ -366,6 +381,8 @@ export function extractExplicitSymbols(message: string): string[] {
     // Attempt to match Arabic full names from the mapping
     const stockMappings = getSyncStockMappings();
     let normMsg = message.replace(/[\u064B-\u065F\u0670]/g, "").replace(/\u0640/g, "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase();
+    // "بورصة النيل" / "سوق النيل" / "مؤشر النيل" refers to the Nile SME exchange, not the stock NIPH
+    normMsg = normMsg.replace(/(?:بورص[ةه]|سوق|مؤشر)\s+النيل/g, "           ");
     for (const [arName, symbol] of Object.entries(stockMappings).sort((a, b) => b[0].length - a[0].length)) {
         const normKey = arName.replace(/[\u064B-\u065F\u0670]/g, "").replace(/\u0640/g, "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase();
         if (normKey.length >= 2) {
@@ -1422,7 +1439,10 @@ async function persistPortfolioAwaitingState(
     await updateSessionSummary(supabase, sessionId, userId, { portfolio_add_awaiting: next });
 }
 
-function formatPortfolioSnapshotResponse(data: any): string {
+export function formatPortfolioSnapshotResponse(data: any): string {
+    if (data?.ok !== true || !Array.isArray(data?.positions)) {
+        return "تعذر قراءة محفظتك حالياً. جرّب مرة أخرى؛ لا يمكن اعتبار فشل القراءة محفظة فارغة.";
+    }
     const positions = Array.isArray(data?.positions) ? data.positions : [];
     const watchPositions = Array.isArray(data?.watch_positions) ? data.watch_positions : [];
     const totals = data?.totals || {};
@@ -1462,9 +1482,14 @@ function formatPortfolioSnapshotResponse(data: any): string {
     return lines.join("\n");
 }
 
-function formatPortfolioRankingResponse(data: any, userMessage: string): string {
-    const positions = (Array.isArray(data?.positions) ? data.positions : [])
-        .filter((position: any) => Number.isFinite(Number(position?.profit_pct)));
+export function formatPortfolioRankingResponse(data: any, userMessage: string): string {
+    if (data?.ok !== true || !Array.isArray(data?.positions)) {
+        return "تعذر قراءة مراكز محفظتك حالياً، فلا أقدر أرتبها بصورة موثوقة. جرّب مرة أخرى.";
+    }
+    const allPositions = data.positions;
+    const positions = allPositions
+        .filter((position: any) => position?.profit_pct !== null && position?.profit_pct !== undefined
+            && Number.isFinite(Number(position.profit_pct)));
     if (positions.length === 0) {
         return "لا أقدر أحدد أفضل سهم حالياً لأن متوسط شراء مركز أو أكثر غير مؤكد. ثبّت متوسط الشراء لكل مركز أولاً، ولن أخمّن ترتيباً من بيانات ناقصة.";
     }
@@ -1473,9 +1498,9 @@ function formatPortfolioRankingResponse(data: any, userMessage: string): string 
         ? Number(a.profit_pct) - Number(b.profit_pct)
         : Number(b.profit_pct) - Number(a.profit_pct));
     const selected = ranked[0];
-    const label = asksWorst ? "أكبر خسارة غير محققة" : "أفضل أداء غير محقق";
+    const label = asksWorst ? "أضعف أداء غير محقق" : "أفضل أداء غير محقق";
     const lines = [
-        `${label} في محفظتك حالياً: ${selected.symbol} (${Number(selected.profit_pct).toFixed(1)}%)، على أساس متوسط الشراء المسجل وآخر سعر متاح.`,
+        `${label} بين المراكز القابلة للمقارنة في محفظتك حالياً: ${selected.symbol} (${Number(selected.profit_pct).toFixed(1)}%)، على أساس متوسط الشراء المسجل وآخر سعر متاح.`,
         `- ${selected.symbol}: ${selected.quantity ?? "غير متاح"} سهم، متوسط ${selected.entry_price ?? "غير متاح"} ج.م، آخر سعر ${selected.last_price ?? "غير متاح"} ج.م.`,
     ];
     if (ranked.length > 1) {
@@ -1484,6 +1509,7 @@ function formatPortfolioRankingResponse(data: any, userMessage: string): string 
             lines.push(`${index + 1}. ${position.symbol}: ${Number(position.profit_pct).toFixed(1)}%`);
         });
     }
+    if (positions.length < allPositions.length) lines.push(`لم أدخل ${allPositions.length - positions.length} مركز في الترتيب لغياب متوسط الشراء أو السعر.`);
     lines.push("\nالأرقام وصفية وليست توصية شراء أو بيع.");
     return lines.join("\n");
 }
@@ -1892,6 +1918,27 @@ async function* runPipelineCore(
     let visionError: string | null = null;
     let memory: MemoryResult | null = null;
 
+    // A market category is not the similarly named NIPH stock. Preserve the
+    // category across short follow-ups instead of letting an old stock alias
+    // turn a market question into a single-company analysis.
+    if (!hasImages && isNileExchangeQuestion(userMessage, history)) {
+        const asksForPicks = /(احسن|افضل|رشح|اشتري|اقوي|رتب|مين|اللي\s+فيه)/i.test(normalizeArabicIntent(userMessage));
+        const response = asksForPicks
+            ? "تقصد بورصة النيل للشركات الصغيرة والمتوسطة. لا تتوفر لدي حالياً قائمة تداول موثقة ومحدثة لأسهمها كلها لترتيب الأفضل فيها، لذلك لا أقدر أرشح سهماً منها بثقة. لو عندك رمز شركة محددة فيها، ابعته وأحلل بياناتها المتاحة."
+            : "بورصة النيل سوق للشركات الصغيرة والمتوسطة. تقصد شرح السوق ومخاطره، ولا مقارنة أسهم معينة مدرجة فيه؟ لو عندك رموز أسهم محددة ابعتها لي.";
+        await updateSessionState(supabase, sessionId, userId, { current_symbol: null, last_symbols: [], summary: userMessage, current_sector: null });
+        await updateSessionSummary(supabase, sessionId, userId, { current_symbols: [], last_topic: "nile_exchange", last_reference_symbol: null, last_reference_source: null, last_reference_at: null });
+        yield { type: "done", data: { response, session_update: { current_symbol: null, last_symbols: [], summary: userMessage }, tables: [] } };
+        return;
+    }
+    const priorSymbols = Array.from(new Set((sessionState.last_symbols || []).map(symbol => String(symbol).toUpperCase())));
+    const lastAssistant = [...history].reverse().find(turn => turn.role === "assistant")?.content || "";
+    if (!hasImages && shouldClarifySingularGroupReference(userMessage, priorSymbols, lastAssistant, sessionState.current_symbol)) {
+        const response = `تقصد أنهي سهم من اللي اتكلمنا عنهم: ${priorSymbols.slice(0, 6).join("، ")}؟ اكتب رمزه عشان ما أنسبش التحليل لسهم غلط.`;
+        yield { type: "done", data: { response, session_update: { current_symbol: null, last_symbols: priorSymbols, summary: userMessage }, tables: [] } };
+        return;
+    }
+
     // Continue a confirmed screenshot import conversationally. The previous
     // implementation persisted this state but never consumed the next answer,
     // so the user could provide the missing quantity/average price without the
@@ -2133,11 +2180,20 @@ async function* runPipelineCore(
                 await updateSessionSummary(supabase, sessionId, userId, { portfolio_add_awaiting: null });
             }
         }
+        const recentPortfolioTurn = history.slice(-2).some(turn =>
+            (turn.role === "user" && Boolean(detectPortfolioIntent(turn.content)))
+            || /محفظ|مراكزك|اسهمك|أسهمك/i.test(normalizeArabicIntent(turn.content)));
+        const savedPortfolioTopic = ["portfolio", "portfolio_imported", "portfolio_import_pending"].includes(String(sessionSummary?.last_topic || ""))
+            && (recentPortfolioTurn || (history.length === 0 && Boolean(detectPortfolioIntent(sessionState.summary || ""))));
         const hasPortfolioContext = /محفظ|البورتفوليو|portfolio/i.test(normalizeArabicIntent(userMessage))
-            || ["portfolio", "portfolio_imported", "portfolio_import_pending"].includes(String(sessionSummary?.last_topic || ""));
-        const portfolioRankingRequest = hasPortfolioContext && isPortfolioRankingRequest(userMessage);
+            || savedPortfolioTopic
+            || recentPortfolioTurn;
+        const implicitPortfolioRanking = hasPortfolioContext
+            && /(?:مين|انهي|ايه|رتب).{0,25}(?:اضعفهم|اسواهم|احسنهم|افضلهم|اقواهم)|(?:اضعفهم|اسواهم|احسنهم|افضلهم|اقواهم)/i.test(normalizeArabicIntent(userMessage));
+        const portfolioRankingRequest = hasPortfolioContext && (isPortfolioRankingRequest(userMessage) || implicitPortfolioRanking);
         if (portfolioRankingRequest) directPortfolioOperation = "view";
-        const portfolioDecisionRequest = /(?:ابيع|أبيع|بيع).*?(?:احتفظ|أحتفظ)|(?:احتفظ|أحتفظ).*?(?:ابيع|أبيع|بيع)/i.test(normalizeArabicIntent(userMessage));
+        const portfolioDecisionRequest = /(?:ابيع|أبيع|بيع).*?(?:احتفظ|أحتفظ)|(?:احتفظ|أحتفظ).*?(?:ابيع|أبيع|بيع)/i.test(normalizeArabicIntent(userMessage))
+            || (hasPortfolioContext && /(?:هخفف|اخفف|أخفف|قلل|اقلل|أقلل|ابدأ\s+بمين|أبدأ\s+بمين)/i.test(normalizeArabicIntent(userMessage)));
         const portfolioAnalysis = !portfolioRankingRequest && (directPortfolioOperation === "view" || portfolioDecisionRequest) && (
             isPortfolioAnalysisRequest(userMessage)
             // Keep these common Arabic variants on the full portfolio-analysis
@@ -2148,13 +2204,18 @@ async function* runPipelineCore(
         if (portfolioAnalysis) {
             // "حلل محفظتي" must use the same stock-analysis path the user gets
             // for typing a ticker, once per held symbol, in a single reply.
-            const { data: heldRows } = await supabase
+            const { data: heldRows, error: heldError } = await supabase
                 .from("positions")
-                .select("symbol,status")
+                .select("symbol,status,quantity")
                 .eq("user_id", userId)
                 .eq("status", "open");
+            if (heldError) {
+                yield { type: "done", data: { response: "تعذر قراءة محفظتك حالياً. جرّب مرة أخرى؛ لا أقدر أحلل مراكزك قبل التحقق منها.", session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: userMessage }, tables: [] } };
+                return;
+            }
             portfolioAnalysisSymbols = Array.from(new Set(
-                (heldRows || []).map((row: any) => String(row.symbol || "").toUpperCase()).filter(Boolean)
+                (heldRows || []).filter((row: any) => Number(row.quantity) > 0)
+                    .map((row: any) => String(row.symbol || "").toUpperCase()).filter(Boolean)
             ));
             if (portfolioAnalysisSymbols.length === 0) {
                 yield { type: "done", data: {
@@ -2223,6 +2284,9 @@ async function* runPipelineCore(
                 yield { type: "done", data: { response, session_update: { current_symbol: sessionState.current_symbol, last_symbols: portfolioResult.symbols || sessionState.last_symbols, summary: response }, tables: buildExcelTables(directTools.results, null) } };
                 return;
             }
+            const response = "تعذر تنفيذ طلب المحفظة حالياً لأن أداة المحفظة لم تُرجع نتيجة. جرّب مرة أخرى.";
+            yield { type: "done", data: { response, session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: userMessage }, tables: [] } };
+            return;
         }
     }
 
@@ -2382,7 +2446,13 @@ async function* runPipelineCore(
                 scan_direction: null,
                 portfolio_operation: "view",
             },
-            tools: ["get_stock", "get_stock_levels"],
+            tools: ["manage_portfolio", "get_stock", "get_stock_levels"],
+            request: {
+                goal: userMessage,
+                reference: "portfolio",
+                ranking_metric: "unspecified",
+                required_facts: ["portfolio_positions", "stock_quote", "price_levels"],
+            },
             session_update: { current_symbol: sessionState.current_symbol, last_symbols: portfolioAnalysisSymbols, summary: userMessage },
         } as any;
     }
@@ -2485,9 +2555,10 @@ async function* runPipelineCore(
         mergedSymbols.push(sessionState.current_symbol);
     }
     const isSingleStockRecFollowUp = Boolean(sessionState.current_symbol) && /(?:^|[^\u0621-\u064A])(ده|دا|دي|هذا|السهم ده|السهم دا|السهم دي|هاته|هاتها|اخباره|أخباره|خبره|الاتنين|السهمين|عليه|فيه|ليه|عليها|فيها|ليها|عنه|عنها|به|بها|معاه|معاها|هو|هي)(?:$|[^\u0621-\u064A])/i.test(normalizeArabicIntent(userMessage)) && /(?:توصي[اإ]?\s*ت|توصي[ةه])/i.test(normalizeArabicIntent(userMessage));
-    if (mergedSymbols.length === 0 && sessionState.current_symbol && (
+    const isConversationalFollowUp = isConversationalChoiceOrFollowUp(userMessage);
+    if (mergedSymbols.length === 0 && sessionState.current_symbol && !isConversationalFollowUp && (
         /(السهم|السهمين|الاتنين|عليه|عليها|فيه|فيها|ليه|ليها|له|لها|عنه|عنها|به|بها|معاه|معاها|هو|هي|ده|دي|هذا|هذه|تجميع|تصريف|تحليل|مؤشر|مؤشرات|دعم|مقاومة|مقاومه|توصي|خسار|خساير|اشتريت|شاري|متوسط)/i.test(userMessage) ||
-        userMessage.trim().split(/\s+/).length <= 3
+        (userMessage.trim().split(/\s+/).length <= 3 && !/^(?:مش\s+عارف|معرفش|رشحلي|اختارلي|الاتنين|الاثنين|صغير[ةه]|متوسط[ةه]|كبير[ةه]|مضارب[ةه]|استثمار|عقارات|بنوك|ادوية|أدوية)$/i.test(normalizeArabicIntent(userMessage.trim())))
     ) && !isMarketWideRequest(userMessage) && (!isBestBuyStockQuestion(userMessage) || isSingleStockRecFollowUp) && plannerResult.intent !== "technical_scan") {
         mergedSymbols.push(sessionState.current_symbol);
     }
@@ -2539,7 +2610,7 @@ async function* runPipelineCore(
     if (portfolioAnalysisSymbols.length > 0) {
         // Never let the portfolio fast-path override a full analysis request.
         enforced.intent = "stock_analysis";
-        enforced.tools = ["get_stock", "get_stock_levels"];
+        enforced.tools = ["manage_portfolio", "get_stock", "get_stock_levels"];
         enforced.replaceTools = true;
         mergedSymbols = portfolioAnalysisSymbols.slice();
     }
@@ -2594,7 +2665,7 @@ async function* runPipelineCore(
         plannedTools.push("get_price_history");
     }
     const isGreetingMsg = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم|شكرا|شكرًا|تمام|اوكي|أوكي)[؟?،,.!\s]*$/i.test(userMessage.trim());
-    if (!plannerResult.clarification_needed && !plannerResult.service_degraded_message && plannedTools.length === 0 && (unrecognizedTicker || unresolvedStockName || (mergedSymbols.length === 0 && !isGreetingMsg && !isTermsDefinitionRequest(userMessage) && userMessage.trim().length >= 2))) {
+    if (!plannerResult.clarification_needed && !plannerResult.service_degraded_message && plannedTools.length === 0 && (unrecognizedTicker || unresolvedStockName || (mergedSymbols.length === 0 && !isGreetingMsg && !isTermsDefinitionRequest(userMessage) && !isConversationalFollowUp && userMessage.trim().length >= 2))) {
         plannedTools.push("search_web");
     }
     const requestedRange = extractRequestedDateRange(userMessage);
@@ -2636,7 +2707,7 @@ async function* runPipelineCore(
             ,portfolio_operation: plannerResult.entities.portfolio_operation || null
          },
         needs_vision_context: hasImages && !!vision,
-        needs_history: Boolean(implicitStockFollowUp && memory?.resolved_references?.symbol) || plannerResult.intent === "general_chat",
+        needs_history: (Array.isArray(history) && history.length > 0) || Boolean(implicitStockFollowUp && memory?.resolved_references?.symbol) || plannerResult.intent === "general_chat",
         needs_live_data: needsLiveDataForTools(plannedTools),
         needs_historical_data: historicalRequest,
         tools: plannedTools,
@@ -2707,6 +2778,17 @@ async function* runPipelineCore(
     const hybridAdditionalTools = options.mockToolsResults ? [] : await reviewHybridToolResults(userMessage, plan, tools, sessionState);
     tools = await executeHybridAdditionalTools(supabase, plan, tools, hybridAdditionalTools, apiKeys, userId, sessionId, userMessage, history);
     tools = attachEvidenceContract(intersectHybridScanResults(tools, plan));
+    const verifiedPortfolioSnapshot = tools.results.find(result => result.tool === "manage_portfolio"
+        && !result.error && result.data?.ok === true && Array.isArray(result.data?.positions));
+    const actualPortfolioSymbols = Array.from(new Set<string>((verifiedPortfolioSnapshot?.data?.positions || [])
+        .map((position: any) => String(position.symbol || "").toUpperCase()).filter(Boolean)));
+    if (portfolioAnalysisSymbols.length > 0 && (!verifiedPortfolioSnapshot
+        || actualPortfolioSymbols.length !== portfolioAnalysisSymbols.length
+        || actualPortfolioSymbols.some((symbol: string) => !portfolioAnalysisSymbols.includes(symbol)))) {
+        const response = "تعذر التحقق من تفاصيل محفظتك حالياً، فلا أقدر أربط التحليل بمراكزك وتكلفتها بشكل موثوق. جرّب السؤال مرة أخرى.";
+        yield { type: "done", data: { response, session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: userMessage }, tables: [] } };
+        return;
+    }
     if (plan.intent === "portfolio_management") {
         const portfolioResult = tools.results.find(result => result.tool === "manage_portfolio");
         if (portfolioResult) {
@@ -2720,6 +2802,9 @@ async function* runPipelineCore(
             yield { type: "done", data: { response, session_update: { current_symbol: sessionState.current_symbol, last_symbols: portfolioResult.symbols || sessionState.last_symbols, summary: response }, tables: buildExcelTables(tools.results, vision) } };
             return;
         }
+        const response = "تعذر تنفيذ طلب المحفظة حالياً لأن أداة المحفظة لم تُرجع نتيجة. جرّب مرة أخرى.";
+        yield { type: "done", data: { response, session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: userMessage }, tables: [] } };
+        return;
     }
     // Only interpret a numeric bound when attached to its metric. A price,
     // holding period, or volume bound must not become a Wyckoff-score filter.
@@ -2927,6 +3012,7 @@ async function* runPipelineCore(
     const maxAttempts = 2;
     let correctionPrompt: string | undefined = undefined;
     let finalReply = "";
+    const answerFacts = buildFactRecords(tools.results);
 
     const responderMeta: { source?: "llm" | "deterministic"; degraded?: boolean } = {};
     const marketGainersResult = tools.results.find(result => result.tool === "get_market");
@@ -3026,7 +3112,8 @@ async function* runPipelineCore(
         // Run validation
         currentResponse = autoFixNumbers(currentResponse, tools.results);
         const validation = validateResponse(currentResponse, liveDataString, validSymbols, tools.results, userMessage, plan.intent);
-        if (validation.isValid) {
+        const answerGate = runAnswerGate({ reply: currentResponse, plan, toolResults: tools.results, userMessage, facts: answerFacts, history: scopedMemory?.recent_messages || history });
+        if (validation.isValid && answerGate.ok) {
             finalReply = currentResponse;
             break;
         }
@@ -3044,11 +3131,12 @@ async function* runPipelineCore(
         }
 
         // If invalid, log warning and set correction prompt
-        console.warn(`[VALIDATOR] Attempt ${attempts + 1} failed validation! Suspicious Symbols: ${validation.suspiciousSymbols.join(", ")}, Suspicious Numbers: ${validation.suspiciousNumbers.join(", ")}, Has Repetitions: ${validation.hasRepetitions}, Det Errors: ${validation.deterministicErrors?.join("; ")}, EnglishThinking: ${Boolean(validation.englishThinking)}`);
+        console.warn(`[VALIDATOR] Attempt ${attempts + 1} failed validation! Suspicious Symbols: ${validation.suspiciousSymbols.join(", ")}, Suspicious Numbers: ${validation.suspiciousNumbers.join(", ")}, Has Repetitions: ${validation.hasRepetitions}, Det Errors: ${validation.deterministicErrors?.join("; ")}, EnglishThinking: ${Boolean(validation.englishThinking)}, Context: ${answerGate.reasons.join("; ")}`);
         
         yield { type: "status", data: { status: "generating", message: `كشف أخطاء في الرد (محاولة ${attempts + 1})، جاري إعادة الصياغة تلقائياً...` } };
         
         correctionPrompt = "تنبيه هام ومؤكد للالتزام بالبيانات:\n";
+        correctionPrompt += buildGateCorrectionBlock(answerGate.reasons);
         if (validation.englishThinking) {
             correctionPrompt += "- لقد كتبت نص التفكير بالإنجليزية بدلاً من الرد. يمنع تماماً كتابة أي تفكير أو عبارات إنجليزية؛ أكتب الرد النهائي فقط باللغة العربية وبصياغة مباشرة تجيب على سؤال المستخدم.\n";
         }
@@ -3118,6 +3206,24 @@ async function* runPipelineCore(
         );
     }
 
+    // Every route, including provider fallbacks, must pass the same context
+    // contract before any text is sent to the user.
+    const preSendGate = runAnswerGate({ reply: fullResponse, plan, toolResults: tools.results, userMessage, facts: answerFacts });
+    if (!preSendGate.ok) {
+        console.warn(`[ANSWER_GATE] Rejected final response: ${preSendGate.reasons.join("; ")}`);
+        const portfolioSnapshot = tools.results.find(result => result.tool === "manage_portfolio"
+            && !result.error && result.data?.ok === true && Array.isArray(result.data?.positions));
+        fullResponse = plan.entities.portfolio_operation === "view" && portfolioSnapshot
+            ? `${formatPortfolioSnapshotResponse(portfolioSnapshot.data)}\n\nتعذر إكمال التحليل الفني لكل المراكز بصورة موثوقة حالياً؛ أعد طلب التحليل بعد قليل.`
+            : "تعذر تكوين إجابة تطابق سؤالك والبيانات المتاحة بصورة موثوقة حالياً. أعد السؤال بعد قليل.";
+    }
+
+    // 📢 Ensure the free Telegram channel footer is appended to every response
+    const TELEGRAM_CHANNEL_FOOTER = "📢 [قناة EGX Bots المجانية على تليجرام للتنبيهات والفرص](https://t.me/egxbots)";
+    if (fullResponse && !fullResponse.includes("t.me/egxbots") && !fullResponse.includes("t.me/")) {
+        fullResponse = `${fullResponse.trim()}\n\n${TELEGRAM_CHANNEL_FOOTER}`;
+    }
+
     // Now stream the final, verified response to the client
     const responseLines = fullResponse.split("\n");
     for (let i = 0; i < responseLines.length; i++) {
@@ -3153,6 +3259,9 @@ async function* runPipelineCore(
         current_symbols: finalSymbols,
         last_data_date: new Date().toISOString().split("T")[0]
     };
+    if (plan.entities.portfolio_operation === "view") {
+        summaryUpdate.last_topic = "portfolio";
+    }
 if (vision) {
         summaryUpdate.last_image_symbols = vision.symbols.map(s => s.symbol);
         summaryUpdate.last_vision_context = vision;
@@ -3411,7 +3520,7 @@ function hasMeaningfulData(result: ToolResult): boolean {
          if (availableTables.length > 0) {
              return "تم توفير البيانات الأساسية في الجدول أعلاه. لم يُنتج تحليل نصي موثوق بعد (جميع محاولات الذكاء الاصطناعي فشلت في اجتياز فحص البيانات). الرجاء الاطلاع على الأرقام مباشرةً واتخاذ القرار بناءً عليها. 📌 الرأي مبني على مؤشرات السعر والزخم والحجم والمستويات الفنية المسجلة، وهو لأغراض استرشادية وليس توصية مباشرة بالشراء أو البيع.";
          }
-         return "عذراً، لم تتوفر بيانات موثقة لهذا الطلب من قاعدة البيانات حالياً، لذلك لن أخمن إجابة غير مدعومة بالبيانات. جرّب إعادة صياغة السؤال (مثلاً: سعر سهم معين، أسهم التجميع اليوم، ترتيب الأسهم بالسيولة، أداء القطاعات) وسأعرض النتائج الموثقة المتاحة.\n\n📢 [تابعنا على تليجرام](https://t.me/egxbots/153)";
+         return "عذراً، لم تتوفر بيانات موثقة لهذا الطلب من قاعدة البيانات حالياً، لذلك لن أخمن إجابة غير مدعومة بالبيانات. جرّب إعادة صياغة السؤال (مثلاً: سعر سهم معين، أسهم التجميع اليوم، ترتيب الأسهم بالسيولة، أداء القطاعات) وسأعرض النتائج الموثقة المتاحة.\n\n📢 [قناة EGX Bots المجانية على تليجرام للتنبيهات والفرص](https://t.me/egxbots)";
      }
 
     lines.push("📌 الرأي مبني على مؤشرات السعر والزخم والحجم والمستويات الفنية المسجلة، وهو لأغراض استرشادية وليس توصية مباشرة بالشراء أو البيع.");
@@ -3488,7 +3597,7 @@ async function persistPipelineSession(
     await updateSessionSummary(supabase, sessionId, userId, {
         current_symbols: symbols,
         last_image_symbols: clearsContext ? [] : vision?.symbols.map(symbol => symbol.symbol) || (symbols.length > 0 ? [] : sessionSummary?.last_image_symbols || []),
-        last_topic: vision?.image_type || sessionSummary?.last_topic || null,
+        last_topic: vision?.image_type || (plan.entities.portfolio_operation === "view" || plan.intent === "portfolio_management" ? "portfolio" : sessionSummary?.last_topic || null),
         open_references: clearsContext ? [] : memory?.resolved_references?.symbol ? [memory.resolved_references.symbol] : sessionSummary?.open_references || [],
         last_data_date: new Date().toISOString().split("T")[0],
         last_vision_context: clearsContext ? null : vision || sessionSummary?.last_vision_context || null,

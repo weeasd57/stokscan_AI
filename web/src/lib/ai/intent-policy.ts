@@ -33,7 +33,7 @@ export function detectPortfolioIntent(message: string): PortfolioOperation | nul
     const v = normalizeArabicIntent(message);
 
     // Any explicit portfolio-management keyword?
-    const mentionsPortfolio = /(محفظتي|محفظتى|محفظه|البورتفوليو|portfolio)/i.test(v);
+    const mentionsPortfolio = /(محفظتي|محفظتى|محفظه|البورتفوليو|portfolio|اسهمي|مراكزي|حيازاتي|الاسهم\s+(?:اللي|الي)\s+(?:عندي|معايا|املكها))/i.test(v);
     // "معايا/عندي" + symbol/quantity phrasing also implies their holdings
     const holdsPhrasing = /((معايا|عندي|موجود عندي|معي)\s+(?:\d+|[A-Z]{2,10}\b))/i.test(v)
         || /((بصاصتي|حوزتي|ممتلكاتي))/i.test(v);
@@ -67,13 +67,15 @@ export function detectPortfolioIntent(message: string): PortfolioOperation | nul
         if (addVerb || /سيب\s*(?:ها)?(?:فى|في)/i.test(v)) return "cash_add";
     }
     // Portfolio analysis / stats asks (تحليل محفظتي / اكبر مركز / نسبة السيولة) → view
-    if (/(?:محفظت|البورتفوليو|portfolio)/i.test(v) && /(?:حلّل|حلل|تحليل|اكبر مركز|أكبر مركز|نسبة السيوله|نسبة السيولة|توزيع|إحصائيات|احصائيات|تقرير)/i.test(v) && !/(سيول|فلوس)\s*(?:ضيف|اضيف|زود|حط)/i.test(v)) return "view";
+    if (/(?:محفظ|البورتفوليو|portfolio)/i.test(v) && /(?:حلّل|حلل|تحليل|اكبر مركز|أكبر مركز|نسبة السيوله|نسبة السيولة|توزيع|إحصائيات|احصائيات|تقرير)/i.test(v) && !/(سيول|فلوس)\s*(?:ضيف|اضيف|زود|حط)/i.test(v)) return "view";
     // Add stock: ضيف / عندي 200 سهم
     if (/(ضيف|اضاف|هضيف|اضيف|اشتري?ت|عندي\s+\d+\s*(?:سهم|سهمين|حصه|حصص)|معايا\s+\d+\s*(?:سهم|سهمين|حصه|حصص))/i.test(v)) return "add";
     // Update: عدل / غيرت
     if (/(عدل|عدلت|غيرت|صحح|صححت|ظبط|ظبطت)/i.test(v)) return "update";
     // View: اعرض / إيه اللي معايا / وضع محفظتي
-    if (/(اعرض|وريني|ايه اللي معايا|ايه اللي معي|وضع|مكون من|شو?ف)/i.test(v)) return "view";
+    if (/(اعرض|وريني|ايه اللي معايا|ايه اللي معي|وضع|مكون من|شو?ف|تقييم|قيملي|قيمني)/i.test(v)
+        || (mentionsPortfolio && /(اسهمي|مراكزي|حيازاتي|الاسهم\s+(?:اللي|الي)\s+(?:عندي|معايا|املكها))/.test(v)
+            && /(عامل[هةين]*\s+ايه|اخبار|اداء|اكسب|اخسر)/i.test(v))) return "view";
 
     // Portfolio mentioned with a symbol + count but no explicit verb → add
     const qtySymbol = /(\d+)\s*(?:سهم|سهمين|حصه|حصص)\s*(?:من|في|بتاع)?\s*([A-Z]{2,10})/i.test(v)
@@ -82,7 +84,7 @@ export function detectPortfolioIntent(message: string): PortfolioOperation | nul
     if (qtySymbol) return "add";
 
     // Bare "محفظتي" mention with no other verb → view
-    if (/(محفظتي|محفظتى|portfolio)/i.test(v) && !/(اوزع|وزع|توزيع|ابني|بناء)/i.test(v)) return "view";
+    if (/(محفظ|portfolio)/i.test(v) && !/(اوزع|وزع|توزيع|ابني|بناء)/i.test(v)) return "view";
 
     return null;
 }
@@ -96,7 +98,7 @@ export function detectPortfolioIntent(message: string): PortfolioOperation | nul
 export function isPortfolioAnalysisRequest(message: string): boolean {
     if (!detectPortfolioIntent(message)) return false;
     const v = normalizeArabicIntent(message);
-    return /(?:حلل|حلّل|تحليل|راجع|مراجعه|مراجعة|قيّم|تقييم)/i.test(v);
+    return /(?:حلل|حلّل|تحليل|راجع|مراجعه|مراجعة|قيّم|تقييم|وضع|اداء|أداء|عامل[هةين]*\s+ايه|اخبار\s+اسهمي)/i.test(v);
 }
 
 /** Keep ranking questions about owned positions on the portfolio path. */
@@ -105,6 +107,18 @@ export function isPortfolioRankingRequest(message: string): boolean {
     const asksForRanking = /(?:افضل|احسن|اقوى|اكبر\s+(?:ربح|مكسب|خساره|خسارة)|اعلى\s+(?:ربح|عائد)|اسوا|اسوء|الخاسر|اضعف|أضعف)/i.test(v);
     const refersToHoldings = /(?:محفظ|فيهم|منهم|المراكز|الاسهم\s+(?:دي|دى|دول)|الاسهم\s+(?:اللي|اللى)\s+معايا|حيازات)/i.test(v);
     return asksForRanking && refersToHoldings;
+}
+
+/** Protect the exchange/market referent from the Nile Pharma stock alias. */
+export function isNileExchangeQuestion(message: string, history: Array<{ role: string; content: string }> = []): boolean {
+    const v = normalizeArabicIntent(message);
+    if (/\bNIPH\b/i.test(message) || /النيل\s+(?:ل[ا]?دويه|فارما|للادويه)/i.test(v)) return false;
+    if (/(?:بورصه|سوق|مؤشر|نايلكس|nilex)\s*(?:النيل)?|النيل\s+(?:لشركات|للشركات|الصغيره|المتوسطه)/i.test(v)
+        && /(النيل|نايلكس|nilex)/i.test(v)) return true;
+    const recent = history.slice(-3).map(item => normalizeArabicIntent(item.content)).join(" ");
+    if (/(النيل|نايلكس|nilex)/i.test(v) && /(شركات|اسهم|سوق|بورصه).{0,35}(صغير|متوسط)|(?:صغير|متوسط).{0,35}(شركات|اسهم|سوق|بورصه)/i.test(recent)) return true;
+    return /(?:فيه|فيها|اللي\s+فيه|واللي\s+فيه|احسنهم|افضلهم)/i.test(v)
+        && /(بورصه\s+النيل|سوق\s+النيل|نايلكس|nilex)/i.test(recent);
 }
 
 /**
@@ -296,4 +310,16 @@ export function fuzzyArabicIntentMatch(message: string, targets: string[]): bool
         const normTarget = normalizeArabicIntent(target);
         return normMsg.includes(normTarget);
     });
+}
+
+
+export function isConversationalChoiceOrFollowUp(message: string): boolean {
+    if (!message || !message.trim()) return false;
+    const v = normalizeArabicIntent(message.trim());
+    if (/^(?:صغير[ةه]|متوسط[ةه]|كبير[ةه]|قيادي[ةه]|اسهم\s+(?:صغير[ةه]|متوسط[ةه]|كبير[ةه]|قيادي[ةه])|بورص[ةه]\s+النيل|سوق\s+النيل|نايلكس|nilex|egx\s*70|egx\s*30)$/i.test(v)) return true;
+    if (/^(?:مضارب[ةه]|سريع[ةه]|مضارب[ةه]\s+سريع[ةه]|استثمار|طويل\s+الاجل|قصير\s+الاجل|متوسط\s+الاجل|توزيعات|كوبونات)$/i.test(v)) return true;
+    if (/^(?:الاتنين|الاثنين|مش\s+عارف|معرفش|مش\s+متاكد|مش\s+متأكد|رشحلي|رشحلى|رشحلي\s+انت|رشحلى\s+انت|اختارلي|اختارلى|قولي\s+انت|قولى\s+انت|ايهما\s+افضل|الاولاني|التاني|اي\s+حاجة|اي\s+حاجه|عادي|اللى\s+تشوفه|اللي\s+تشوفه)$/i.test(v)) return true;
+    if (/^(?:ايوه|اه|أه|لا|تمام|ماشي|ماشي\s+تمام|وريني|ورينى|كمل|طب\s+كمل|وضح|وضح\s+اكتر|ليه|طب\s+ليه|طب\s+وبعدين|طب\s+والحل|اعمل\s+ايه)$/i.test(v)) return true;
+    if (/^(?:عقارات|بنوك|ادوية|أدوية|اتصالات|بتروكيماويات|اغذية|أغذية|اسكان|صناعة|خدمات\s+مالية)$/i.test(v)) return true;
+    return false;
 }

@@ -511,8 +511,26 @@ export function FormattedChatMessage({
             }
 
             const parseTextSpans = (textStr: string) => {
-                const linkParts = textStr.split(/(https?:\/\/[^\s<>]+)/g);
+                const linkRegex = /(\[[^\]]+\]\(https?:\/\/[^\s\)]+\)|https?:\/\/[^\s<>]+)/g;
+                const linkParts = textStr.split(linkRegex);
                 return linkParts.map((linkPart, linkIdx) => {
+                    if (!linkPart) return null;
+                    const mdMatch = linkPart.match(/^\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)$/);
+                    if (mdMatch) {
+                        const [, label, href] = mdMatch;
+                        return (
+                            <a
+                                key={`link-${linkIdx}`}
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline font-semibold text-blue-700 underline decoration-blue-400 underline-offset-2 hover:text-blue-500 dark:text-sky-400 dark:hover:text-sky-300"
+                            >
+                                {label}
+                            </a>
+                        );
+                    }
+
                     const rawUrl = /^https?:\/\//i.test(linkPart) ? linkPart : null;
                     if (rawUrl) {
                         const trailingPunctuation = rawUrl.match(/[)،.!?؟:;]+$/)?.[0] || "";

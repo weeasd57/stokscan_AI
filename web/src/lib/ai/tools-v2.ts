@@ -209,11 +209,15 @@ export async function executeStructuredTools(
             results.push({ tool: "manage_portfolio", source: "portfolio", data_time: now, symbols: [], data_type: "cached", data: { ok: false, message: "حصل خطأ مؤقت في إدارة المحفظة." }, error: "portfolio_tool_failed" });
         }
 
-        const portfolioMessage = results[results.length - 1]?.data?.message || "";
-        return {
-            results,
-            formattedText: `### إدارة المحفظة\n${portfolioMessage}`,
-        };
+        // A read is evidence for an analysis, so continue to the market tools
+        // in a compound plan. Writes remain transactional and stop here.
+        if (operation !== "view" || plan.tools.length === 1) {
+            const portfolioMessage = results[results.length - 1]?.data?.message || "";
+            return {
+                results,
+                formattedText: `### إدارة المحفظة\n${portfolioMessage}`,
+            };
+        }
     }
 
     const dataDateQuality = (date: unknown, maxAgeDays: number, requested: string | null = null) => {

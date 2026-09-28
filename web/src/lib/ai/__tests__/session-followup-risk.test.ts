@@ -58,4 +58,22 @@ describe("Session Follow-up and Risk/Loss Context Retention", () => {
             expect(plan!.session_update.current_symbol).toBe("BINV");
         }
     });
+
+    it("correctly identifies portfolio analysis queries for all Arabic spelling variations", () => {
+        const { detectPortfolioIntent, isPortfolioAnalysisRequest } = require("../intent-policy");
+        const analysisQueries = [
+            "حلل المحفظه",
+            "حلل المحفظة",
+            "حلل محفظتي",
+            "حلل محفظتى",
+            "حلل المحفظه وقولى اشترى اى من التوصيات اللى عندك",
+            "راجع المحفظه",
+            "تقييم المحفظه"
+        ];
+        for (const q of analysisQueries) {
+            expect(detectPortfolioIntent(q)).toBe("view");
+            expect(isPortfolioAnalysisRequest(q)).toBe(true);
+        }
+    });
 });
+

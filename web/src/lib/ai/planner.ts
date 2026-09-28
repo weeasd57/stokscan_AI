@@ -1,4 +1,4 @@
-
+﻿
 // ============================================================
 // ARABIC_STOCK_MAPPINGS — مُحدَّث من قاعدة البيانات
 // قواعد الإضافة:
@@ -1418,6 +1418,21 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
             session_update: {
                 current_symbol: fallbackSymbols[0],
                 last_symbols: fallbackSymbols.map((s: string) => correctStockSymbol(s, validSymbols)),
+                summary: message
+            }
+        };
+    }
+
+    if (isMarketSlang) {
+        return {
+            intent: "market_summary",
+            confidence: 0.85,
+            entities: { symbols: [], sector: null, wants_table: true },
+            tools: ["get_market"],
+            request: { goal: message, reference: "market", ranking_metric: "price_change", required_facts: ["market_summary"] },
+            session_update: {
+                current_symbol: session.current_symbol,
+                last_symbols: session.last_symbols || [],
                 summary: message
             }
         };

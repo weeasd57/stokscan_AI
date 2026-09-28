@@ -1,7 +1,12 @@
-import { SessionState, SessionSummary, VisionContext } from "./types";
+﻿import { SessionState, SessionSummary, VisionContext } from "./types";
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function isUuid(id: unknown): boolean {
+    return typeof id === "string" && UUID_REGEX.test(id);
+}
 
 export async function loadSessionState(supabase: any, sessionId: string, userId: string): Promise<SessionState> {
-    if (!sessionId) {
+    if (!sessionId || !isUuid(sessionId)) {
         return { current_symbol: null, last_symbols: [], summary: null, current_sector: null, persisted: false };
     }
 
@@ -66,7 +71,7 @@ export async function loadPersistentInvestorProfile(supabase: any, userId: strin
 }
 
 export async function loadSessionSummary(supabase: any, sessionId: string, userId: string): Promise<SessionSummary | null> {
-    if (!sessionId) return null;
+    if (!sessionId || !isUuid(sessionId)) return null;
     try {
         const { data, error } = await supabase
             .from("ai_chat_sessions")
@@ -93,7 +98,7 @@ export async function updateSessionSummary(
     userId: string,
     update: Partial<SessionSummary>
 ): Promise<boolean> {
-    if (!sessionId) return false;
+    if (!sessionId || !isUuid(sessionId)) return false;
     let current: SessionSummary | null = null;
     try {
         const { data, error } = await supabase
@@ -151,7 +156,7 @@ export async function updateSessionState(
     userId: string,
     update: Partial<SessionState>
 ): Promise<SessionState> {
-    if (!sessionId) return { current_symbol: null, last_symbols: [], summary: null, persisted: false };
+    if (!sessionId || !isUuid(sessionId)) return { current_symbol: null, last_symbols: [], summary: null, persisted: false };
 
     const current = await loadSessionState(supabase, sessionId, userId);
     if (current.persisted === false) return current;
