@@ -72,6 +72,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           provider: "google",
           options: {
             redirectTo: `${window.location.origin}/auth/callback`,
+            // Force an interactive account choice so an expired/stale Google
+            // session cookie cannot leave the OAuth flow stuck at login_required.
+            queryParams: {
+              prompt: "select_account",
+            },
           },
         });
         return { error: error?.message ?? null };
