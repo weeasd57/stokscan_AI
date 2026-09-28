@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
       const exitDate = exitDates.get(String(row.id)) || row.updated_at;
       const exit = Number(row.exit_price);
       if (["win", "loss"].includes(String(row.status).toLowerCase()) && exitDate && Number.isFinite(Date.parse(exitDate)) && Number.isFinite(exit) && exit > 0) {
-        result.push({ id: String(row.id), kind: "exit", time: Math.floor(Date.parse(exitDate) / 1000), price: exit, outcome: row.status });
+        result.push({ id: String(row.id), kind: "exit", time: Math.floor(Date.parse(exitDate) / 1000), price: exit, outcome: String(row.status) });
       }
       return result;
     });
