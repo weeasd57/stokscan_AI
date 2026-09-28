@@ -1292,7 +1292,8 @@ def _notify_central_telegram(message: str, service_type: str = "central"):
 
 def _daily_cache_payload(cache_key: str) -> Dict[str, Any]:
     try:
-        response = supabase.table("market_cache").select("payload").eq("cache_key", cache_key).maybe_single().execute()
+        response = (supabase.table("market_cache").select("payload")
+                    .eq("cache_key", cache_key).eq("country", "Egypt").maybe_single().execute())
         row = getattr(response, "data", None)
         payload = row.get("payload") if isinstance(row, dict) else None
         return payload if isinstance(payload, dict) else {}
@@ -1305,9 +1306,10 @@ def _mark_daily_cache_payload(cache_key: str, payload: Dict[str, Any]) -> None:
     try:
         supabase.table("market_cache").upsert({
             "cache_key": cache_key,
+            "country": "Egypt",
             "payload": payload,
             "computed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-        }, on_conflict="cache_key").execute()
+        }, on_conflict="cache_key,country").execute()
     except Exception as exc:
         print(f"[DAILY_TELEGRAM] Could not persist {cache_key}: {exc}")
 
