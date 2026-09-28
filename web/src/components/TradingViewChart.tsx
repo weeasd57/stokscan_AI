@@ -23,6 +23,7 @@ import {
   Trash2,
   Plus,
   Sliders,
+  Clock3,
 } from "lucide-react";
 import {
   calculateEMA,
@@ -334,6 +335,19 @@ export default function TradingViewChart({
   const [error, setError] = useState<string | null>(null);
   const [showIndicatorModal, setShowIndicatorModal] = useState<boolean>(false);
   const [indicatorSearchQuery, setIndicatorSearchQuery] = useState<string>("");
+
+  const isEgxEndOfDay = String(exchange || "EGX").toUpperCase() === "EGX";
+  const latestCloseDate = useMemo(() => {
+    const latestTime = candlesData[candlesData.length - 1]?.time;
+    if (!latestTime) return null;
+
+    return new Intl.DateTimeFormat("ar-EG", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      timeZone: "Africa/Cairo",
+    }).format(new Date(latestTime * 1000));
+  }, [candlesData]);
 
   // Dynamic active indicators list
   const [activeIndicators, setActiveIndicators] = useState<ActiveIndicator[]>(
@@ -2540,6 +2554,15 @@ export default function TradingViewChart({
             <span className="text-[10px] text-zinc-500 dark:text-[#787b86] font-mono">
               ({timeframe})
             </span>
+            {isEgxEndOfDay && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-amber-300/70 bg-amber-50 px-2 py-0.5 text-[9px] font-black text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
+                title="بيانات أسعار EGX تتحدث بعد إغلاق جلسة التداول وليست أسعارًا لحظية"
+              >
+                <Clock3 className="h-3 w-3" />
+                بيانات آخر إغلاق
+              </span>
+            )}
           </div>
         </div>
 
@@ -2703,6 +2726,27 @@ export default function TradingViewChart({
             ref={priceContainerRef}
             className="absolute inset-0 overflow-hidden"
           />
+
+          {isEgxEndOfDay && (
+            <div
+              dir="rtl"
+              className="pointer-events-none absolute right-3 top-3 z-30 max-w-[260px] rounded-xl border border-amber-300/70 bg-white/92 px-3 py-2 text-right shadow-lg backdrop-blur-md dark:border-amber-500/30 dark:bg-[#131722]/92"
+            >
+              <div className="flex items-center justify-end gap-1.5 text-[11px] font-black text-amber-800 dark:text-amber-300">
+                <span>بيانات آخر إغلاق</span>
+                <Clock3 className="h-3.5 w-3.5" />
+              </div>
+              <div className="mt-0.5 text-[10px] font-bold leading-4 text-zinc-700 dark:text-zinc-300">
+                الرسم والسعر يتحدثان بعد إغلاق جلسة البورصة المصرية — البيانات ليست لحظية.
+              </div>
+              {latestCloseDate && (
+                <div className="mt-1 text-[9px] font-semibold text-zinc-500 dark:text-[#787b86]">
+                  آخر جلسة معروضة: {latestCloseDate}
+                </div>
+              )}
+            </div>
+          )}
+
           <svg
             className="absolute inset-0 w-full h-full overflow-visible z-10"
             style={{ pointerEvents: "none" }}
