@@ -1531,6 +1531,24 @@ def update_market_status_cache():
     import urllib.request as _urllib_request
     import json as _json
 
+    # Use the same broad-market engine as the daily recommendation job so the
+    # public market endpoint cannot drift back to an EGX30-only decision.
+    base_dir = _os.path.dirname(_os.path.abspath(__file__))
+    cache_path = _os.path.join(base_dir, "symbols_data", "market_status.json")
+    try:
+        from api.free_data_provider import get_market_status_free
+
+        res_data = get_market_status_free(period="1y")
+        if isinstance(res_data.get("market_context"), dict) and res_data["market_context"].get("date"):
+            _os.makedirs(_os.path.dirname(cache_path), exist_ok=True)
+            with open(cache_path, "w", encoding="utf-8") as f:
+                _json.dump(res_data, f, ensure_ascii=False, indent=2)
+            _MARKET_STATUS_CACHE["status"] = (_time.time(), res_data)
+            print("Background: Unified market status cache successfully refreshed.")
+            return
+    except Exception as unified_error:
+        print(f"Background: Unified market status refresh failed; using legacy fallback: {unified_error}")
+
     api_key = _os.getenv("EODHD_API_KEY")
     if not api_key:
         return
@@ -1641,6 +1659,27 @@ def update_market_status_cache():
         print(f"Background: Error writing local market status cache: {e}")
 
 
+def _market_status_cache_usable(data):
+    if not isinstance(data, dict):
+        return False
+    context = data.get("market_context")
+    if not isinstance(context, dict) or not context.get("date"):
+        return False
+    try:
+        market_day = dt.date.fromisoformat(str(context["date"])[:10])
+        return (dt.datetime.now(dt.timezone.utc).date() - market_day).days <= 7
+    except (TypeError, ValueError):
+        return False
+
+
+def _fail_closed_market_status(data):
+    payload = dict(data) if isinstance(data, dict) else {}
+    payload["reject_buys"] = True
+    payload["stale"] = True
+    payload["stale_reason"] = "Market context cache is incomplete or out of date"
+    return payload
+
+
 @app.get("/market/status")
 def get_market_status(background_tasks: BackgroundTasks):
     global _MARKET_STATUS_CACHE, _LAST_REFRESH_TRIGGERED
@@ -1655,6 +1694,11 @@ def get_market_status(background_tasks: BackgroundTasks):
     # 1. Check in-memory cache first (24 hours)
     if "status" in _MARKET_STATUS_CACHE:
         ts, data = _MARKET_STATUS_CACHE["status"]
+        if not _market_status_cache_usable(data):
+            if now - _LAST_REFRESH_TRIGGERED > 300:
+                _LAST_REFRESH_TRIGGERED = now
+                background_tasks.add_task(update_market_status_cache)
+            return _fail_closed_market_status(data)
         if now - ts < 24 * 3600:
             return data
         else:
@@ -1676,6 +1720,12 @@ def get_market_status(background_tasks: BackgroundTasks):
                 file_fallback_data = _json.load(f)
             
             _MARKET_STATUS_CACHE["status"] = (mtime, file_fallback_data)
+
+            if not _market_status_cache_usable(file_fallback_data):
+                if now - _LAST_REFRESH_TRIGGERED > 300:
+                    _LAST_REFRESH_TRIGGERED = now
+                    background_tasks.add_task(update_market_status_cache)
+                return _fail_closed_market_status(file_fallback_data)
             
             # If expired (> 24h), trigger background refresh but return cached data immediately
             if now - mtime >= 24 * 3600:
