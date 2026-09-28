@@ -14,6 +14,7 @@ import uuid
 import math
 import urllib.request
 import urllib.parse
+from zoneinfo import ZoneInfo
 import pandas as pd
 import numpy as np
 from typing import List, Dict, Any, Tuple, Optional, Set
@@ -1159,12 +1160,14 @@ _VIP_TELEGRAM_SERVICE_TYPES = frozenset({
     "recommendation_adjustment",
     "recommendation_exit_vip",
     "weekly_performance_report",
+    "daily_market_outlook_vip",
 })
 
 _FREE_TELEGRAM_SERVICE_TYPES = frozenset({
     "recommendation_exit",
     "weekly_performance_report_free",
     "free_summary",
+    "daily_market_outlook_free",
 })
 
 def _resolve_vip_chat_target() -> str:
@@ -1272,6 +1275,11 @@ def _notify_central_telegram(message: str, service_type: str = "central"):
         free_delivered = _notify_free_telegram(message, service_type)
         return bool(vip_outcome) and free_delivered
 
+    if service_type == "market_buy_hold":
+        vip_outcome = _notify_vip_telegram(message, service_type)
+        free_delivered = _notify_free_telegram(message, service_type)
+        return bool(vip_outcome) and free_delivered
+
     if service_type in _FREE_TELEGRAM_SERVICE_TYPES:
         return _notify_free_telegram(message, service_type)
 
@@ -1280,6 +1288,138 @@ def _notify_central_telegram(message: str, service_type: str = "central"):
 
     # Legacy callers without an explicit route default to VIP for recommendation content.
     return _notify_vip_telegram(message, service_type)
+
+
+def _daily_cache_payload(cache_key: str) -> Dict[str, Any]:
+    try:
+        response = supabase.table("market_cache").select("payload").eq("cache_key", cache_key).maybe_single().execute()
+        row = getattr(response, "data", None)
+        payload = row.get("payload") if isinstance(row, dict) else None
+        return payload if isinstance(payload, dict) else {}
+    except Exception as exc:
+        print(f"[DAILY_TELEGRAM] Could not read {cache_key}: {exc}")
+        return {}
+
+
+def _mark_daily_cache_payload(cache_key: str, payload: Dict[str, Any]) -> None:
+    try:
+        supabase.table("market_cache").upsert({
+            "cache_key": cache_key,
+            "payload": payload,
+            "computed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        }, on_conflict="cache_key").execute()
+    except Exception as exc:
+        print(f"[DAILY_TELEGRAM] Could not persist {cache_key}: {exc}")
+
+
+def _send_market_buy_hold(gate: Dict[str, Any], market_date: str) -> bool:
+    if not gate.get("blocked"):
+        return True
+    enabled = os.getenv("TELEGRAM_MARKET_HOLD_ALERTS_ENABLED", "false").strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        print("[MARKET_GATE] Buy-hold Telegram notice disabled pending approval of the message format.")
+        return False
+
+    cache_key = "telegram_market_buy_hold_sent"
+    payload = _daily_cache_payload(cache_key)
+    if market_date in payload.get("sent_dates", []):
+        print(f"[MARKET_GATE] Buy-hold notice already delivered for {market_date}; skipping duplicate.")
+        return True
+    deliveries = payload.setdefault("deliveries", {})
+    day_delivery = deliveries.setdefault(market_date, {})
+
+    reason = str(gate.get("reason") or "قاطع الأمان الفني أوقف توصيات الشراء الجديدة.")
+    close, sma50, gap = gate.get("latest_close"), gate.get("sma50"), gate.get("percent_vs_sma50")
+    details = []
+    if close is not None and sma50 is not None:
+        details.extend([f"إغلاق EGX30: {float(close):,.2f} نقطة", f"SMA50: {float(sma50):,.2f} نقطة"])
+    if gap is not None:
+        details.append(f"الفارق عن المتوسط: {float(gap):+.2f}%")
+    message = (
+        f"⛔ امتناع فني عن توصيات شراء جديدة — {market_date}\n\nالسبب: {reason}"
+        + ("\n" + "\n".join(details) if details else "")
+        + "\n\nلم تُنشأ توصيات شراء اليوم حفاظًا على ضوابط المخاطر. هذا قرار آلي مبني على بيانات السوق، وليس توصية بيع للمراكز القائمة."
+    )
+    if not day_delivery.get("vip"):
+        day_delivery["vip"] = bool(_notify_vip_telegram(message, "market_buy_hold"))
+        _mark_daily_cache_payload(cache_key, payload)
+    if not day_delivery.get("free"):
+        day_delivery["free"] = bool(_notify_free_telegram(message, "market_buy_hold"))
+        _mark_daily_cache_payload(cache_key, payload)
+    delivered = bool(day_delivery.get("vip") and day_delivery.get("free"))
+    if delivered:
+        sent_dates = list(payload.get("sent_dates", []))
+        if market_date not in sent_dates:
+            sent_dates.append(market_date)
+        payload.update({"sent_dates": sent_dates, "last_date": market_date, "reason": reason})
+        _mark_daily_cache_payload(cache_key, payload)
+    return delivered
+
+
+def _generate_daily_market_outlook(market_date: str, gate: Dict[str, Any], recommendations_created: int) -> Optional[str]:
+    admin_key = (os.getenv("ADMIN_SECRET_KEY") or "").strip()
+    if not admin_key:
+        print("[DAILY_OUTLOOK] ADMIN_SECRET_KEY unavailable; cannot call the Vercel composer.")
+        return None
+    endpoint = f"{get_web_origin().rstrip('/')}/api/internal/daily-market-outlook"
+    gate_context = {
+        "blocked": bool(gate.get("blocked")), "reason": gate.get("reason"),
+        "regime": gate.get("regime"), "latestClose": gate.get("latest_close"),
+        "sma50": gate.get("sma50"), "percentVsSma50": gate.get("percent_vs_sma50"),
+    }
+    request = urllib.request.Request(
+        endpoint,
+        data=json.dumps({"date": market_date, "recommendationGate": gate_context,
+                         "recommendationsCreated": max(0, int(recommendations_created or 0))}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-admin-key": admin_key}, method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=55) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        message = str(result.get("message") or "").strip()
+        if result.get("date") != market_date or not message:
+            print("[DAILY_OUTLOOK] Composer response omitted the requested date or message.")
+            return None
+        print(f"[DAILY_OUTLOOK] Draft composed by {result.get('model', 'DeepSeek')} from {result.get('sources', [])}.")
+        return message
+    except Exception as exc:
+        print(f"[DAILY_OUTLOOK] Vercel composer request failed: {exc}")
+        return None
+
+
+def _send_daily_market_outlook(market_date: str, gate: Dict[str, Any], recommendations_created: int) -> bool:
+    enabled = os.getenv("TELEGRAM_DAILY_MARKET_OUTLOOK_ENABLED", "false").strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        print("[DAILY_OUTLOOK] Telegram delivery disabled pending approval of the preview message.")
+        return False
+    cache_key = "telegram_daily_market_outlook_sent"
+    payload = _daily_cache_payload(cache_key)
+    if market_date in payload.get("sent_dates", []):
+        print(f"[DAILY_OUTLOOK] Outlook already delivered for {market_date}; skipping duplicate.")
+        return True
+    deliveries = payload.setdefault("deliveries", {})
+    day_delivery = deliveries.setdefault(market_date, {})
+    message = _generate_daily_market_outlook(market_date, gate, recommendations_created)
+    if not message:
+        return False
+    if not day_delivery.get("vip"):
+        day_delivery["vip"] = bool(_notify_central_telegram(message, "daily_market_outlook_vip"))
+        _mark_daily_cache_payload(cache_key, payload)
+    vip_ok = bool(day_delivery.get("vip"))
+    free_message = message
+    if recommendations_created > 0:
+        free_message += "\n\n📈 صدرت توصيات جديدة اليوم؛ التفاصيل الكاملة متاحة في قناة VIP."
+    if not day_delivery.get("free"):
+        day_delivery["free"] = bool(_notify_central_telegram(free_message, "daily_market_outlook_free"))
+        _mark_daily_cache_payload(cache_key, payload)
+    free_ok = bool(day_delivery.get("free"))
+    if vip_ok and free_ok:
+        sent_dates = list(payload.get("sent_dates", []))
+        sent_dates.append(market_date)
+        payload.update({"sent_dates": sent_dates, "last_date": market_date, "model": "deepseek-chat"})
+        _mark_daily_cache_payload(cache_key, payload)
+    print(f"[DAILY_OUTLOOK] Telegram receipts: vip={vip_ok} free={free_ok}.")
+    return vip_ok and free_ok
 
 
 
@@ -2039,6 +2179,7 @@ def _build_daily_recommendations_message(
 async def generate_daily_recommendations(
     model_name: Optional[str] = None,
     bulk_cache_ttl_seconds: Optional[int] = None,
+    run_context: Optional[Dict[str, Any]] = None,
 ):
     """
     Rank EGX candidates and publish only within the configured public capacity.
@@ -2146,6 +2287,17 @@ async def generate_daily_recommendations(
             detector = CircuitBreakerDetector()
             if not detector.is_egx30_trend_safe(market_df):
                 print("[RECOMMENDATIONS] ⚠️ EGX30 is under its 50-day SMA. Halting recommendations generation due to market trend circuit breaker!")
+                close_col = "Close" if "Close" in market_df.columns else "close"
+                latest_close = float(market_df[close_col].iloc[-1])
+                sma50 = float(market_df[close_col].rolling(window=50).mean().iloc[-1])
+                if run_context is not None:
+                    run_context.update({
+                        "blocked": True,
+                        "reason": "مؤشر EGX30 أغلق دون متوسطه المتحرك لـ50 جلسة، لذلك أوقف قاطع الاتجاه الفني إنشاء توصيات شراء جديدة.",
+                        "latest_close": latest_close,
+                        "sma50": sma50,
+                        "percent_vs_sma50": ((latest_close / sma50) - 1) * 100 if sma50 else None,
+                    })
                 return 0
 
     if model_name:
@@ -2701,6 +2853,8 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
     active_steps = {}
     symbols_raw = []
     total_symbols = 0
+    market_gate_context: Dict[str, Any] = {"blocked": False, "reason": "Market gate allowed new BUY recommendations."}
+    generated_count = 0
     daily_bulk_prices: Dict[str, pd.DataFrame] = {}
     daily_bulk_cache_ttl = 2 * 60 * 60
 
@@ -2967,6 +3121,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         _start_step("generate_recommendations", f"Generating recommendations using {model_filter or 'default'} model")
         try:
             market_gate = should_reject_new_buys()
+            market_gate_context = dict(market_gate or {})
             if market_gate.get("blocked"):
                 msg = f"Skipped - {market_gate.get('reason')}"
                 print(f"[MARKET_GATE] {msg}")
@@ -2975,8 +3130,14 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 generated_count = await generate_daily_recommendations(
                     model_name=model_filter,
                     bulk_cache_ttl_seconds=daily_bulk_cache_ttl,
+                    run_context=market_gate_context,
                 )
                 _record_step("generate_recommendations", True, f"Generated {generated_count} recommendations using {model_filter or 'default'}", int(generated_count or 0))
+            if market_gate_context.get("blocked"):
+                _send_market_buy_hold(
+                    market_gate_context,
+                    dt.datetime.now(ZoneInfo("Africa/Cairo")).date().isoformat(),
+                )
         except Exception as e:
             _record_step("generate_recommendations", False, str(e)[:200], 0)
             print(f"[RECOMMENDATIONS] Error: {e}")
@@ -3109,13 +3270,29 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             print(f"   ⚠️  Accumulation scan failed: {e_scan}")
             _record_step("accumulation_scan", False, str(e_scan)[:300])
 
-        _persist_job("completed")
         try:
             from api.cache_invalidation import invalidate_daily_cache
 
             invalidate_daily_cache(steps_log)
         except Exception as e_cache:
             print(f"[CACHE] Daily cache invalidation skipped: {e_cache}")
+        # This is deliberately the final channel post in the daily run, after
+        # closures, adjustments, new recommendations, and other scheduled reports.
+        if trigger == "scheduled":
+            outlook_date = dt.datetime.now(ZoneInfo("Africa/Cairo")).date().isoformat()
+            _start_step("daily_market_outlook", "Composing the DeepSeek market outlook after all daily trade notifications")
+            try:
+                outlook_sent = _send_daily_market_outlook(outlook_date, market_gate_context, generated_count)
+                _record_step(
+                    "daily_market_outlook",
+                    outlook_sent,
+                    "DeepSeek market outlook delivered to both Telegram channels" if outlook_sent else "Not delivered (disabled, duplicate, composer failure, or channel delivery failure)",
+                    1 if outlook_sent else 0,
+                )
+            except Exception as outlook_error:
+                _record_step("daily_market_outlook", False, str(outlook_error)[:300], 0)
+                print(f"[DAILY_OUTLOOK] Error: {outlook_error}")
+        _persist_job("completed")
         print(f"\n--- Daily Bot Run Job Completed: {dt.datetime.now()} ---")
 
     except Exception as e:

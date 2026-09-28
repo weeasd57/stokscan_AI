@@ -1531,11 +1531,24 @@ export async function executeStructuredTools(
                 const egxDate = payload.egx30?.[payload.egx30.length - 1]?.date || payload.usdegp?.[payload.usdegp.length - 1]?.date || now.split("T")[0];
                 textParts.push(`\n [حالة السوق - ${egxDate}]:`);
 
+                const latestClose = (rows: any[]) => Number(rows?.[rows.length - 1]?.close);
+                const dailyChangePct = (rows: any[]) => {
+                    const latest = latestClose(rows);
+                    const previous = Number(rows?.[rows.length - 2]?.close);
+                    return rows?.length > 1 && Number.isFinite(latest) && Number.isFinite(previous) && previous !== 0
+                        ? ((latest / previous) - 1) * 100
+                        : null;
+                };
+                const egx30Close = latestClose(payload.egx30);
+                const egx100Close = latestClose(payload.egx100);
+                const egx30ChangePct = dailyChangePct(payload.egx30);
+                const egx100ChangePct = dailyChangePct(payload.egx100);
+
                 if (payload.egx30?.[0]) {
-                    textParts.push(`• EGX30: ${payload.egx30[payload.egx30.length - 1]?.close || "N/A"} نقطة`);
+                    textParts.push(`• EGX30: ${egx30Close || "N/A"} نقطة${egx30ChangePct == null ? "" : ` (${egx30ChangePct >= 0 ? "+" : ""}${egx30ChangePct.toFixed(2)}% عن الجلسة السابقة)`}`);
                 }
                 if (payload.egx100?.[0]) {
-                    textParts.push(`• EGX100: ${payload.egx100[payload.egx100.length - 1]?.close || "N/A"} نقطة`);
+                    textParts.push(`• EGX100: ${egx100Close || "N/A"} نقطة${egx100ChangePct == null ? "" : ` (${egx100ChangePct >= 0 ? "+" : ""}${egx100ChangePct.toFixed(2)}% عن الجلسة السابقة)`}`);
                 }
                 if (payload.usdegp?.[0]) {
                     textParts.push(`• USD/EGP: ${payload.usdegp[payload.usdegp.length - 1]?.close || "N/A"} جنيه`);
@@ -1560,10 +1573,13 @@ export async function executeStructuredTools(
                     tool: "get_market",
                     source: "database",
                     data_time: egxDate,
-                    symbols: ["EGX30", "USDEGP"],
+                    symbols: ["EGX30", "EGX100", "USDEGP"],
                     data_type: "live",
                     data: {
-                        egx30: payload.egx30?.[payload.egx30.length - 1]?.close,
+                        egx30: egx30Close,
+                        egx30_change_pct: egx30ChangePct,
+                        egx100: egx100Close,
+                        egx100_change_pct: egx100ChangePct,
                         usd: payload.usdegp?.[payload.usdegp.length - 1]?.close,
                         regime: payload.regime,
                         top_gainers: payload.top_gainers,
