@@ -1400,6 +1400,11 @@ export default function RecommendationCalendar({
                                                     ) : (
                                                         <span className="text-amber-600 dark:text-amber-400 font-bold text-[11px] sm:text-xs">{isAr ? "نشطة 🎯" : "Active 🎯"}</span>
                                                     )}
+                                                    {isClosed && item.exit_reason_ar && (
+                                                        <span className="mt-1 block max-w-[260px] text-[9px] font-semibold leading-snug text-amber-700 dark:text-amber-300">
+                                                            {isAr ? `سبب الإغلاق: ${item.exit_reason_ar}` : `Exit reason: ${item.exit_reason_en || item.exit_reason}`}
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>

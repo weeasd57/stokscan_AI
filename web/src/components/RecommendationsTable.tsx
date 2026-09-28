@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { isShariaCompliant } from "@/lib/shariaStocks";
 import { toPng } from "html-to-image";
-import { predictStock } from "@/lib/api";
+import { getPublicMarketOverview, predictStock } from "@/lib/api";
 
 function translateRationaleText(text: string, type: "brief" | "tech" | "fund", symbol: string = ""): string {
     if (!text) return "";
@@ -192,6 +192,60 @@ function SpotlightCard({ children, className = "", glowColor, radius = 250 }: Sp
             />
             {children}
         </div>
+    );
+}
+
+function MarketOverviewSummary({ isAr, onOpen }: { isAr: boolean; onOpen: () => void }) {
+    const [overview, setOverview] = useState<{ status: any; breadth: any } | null>(null);
+    useEffect(() => {
+        const controller = new AbortController();
+        getPublicMarketOverview(controller.signal)
+            .then(setOverview)
+            .catch(() => { if (!controller.signal.aborted) setOverview(null); });
+        return () => controller.abort();
+    }, []);
+
+    const changePct = (rows: any[] | undefined) => {
+        if (!rows || rows.length < 2) return null;
+        const sorted = [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+        const previous = Number(sorted[sorted.length - 2]?.close);
+        const latest = Number(sorted[sorted.length - 1]?.close);
+        return previous > 0 && latest > 0 ? (latest / previous - 1) * 100 : null;
+    };
+    const egx30Change = changePct(overview?.status?.egx30);
+    const egx100Change = changePct(overview?.status?.egx100);
+    const breadth = overview?.breadth;
+    const regime = String(overview?.status?.regime || "").toLowerCase();
+    const regimeLabel = isAr
+        ? ({ panic: "ذعر", bear: "هابط", trending_down: "هابط", sideways: "عرضي", bull: "صاعد", trending_up: "صاعد" } as Record<string, string>)[regime] || "غير متاح"
+        : regime.replaceAll("_", " ") || "Unavailable";
+    const fmtPct = (value: number | null) => value == null ? "—" : `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+    const pctClass = (value: number | null) => value == null ? "text-zinc-400" : value >= 0 ? "text-emerald-500" : "text-rose-500";
+
+    return (
+        <section className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-3 sm:p-4 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,0.15)] space-y-3" dir={isAr ? "rtl" : "ltr"}>
+            <div className="flex items-center justify-between gap-3">
+                <div>
+                    <h3 className="text-sm sm:text-base font-black text-zinc-950 dark:text-white">{isAr ? "ملخص السوق العام" : "Market overview"}</h3>
+                    <p className="text-[10px] text-zinc-500 mt-1">{isAr ? "أداء المؤشرات واتساع حركة الأسهم" : "Index performance and market breadth"}</p>
+                </div>
+                <button onClick={onOpen} className="shrink-0 inline-flex items-center gap-1.5 bg-amber-400 px-3 py-2 text-[10px] sm:text-xs font-black text-zinc-950 hover:bg-amber-300 transition-colors">
+                    {isAr ? "اتجاه السوق والتفاصيل" : "Market trend & details"}<ArrowUpRight className="h-3.5 w-3.5" />
+                </button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                {[
+                    { label: isAr ? "حالة السوق" : "Market regime", value: regimeLabel, cls: regime === "panic" || regime.includes("down") || regime === "bear" ? "text-rose-500" : "text-sky-500" },
+                    { label: "EGX30", value: fmtPct(egx30Change), cls: pctClass(egx30Change) },
+                    { label: "EGX100", value: fmtPct(egx100Change), cls: pctClass(egx100Change) },
+                    { label: isAr ? "أسهم صاعدة / هابطة" : "Advancing / declining", value: breadth ? `${breadth.advancing ?? "—"} / ${breadth.declining ?? "—"}` : "—", cls: "text-zinc-900 dark:text-white" },
+                    { label: isAr ? "متوسط نسبة السيولة" : "Avg. volume ratio", value: breadth?.volume_ratio == null ? "—" : `${Number(breadth.volume_ratio).toFixed(2)}×`, cls: "text-zinc-900 dark:text-white" },
+                ].map((item) => <div key={item.label} className="min-w-0 border border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-zinc-900/50 p-2.5">
+                    <div className="truncate text-[9px] font-bold text-zinc-500">{item.label}</div>
+                    <div className={`mt-1 truncate font-mono text-sm font-black ${item.cls}`} dir="ltr">{item.value}</div>
+                </div>)}
+            </div>
+        </section>
     );
 }
 
@@ -2092,6 +2146,10 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             )}
 
             {/* Performance Summary Cards */}
+            {limit === Infinity && (!isLandingPage || user) && (
+                <MarketOverviewSummary isAr={isAr} onOpen={() => router.push("/scanner/market")} />
+            )}
+
             {limit === Infinity && (!isLandingPage || user) && (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
                     {/* Active Trades */}

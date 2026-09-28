@@ -2184,6 +2184,23 @@ export interface RecommendationChartRecord {
   stop_loss: number | null;
 }
 
+export interface PublicMarketOverview {
+  status: any | null;
+  breadth: any | null;
+}
+
+export async function getPublicMarketOverview(signal?: AbortSignal): Promise<PublicMarketOverview> {
+  const [statusResponse, breadthResponse] = await Promise.all([
+    fetch("/api/market/status", { cache: "no-store", signal }),
+    fetch("/api/market/breadth", { cache: "no-store", signal }),
+  ]);
+  const [status, breadth] = await Promise.all([
+    statusResponse.ok ? statusResponse.json() : null,
+    breadthResponse.ok ? breadthResponse.json() : null,
+  ]);
+  return { status, breadth };
+}
+
 export async function getRecommendationChartHistory(symbol: string, exchange: string, signal?: AbortSignal): Promise<{ markers: RecommendationChartMarker[]; recommendations: RecommendationChartRecord[] }> {
   const params = new URLSearchParams({ symbol, exchange });
   const response = await fetch(`/api/recommendations/chart-markers?${params}`, { cache: "no-store", signal });

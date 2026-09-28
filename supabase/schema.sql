@@ -82,6 +82,7 @@ create table if not exists public.stock_technical_indicators (
   volume double precision,
   volume_sma_20 double precision,
   change_pct double precision,
+  cmf_20 double precision,
   updated_at timestamptz default now(),
   unique(symbol, exchange)
 );
@@ -147,6 +148,7 @@ create table if not exists public.market_heatmap (
   sector text,
   symbol text not null,
   change_pct double precision,
+  cmf_20 double precision,
   volume double precision,
   cap double precision,
   source text,

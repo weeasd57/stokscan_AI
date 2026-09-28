@@ -3,6 +3,7 @@ type HeatmapRow = {
   close?: number | string | null;
   volume?: number | string | null;
   change_pct?: number | string | null;
+  cmf_20?: number | string | null;
   sector?: string | number | null;
   symbol?: string;
   name?: string;
@@ -14,6 +15,7 @@ type HeatmapSectorStock = {
   close: number;
   volume: number;
   change_pct: number;
+  cmf?: number;
   money_flow: number;
   weight_in_sector?: number;
 };
@@ -134,6 +136,7 @@ export const buildHeatmapSnapshotFromRows = (
       close,
       volume,
       change_pct: changePct,
+      cmf: Number(row.cmf_20 || 0),
       money_flow: moneyFlow,
     });
   }
@@ -146,7 +149,10 @@ export const buildHeatmapSnapshotFromRows = (
         : 0;
       sector.change_pct = Number(weightedChange.toFixed(2));
       sector.market_share = totalMarketFlow > 0 ? Number(((sector.money_flow / totalMarketFlow) * 100).toFixed(2)) : 0;
-      sector.sentiment = getHeatmapSentiment(sector.change_pct, sector.change_pct / 100);
+      const weightedCmf = sector.money_flow > 0
+        ? sector.stocks.reduce((sum, stock) => sum + Number(stock.cmf || 0) * stock.money_flow, 0) / sector.money_flow
+        : 0;
+      sector.sentiment = getHeatmapSentiment(sector.change_pct, weightedCmf);
       sector.stocks = sector.stocks.map((stock) => ({
         ...stock,
         weight_in_sector: sector.money_flow > 0 ? (stock.money_flow / sector.money_flow) * 100 : 0,

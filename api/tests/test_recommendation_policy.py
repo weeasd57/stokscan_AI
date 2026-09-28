@@ -64,6 +64,33 @@ def test_invalid_data_is_not_silently_marked_reviewed():
         evaluate([bar(2, high=90, low=110)])
 
 
+def test_sector_distribution_exit_records_outcome_for_a_winning_or_losing_trade():
+    risk = {"2026-09-02": {"Real Estate": {"sector_change_pct": -1.4}}}
+    result = evaluate([bar(2, opening=100, high=106, low=96, close=105)],
+        sector_risk_by_date=risk, recommendation_sector="Real Estate",
+        recommendation_symbol="TEST", weak_symbols_by_date={"2026-09-02": {"TEST"}})
+    assert result["exit_reason"] == "sector_distribution_exit"
+    assert result["exit_price"] == 105
+    assert result["status"] == "win"
+    assert result["sector_risk"]["sector_change_pct"] == -1.4
+
+
+def test_intraday_stop_keeps_precedence_over_sector_distribution_exit():
+    risk = {"2026-09-02": {"Real Estate": {"sector_change_pct": -1.4}}}
+    result = evaluate([bar(2, opening=89, high=95, low=88, close=90)],
+        sector_risk_by_date=risk, recommendation_sector="Real Estate",
+        recommendation_symbol="TEST", weak_symbols_by_date={"2026-09-02": {"TEST"}})
+    assert result["exit_reason"] == "stop_hit"
+
+
+def test_strong_stock_is_not_closed_only_because_its_sector_is_weak():
+    risk = {"2026-09-02": {"Real Estate": {"sector_change_pct": -1.4}}}
+    result = evaluate([bar(2, opening=100, high=106, low=96, close=105)],
+        sector_risk_by_date=risk, recommendation_sector="Real Estate",
+        recommendation_symbol="STRONG", weak_symbols_by_date={"2026-09-02": {"WEAK"}})
+    assert result["status"] == "open"
+
+
 @pytest.mark.parametrize("signal_close, expected_updates", [(100, 1), (50, 0)])
 def test_daily_evaluator_closes_using_hf_archive_when_supabase_has_no_prices(
     monkeypatch, signal_close, expected_updates

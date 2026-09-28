@@ -836,6 +836,31 @@ export function isUnresolvedCompanyNameMention(message: string, extractedSymbols
 // In-Memory Image Cache - DISABLED for better accuracy
 const imageCache = new Map<string, PlannerResult>();
 const ENABLE_IMAGE_CACHE = false; // 🔧 Disabled to force fresh analysis
+const PLANNER_TOOLS = new Set([
+    "get_stock", "get_news", "get_corporate_actions", "get_recommendations", "get_sector", "get_sector_list",
+    "get_market", "get_accumulation_stocks", "get_distribution_stocks", "get_technical_scan", "get_comparison", "search_web",
+    "get_stock_levels", "get_price_history", "manage_portfolio", "get_sector_liquidity", "get_signals", "get_fair_value_scan",
+]);
+const REQUIRED_FACT_TOOLS: Record<string, string[]> = {
+    stock_quote: ["get_stock"], technical_indicators: ["get_stock"], price_levels: ["get_stock", "get_stock_levels"],
+    news: ["get_news"], corporate_actions: ["get_corporate_actions"], liquidity: [],
+    accumulation: ["get_accumulation_stocks"], distribution: ["get_distribution_stocks"], market_summary: ["get_market"],
+    recommendations: ["get_recommendations"], historical_prices: ["get_price_history"], portfolio_positions: ["manage_portfolio"],
+};
+
+export function buildPlannerDialogueContext(session: SessionState, history: any[]): string {
+    const sessionSnapshot = {
+        current_symbol: session.current_symbol,
+        last_symbols: session.last_symbols,
+        current_sector: (session as any).current_sector,
+        summary: session.summary,
+        last_topic: (session as any).last_topic,
+    };
+    const recentHistoryText = (history || []).slice(-8)
+        .map((item: any) => `${String(item.role || "unknown").slice(0, 12)}: ${String(item.content || "").slice(0, 1400)}`)
+        .join("\n");
+    return `Current Session State:\n${JSON.stringify(sessionSnapshot)}\n\nRecent Dialogue (oldest to newest):\n${recentHistoryText || "(no prior turns)"}`;
+}
 
 function validateImageExtraction(summary: string | null): boolean {
     if (!summary) return false;
@@ -938,6 +963,15 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
     "timeframe": null
   },
   "tools": ["ToolName1", "ToolName2"], // EXACT tool names selected from AVAILABLE TOOLS. [] for general_chat.
+  "request": {
+    "goal": "short description of what the user wants",
+    "reference": "explicit|portfolio|previous_turn|market|none",
+    "ranking_metric": "price_change|liquidity|accumulation|fundamentals|unspecified",
+                            "required_facts": ["stock_quote|technical_indicators|price_levels|news|corporate_actions|liquidity|accumulation|distribution|market_summary|recommendations|historical_prices|portfolio_positions"],
+    "clarification_reason": null
+  },
+  "clarification_needed": false,
+  "clarification_options": [],
   "image_summary": null,
   "session_update": {
     "current_symbol": "SYMBOL1",
@@ -957,15 +991,16 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
 - NEVER use double quotes (") inside string values like image_summary. Use single quotes (').
 - Return ONLY valid JSON, starting with '{' and ending with '}'.`;
 
-    const hasContextReference = /الاتنين|الإثنين|الاطنين|كلاهما|مع بعض|السهمين|تحليلهم|هاتهم|قولي عنهم|حللهم|بياناتهم|سعرهم|أخبارهم|ده|دا|دي|هذا|السابق|اللي فات|قبل كده|من شوية|تاريخ الشات|سياق المحادثة/i.test(message || "");
-    const recentHistoryText = (hasImages || visionProvided || !hasContextReference) ? "" : (history || []).slice(-4).map((h: any) => `${h.role}: ${h.content}`).join("\n");
+    // Every turn gets a bounded dialogue window. Pronoun regexes are not a
+    // reliable gate for context: "أول ٥ أسهم" and "أفضل واحد فيهم" are
+    // meaningful only in light of the preceding turn, even without a pronoun.
     const imageInstructions = visionProvided
         ? ""
         : (hasImages
         ? `\n\n⚠️ UNRESTRICTED EXPERT VISION EXTRACTION ⚠️\n- Thoroughly inspect the uploaded image(s) using full multimodal vision capabilities.\n- If the image contains portfolio holdings, OCR and extract ALL visible uppercase stock tickers.\n- If the image contains technical charts, diagrams, or financial documents: describe every detail, pattern, technical indicator, price target, support/resistance level, and trend visible in image_summary.\n` 
         : "");
-    const sessionContext = hasContextReference
-        ? `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\n`
+    const sessionContext = !hasImages && !visionProvided
+        ? `${buildPlannerDialogueContext(session, history)}\n\n`
         : "";
     const userPromptText = `${sessionContext}User Request:\n${message || "Analyze input"}${imageInstructions}\n\n⚠️ CRITICAL instruction: You MUST return ONLY a valid JSON object starting with '{' and ending with '}'. Do NOT write any conversational text, explanations, or steps (like 'To analyze the image...'). Respond only with the JSON data.`;
 
@@ -1215,9 +1250,14 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                             }
                         }
 
+                        const requiredFacts: string[] = Array.isArray(parsed.request?.required_facts)
+                            ? parsed.request.required_facts.filter((fact: unknown) => Object.prototype.hasOwnProperty.call(REQUIRED_FACT_TOOLS, String(fact)))
+                            : [];
                         const toolsList: string[] = (finalIntent === "general_chat" || isTermsQuestion)
-                            ? [] 
-                            : (Array.isArray(parsed.tools) ? parsed.tools : []);
+                            ? []
+                            : (Array.isArray(parsed.tools) ? parsed.tools.filter((tool: unknown) => typeof tool === "string" && PLANNER_TOOLS.has(tool)) : []);
+                        requiredFacts.forEach(fact => REQUIRED_FACT_TOOLS[fact].forEach(tool => toolsList.push(tool)));
+                        if (requiredFacts.includes("liquidity") && resolvedSymbols.length > 0) toolsList.push("get_stock");
                         const isBreakoutOrAccumulationScan = /اختراق|مقاوم|مقاومات|تجميع|وايكوف/i.test(message) && resolvedSymbols.length === 0;
                         if (isBreakoutOrAccumulationScan && !hasImages) {
                             if (!toolsList.includes("get_accumulation_stocks")) toolsList.push("get_accumulation_stocks");
@@ -1235,6 +1275,25 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                         const result: PlannerResult = {
                             intent: finalIntent,
                             confidence: parsed.confidence || 0.95,
+                            request: parsed.request && typeof parsed.request === "object" ? {
+                                goal: String(parsed.request.goal || finalIntent).slice(0, 180),
+                                reference: ["explicit", "portfolio", "previous_turn", "market", "none"].includes(parsed.request.reference)
+                                    ? parsed.request.reference : (resolvedSymbols.length ? "explicit" : "none"),
+                                ranking_metric: ["price_change", "liquidity", "liquidity_unavailable", "accumulation", "fundamentals", "unspecified"].includes(parsed.request.ranking_metric)
+                                    ? parsed.request.ranking_metric : "unspecified",
+                                required_facts: Array.isArray(parsed.request.required_facts)
+                                    ? parsed.request.required_facts.filter((fact: unknown) => ["stock_quote", "technical_indicators", "price_levels", "news", "corporate_actions", "liquidity", "accumulation", "distribution", "market_summary", "recommendations", "historical_prices", "portfolio_positions"].includes(String(fact))).slice(0, 12)
+                                    : [],
+                                clarification_reason: typeof parsed.request.clarification_reason === "string" ? parsed.request.clarification_reason.slice(0, 240) : null,
+                            } : undefined,
+                            clarification_needed: Boolean(parsed.clarification_needed)
+                                || (Number(parsed.confidence) < 0.45 && finalIntent !== "general_chat")
+                                || (requiredFacts.some((fact: string) => ["stock_quote", "technical_indicators", "price_levels", "news", "corporate_actions"].includes(fact))
+                                    && resolvedSymbols.length === 0
+                                    && !["get_market", "get_accumulation_stocks", "get_distribution_stocks", "get_sector", "get_sector_liquidity", "get_recommendations", "get_technical_scan"].some((tool: string) => Array.isArray(parsed.tools) && parsed.tools.includes(tool))),
+                            clarification_options: Array.isArray(parsed.clarification_options)
+                                ? parsed.clarification_options.filter((option: unknown) => typeof option === "string").slice(0, 5).map((option: string) => option.slice(0, 100))
+                                : [],
                             guidance_intent: parsed.guidance_intent || null,
                             unresolved_stock: unresolvedCompanyName && resolvedSymbols.length === 0,
                             service_degraded_message: (unresolvedCompanyName && resolvedSymbols.length === 0)

@@ -123,6 +123,18 @@ export interface IntentPlan {
         symbol: string | null;
         message_id: string | null;
     };
+    /** Structured semantic interpretation used to verify tool coverage and references. */
+    request?: RequestContract;
+    /** Market ranking metric retained through response and fallback stages. */
+    ranking_metric?: RequestContract["ranking_metric"];
+}
+
+export interface RequestContract {
+    goal: string;
+    reference: "explicit" | "portfolio" | "previous_turn" | "market" | "none";
+    ranking_metric: "price_change" | "liquidity" | "liquidity_unavailable" | "accumulation" | "fundamentals" | "unspecified";
+    required_facts: Array<"stock_quote" | "technical_indicators" | "price_levels" | "news" | "corporate_actions" | "liquidity" | "accumulation" | "distribution" | "market_summary" | "recommendations" | "historical_prices" | "portfolio_positions">;
+    clarification_reason?: string | null;
 }
 
 export interface ToolResult {
@@ -211,6 +223,7 @@ export interface PlannerResult {
         last_symbols: string[];
         summary: string | null;
     };
+    request?: RequestContract;
 }
 
 export interface ToolExecutionResult {

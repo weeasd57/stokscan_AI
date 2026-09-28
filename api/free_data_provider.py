@@ -529,33 +529,26 @@ def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[st
     except Exception as e:
         logger.warning(f"USD/EGP merge failed: {e}")
 
-    # EGX100 fallback (if still empty, use EGX30)
-    if not egx100_data:
-        egx100_data = egx30_data
-    
-    # Calculate regime
-    regime = "sideways"
-    egx30_return = 0.0
-    reject_buys = False
-    
-    if egx30_data and len(egx30_data) >= 2:
-        try:
-            close_today = float(egx30_data[-1]["close"])
-            close_prev = float(egx30_data[-2]["close"])
-            egx30_return = (close_today - close_prev) / close_prev
-            
-            # Simple regime detection
-            if egx30_return > 0.02:
-                regime = "bull"
-            elif egx30_return < -0.05:
-                regime = "panic"
-                reject_buys = True
-            elif -0.02 <= egx30_return <= 0.02:
-                regime = "sideways"
-            else:
-                regime = "bear"
-        except Exception as e:
-            logger.warning(f"Regime calculation failed: {e}")
+    # A broad-market decision requires both indices and breadth.  The old
+    # single-session EGX30 threshold missed slow multi-session selloffs.
+    from api.market_strategy import breadth_from_heatmap, market_context
+    breadth = {}
+    try:
+        if supabase:
+            heatmap_rows = (
+                supabase.table("market_heatmap")
+                .select("symbol,change_pct,captured_at")
+                .order("captured_at", desc=True)
+                .limit(600)
+                .execute()
+            ).data or []
+            breadth = breadth_from_heatmap(heatmap_rows)
+    except Exception as breadth_error:
+        logger.warning(f"Market breadth calculation failed: {breadth_error}")
+    context = market_context(egx30_data, egx100_data, breadth)
+    regime = context["regime"]
+    reject_buys = context["reject_buys"]
+    egx30_return = (context["egx30"].get("return_1d_pct") or 0.0) / 100.0
     
     return {
         "egx30": egx30_data,
@@ -564,6 +557,7 @@ def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[st
         "regime": regime,
         "egx30_return": egx30_return,
         "reject_buys": reject_buys,
+        "market_context": context,
         "updated_at": dt.datetime.utcnow().isoformat(),
         "source": "free_providers"
     }

@@ -174,6 +174,32 @@ export function sanitizePlannerTools(message: string, tools: string[]): string[]
     return tools.filter(tool => tool !== "get_recommendations" && tool !== "get_signals");
 }
 
+/** Market ranking is a different question from ranking daily price movers. */
+export function getMarketRankingMode(message: string, requested?: PlannerResult["request"]): "price_change" | "liquidity_unavailable" | "accumulation" | null {
+    const normalized = normalizeArabicIntent(message);
+    if (/(?:وايكوف|wyckoff|مرحله\s+تجميع|اسهم\s+التجميع|سيوله\s+مؤسسيه|سيوله\s+ذكيه|تجميع\s+مؤسسي|التجميع\s+المؤسسي)/i.test(normalized)) return "accumulation";
+    if (requested?.ranking_metric === "accumulation") return "accumulation";
+    const sectorScoped = Boolean(extractSectorFromMessage(message)) || /(?:القطاعات|قطاعات|قطاع)/i.test(normalized);
+    const historicalPeriod = /(?:هذا\s+الشهر|الشهر\s+الحالي|خلال\s+الشهر|من\s+اول\s+(?:السنه|السنة|الشهر|الاسبوع)|منذ\s+بدايه\s+(?:السنه|السنة|الشهر|الاسبوع)|شهري|اسبوعي|اخر\s+\d+\s+(?:ايام|اسابيع|شهور)|عام|سنوي|ytd|mtd|wtd)/i.test(normalized);
+    const marketRanking = !sectorScoped && !historicalPeriod
+        && /(?:اعلى|اعلي|اقوى|اقوي|اكبر|ترتيب|رتب|قائمه|قايمه|مين\s+اكتر|اسهم\s+الاكثر)/i.test(normalized)
+        && /(?:اسهم|السوق|البورصه|تداول|جلسه|اليوم|النهارده|حاليا|مباشر|اخر\s+جلسه)/i.test(normalized);
+    if (marketRanking && /(?:سيول|حجم\s*(?:التداول)?|احجام\s*(?:التداول)?|volume|بيجمع)/i.test(normalized)) return "liquidity_unavailable";
+    if (requested?.ranking_metric === "liquidity" && marketRanking) return "liquidity_unavailable";
+    if (/(?:تجميع|accumulation)/i.test(normalized)) return "accumulation";
+    if (!sectorScoped && !historicalPeriod && /(?:اعلى|اعلي|اقوى|اقوي|اكبر|اكبر).{0,35}(?:ارتفاع|صعود|رابح|مكسب|gainer)/i.test(normalized)) return "price_change";
+    const bareDailyGainers = /(?:اقوى|اعلى)\s+(?:الاسهم|اسهم)(?:\s+(?:اليوم|النهارده|اخر\s+جلسه))?$/i.test(normalized.trim());
+    if (!sectorScoped && !historicalPeriod && bareDailyGainers
+        && !/(?:استثمار|فن[ىي]|توزيع|ارباح|عائد|سيول|حجم|تجميع|تصريف|زخم|مؤشرات)/i.test(normalized)) return "price_change";
+    if (requested?.ranking_metric === "price_change" && !sectorScoped && !historicalPeriod) return "price_change";
+    return null;
+}
+
+export function resolveGroupReferenceSymbols(message: string, candidates: string[]): string[] {
+    const refersToPriorGroup = /(?:فيهم|منهم|بينهم|وسطهم|واحد\s+منهم|واحد\s+فيهم|among\s+them|between\s+them)/i.test(normalizeArabicIntent(message));
+    return refersToPriorGroup ? Array.from(new Set(candidates.map(symbol => String(symbol).toUpperCase()))).slice(0, 15) : [];
+}
+
 export function scopeImplicitSingleStockRequest(
     message: string,
     explicitSymbols: string[],
@@ -1014,6 +1040,15 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             }
         };
     }
+    if (explicitSymbols.length === 0 && /(?:اقوى|أقوى|اعلى|أعلى)\s+(?:الاسهم|الأسهم|اسهم)(?:\s+(?:النهارده|اليوم|اخر\s+جلسه))?$/i.test(normalized.trim())) {
+        return {
+            intent: "market_summary", confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: ["get_market"],
+            request: { goal: "ترتيب الأسهم حسب تغير السعر في آخر جلسة", reference: "market", ranking_metric: "price_change", required_facts: ["market_summary"] },
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        } as PlannerResult;
+    }
     const isMarketCheapestRequest = explicitSymbols.length === 0
         && /(?:ارخص|أرخص)\s*(?:\d{1,2})?\s*(?:ال)?(?:اسهم|الاسهم|أسهم|الأسهم|سهم)/i.test(normalized)
         && !/(?:ارتفاع|صعود|عائد|اداء|أداء|سيول|تداول|خسار|انخفاض|هابط)/i.test(normalized);
@@ -1792,6 +1827,8 @@ export interface PipelineOptions {
     signal?: AbortSignal;
     timeoutMs?: number;
     mockToolsResults?: StructuredToolOutput;
+    /** Test seam for exercising downstream intent resolution without a planner service. */
+    mockPlannerResult?: PlannerResult;
 }
 
 export async function* runPipelineStream(
@@ -1864,7 +1901,8 @@ async function* runPipelineCore(
     const pendingImportAnalysis = isPortfolioAnalysisRequest(userMessage);
     const cancelsPendingImport = /(?:^|\s)(?:الغاء|إلغاء|الغي|ألغي|مش عايز|سيبها|cancel)(?:$|\s)/i.test(userMessage.trim());
     const answersPendingImport = /[0-9٠-٩]/.test(userMessage)
-        && !/(?:اخبار|أخبار|حلل|تحليل|سعر|ليه|لماذا|ازاي|إزاي|هل|؟|\?)/i.test(userMessage);
+        && !/(?:اخبار|أخبار|حلل|تحليل|ليه|لماذا|ازاي|إزاي|هل|؟|\?)/i.test(userMessage)
+        && !/(?:السعر\s+الحالي|آخر\s+سعر|سعر\s+حالي)/i.test(userMessage);
     if (!hasImages && pendingImport?.items?.length && !analyzeSavedPortfolio
         && (pendingImportAnalysis || cancelsPendingImport || answersPendingImport)) {
         if (cancelsPendingImport) {
@@ -2283,13 +2321,19 @@ async function* runPipelineCore(
     // Ambiguous/new phrasings are delegated to the semantic planner instead of
     // being forced into a regex fallback that silently reuses an old symbol.
     const deterministicPlannerResult = buildCompoundDeterministicPlan(userMessage, sessionState);
-    let plannerResult = deterministicPlannerResult ?? generalChatPlan(sessionState);
+    let plannerResult = options.mockPlannerResult ?? deterministicPlannerResult ?? generalChatPlan(sessionState);
     const greetingOnly = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم|شكرا|شكرًا|تمام|اوكي|أوكي)[؟?،,.!\s]*$/i.test(userMessage.trim());
+    const preserveDeterministicPlan = greetingOnly
+        || /^(?:جدع|عاش|تمام|تسلم|شكرا|شكراً|حلو|ممتاز|برافو)\s*[!؟?.]*$/i.test(userMessage.trim())
+        || Boolean(detectPortfolioIntent(userMessage))
+        || deterministicPlannerResult?.intent === "portfolio_management"
+        || deterministicPlannerResult?.guidance_intent === "terms_explainer"
+        || Boolean(deterministicPlannerResult?.service_degraded_message || deterministicPlannerResult?.unresolved_stock);
     const canUseSemanticPlanner = !hasImages
         && portfolioAnalysisSymbols.length === 0
         && !options.mockToolsResults
         && !greetingOnly
-        && !deterministicPlannerResult
+        && !preserveDeterministicPlan
         && Boolean(apiKeys.length > 0 || getDeepSeekApiKey());
     if (canUseSemanticPlanner) {
         try {
@@ -2391,6 +2435,10 @@ async function* runPipelineCore(
     const explicitSymbols = extractExplicitSymbols(userMessage);
     const broadScanRequest = explicitSymbols.length === 0 && /(?:الاسهم|اسهم|هات|ابعت|اعرض).{0,40}(?:تجميع|تصريف)|(?:تجميع|تصريف).{0,40}(?:الاسهم|اسهم)/i.test(normalizeArabicIntent(userMessage));
     const plannerResolvedSymbols = plannerResult.entities.symbols || [];
+    const antecedentSymbols = (sessionState.last_symbols || []).length > 1
+        ? sessionState.last_symbols
+        : plannerResolvedSymbols;
+    const groupReferenceSymbols = resolveGroupReferenceSymbols(userMessage, antecedentSymbols);
     const unionSymbols = explicitSymbols.length > 0
         ? Array.from(new Set([...explicitSymbols, ...plannerResolvedSymbols]))
         : plannerResolvedSymbols;
@@ -2461,7 +2509,8 @@ async function* runPipelineCore(
     const unrecognizedTicker = !vision && explicitSymbols.length === 0
         && /^[A-Za-z]{2,6}[؟?\s.]*$/.test(userMessage.trim());
     const compoundRequest = splitChatCommands(userMessage).length > 1;
-    if ((isMarketWideRequest(userMessage) || broadScanRequest || (isBestBuyStockQuestion(userMessage) && !isSingleStockRecFollowUp) || plannerResult.intent === "technical_scan" || plannerResult.intent === "accumulation_distribution") && !compoundRequest && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
+    if ((isMarketWideRequest(userMessage) || broadScanRequest || (isBestBuyStockQuestion(userMessage) && !isSingleStockRecFollowUp && groupReferenceSymbols.length === 0) || plannerResult.intent === "technical_scan" || plannerResult.intent === "accumulation_distribution" || Boolean(plannerResult.request?.reference === "market")) && !compoundRequest && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
+    if (groupReferenceSymbols.length > 0 && isBestBuyStockQuestion(userMessage)) mergedSymbols = groupReferenceSymbols;
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     const fairValueScanRequest = isFairValueScanRequest(userMessage);
     const dateOnlyFollowUp = Boolean(
@@ -2499,13 +2548,43 @@ async function* runPipelineCore(
     if (explicitSymbols.length === 0 && !isExplicitStockIntent && enforced.tools.some(tool => marketScopedTools.has(tool))) mergedSymbols = [];
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
     const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
-    const effectiveIntent = historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent;
+    let effectiveIntent = historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent;
 
+    const requiredFactTools: Record<string, string[]> = {
+        stock_quote: ["get_stock"], technical_indicators: ["get_stock"], price_levels: ["get_stock", "get_stock_levels"],
+        news: ["get_news"], corporate_actions: mergedSymbols.length ? ["get_corporate_actions"] : [],
+        liquidity: mergedSymbols.length ? ["get_stock"] : plannerResult.entities.sector ? ["get_sector_liquidity"] : [],
+        accumulation: ["get_accumulation_stocks"], distribution: ["get_distribution_stocks"], market_summary: ["get_market"],
+        recommendations: ["get_recommendations"], historical_prices: ["get_price_history"], portfolio_positions: ["manage_portfolio"],
+    };
+    const requestedFactTools = compoundRequest ? [] : Array.from(new Set((plannerResult.request?.required_facts || []).flatMap(fact => requiredFactTools[fact] || [])));
     const plannedTools = plannerResult.clarification_needed
         ? []
         : sanitizePlannerTools(userMessage, enforced.replaceTools
-        ? enforced.tools
+        ? [...enforced.tools, ...requestedFactTools]
         : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools])));
+    const marketRankingMode = mergedSymbols.length === 0 ? getMarketRankingMode(userMessage, plannerResult.request) : null;
+    if (marketRankingMode === "liquidity_unavailable") {
+        plannedTools.splice(0, plannedTools.length);
+        effectiveIntent = "clarification";
+        plannerResult.clarification_needed = true;
+        plannerResult.clarification_options = ["أسهم التجميع المؤسسي (Wyckoff)", "أعلى الأسهم ارتفاعاً في السعر"];
+        plannerResult.request = {
+            goal: "ترتيب أسهم السوق حسب السيولة وحجم التداول",
+            reference: "market",
+            ranking_metric: "liquidity",
+            required_facts: ["liquidity"],
+            clarification_reason: "لا يتوفر حالياً مسح سوقي موثق لترتيب كل الأسهم حسب قيمة التداول أو نسبة الحجم.",
+        };
+    } else if (!plannerResult.clarification_needed && marketRankingMode) {
+        const marketTools = marketRankingMode === "price_change" ? ["get_market"]
+            : marketRankingMode === "accumulation" ? ["get_accumulation_stocks"] : [];
+        for (const tool of marketTools) if (!plannedTools.includes(tool)) plannedTools.push(tool);
+        effectiveIntent = marketRankingMode === "accumulation" ? "accumulation_distribution" : "market_summary";
+        if (plannerResult.request) plannerResult.request.ranking_metric = marketRankingMode;
+        if (marketRankingMode === "accumulation") plannerResult.entities.scan_direction = "accumulation";
+    }
+    if (marketRankingMode === "price_change" && !plannerResult.clarification_needed && !plannedTools.includes("get_market")) plannedTools.push("get_market");
     // Day-by-day change questions need the daily price rows; the compound-command
     // path above can bypass enforceIntentFromMessage and the planner sometimes
     // omits get_price_history, so re-add it here.
@@ -2515,7 +2594,7 @@ async function* runPipelineCore(
         plannedTools.push("get_price_history");
     }
     const isGreetingMsg = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم|شكرا|شكرًا|تمام|اوكي|أوكي)[؟?،,.!\s]*$/i.test(userMessage.trim());
-    if (!plannerResult.clarification_needed && plannedTools.length === 0 && (unrecognizedTicker || unresolvedStockName || (mergedSymbols.length === 0 && !isGreetingMsg && !isTermsDefinitionRequest(userMessage) && userMessage.trim().length >= 2))) {
+    if (!plannerResult.clarification_needed && !plannerResult.service_degraded_message && plannedTools.length === 0 && (unrecognizedTicker || unresolvedStockName || (mergedSymbols.length === 0 && !isGreetingMsg && !isTermsDefinitionRequest(userMessage) && userMessage.trim().length >= 2))) {
         plannedTools.push("search_web");
     }
     const requestedRange = extractRequestedDateRange(userMessage);
@@ -2554,7 +2633,7 @@ async function* runPipelineCore(
             ,requested_date: extractRequestedDate(userMessage) || null
             ,requested_start_date: requestedRange?.start || null
              ,requested_end_date: requestedRange?.end || null
-             ,portfolio_operation: plannerResult.entities.portfolio_operation || null
+            ,portfolio_operation: plannerResult.entities.portfolio_operation || null
          },
         needs_vision_context: hasImages && !!vision,
         needs_history: Boolean(implicitStockFollowUp && memory?.resolved_references?.symbol) || plannerResult.intent === "general_chat",
@@ -2563,8 +2642,10 @@ async function* runPipelineCore(
         tools: plannedTools,
         clarification_needed: Boolean(plannerResult.clarification_needed),
         clarification_options: plannerResult.clarification_options || [],
+        ranking_metric: marketRankingMode || plannerResult.request?.ranking_metric || "unspecified",
         service_degraded_message: plannerResult.service_degraded_message || null,
         unresolved_stock: Boolean(plannerResult.unresolved_stock),
+        request: plannerResult.request,
         resolved_from: {
             symbol: implicitStockFollowUp ? memory?.resolved_references?.symbol || null : null,
             message_id: implicitStockFollowUp ? memory?.resolved_references?.message_id || null : null
@@ -2589,7 +2670,9 @@ async function* runPipelineCore(
     yield { type: "plan", data: plan };
 
     if (plan.clarification_needed) {
-        const response = buildDeterministicResponse(userMessage, plan, []);
+        const response = plan.request?.clarification_reason
+            ? `لا تتوفر لدي حالياً بيانات مسح موثقة لترتيب جميع أسهم السوق حسب السيولة وحجم التداول؛ لذلك لن أستبدل هذا الترتيب بقائمة الأسهم الأعلى ارتفاعاً أو بنتائج التجميع. أقدر أعرض أسهم التجميع المؤسسي (Wyckoff) أو أعلى الأسهم ارتفاعاً في السعر.`
+            : buildDeterministicResponse(userMessage, plan, []);
         const safeResponse = response || "اختار المقصود من الخيارات عشان أستخدم الأداة المناسبة.";
         yield { type: "token", data: safeResponse };
         await persistPipelineSession(sessionState, sessionSummary, plan, vision, memory, sessionId, userId, supabase, hasImages);
@@ -2706,16 +2789,9 @@ async function* runPipelineCore(
     const isBothScans = hasAccTool && hasDistTool;
     const directionAr = isBothScans ? "تجميع وتصريف" : (plan.entities.scan_direction === "distribution" ? "تصريف" : "تجميع");
 
-    const topMoversRequest = /(أعلى|اعلى|أقوى|اقوى).{0,25}(الأسهم|اسهم|ارتفاع|صعود|النهارده|اليوم|اخر يوم|آخر يوم|جلسه|جلسة)/i.test(userMessage);
-    const deterministicLiquidityResponse = topMoversRequest
-        ? buildTopMoversResponse(tools)
-        : (plan.intent === "market_summary" && plan.entities.symbols.length === 0
-            && !plan.tools.includes("get_fair_value_scan")
-            && !plan.entities.scan_direction
-            && !isBothScans
-            && !hasDistTool)
-        ? buildMarketLiquidityResponse(tools)
-        : null;
+    // Market rankings and liquidity summaries are ordinary data-backed answers:
+    // let the configured responder explain the fetched facts in the user's terms.
+    const deterministicLiquidityResponse = null;
     const isAnalyticalQueryRegex = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|اشتريت|خسران|نازل|عادله|عادلة|تقييم|قيمته|تسوى|تساوي|أهداف|اهداف|احتفاظ|خروج|دخول|بيجمع|ينطلق|مؤشر|مؤشرات|اخبار|أخبار|إيه|ايه|هل|فين|مين|مسح|شروط|\?|؟)/i;
     const isAnalyticalQuery = isAnalyticalQueryRegex.test(userMessage) || userMessage.trim().split(/\s+/).length > 4;
     
@@ -2780,9 +2856,7 @@ async function* runPipelineCore(
         : null;
 
     // Build dual scan presentation when both accumulation and distribution tools have results
-    const deterministicBothScanResponse = isBothScans && !emptyScanResult
-        ? buildBothAccumulationDistributionResponse(userMessage, plan, tools.results)
-        : null;
+    const deterministicBothScanResponse = null;
 
     // These templates are grounded directly in the returned tool rows. Keeping
     // them ahead of the responder prevents unsupported claims about liquidity
@@ -2855,10 +2929,23 @@ async function* runPipelineCore(
     let finalReply = "";
 
     const responderMeta: { source?: "llm" | "deterministic"; degraded?: boolean } = {};
+    const marketGainersResult = tools.results.find(result => result.tool === "get_market");
+    const verifiedGainers = Array.isArray(marketGainersResult?.data?.top_gainers)
+        ? marketGainersResult.data.top_gainers.filter((stock: any) => Number.isFinite(Number(stock?.change ?? stock?.change_pct)))
+        : [];
+    const verifiedTopMovers = marketGainersResult && verifiedGainers.length > 0
+        ? [
+            `أقوى الأسهم ارتفاعاً حسب آخر جلسة متاحة بتاريخ ${marketGainersResult.data_time}:`,
+            ...verifiedGainers.slice(0, 10)
+                .map((stock: any, index: number) => `${index + 1}. ${stock.symbol}${stock.name && stock.name !== stock.symbol ? ` (${stock.name})` : ""}: ${Number(stock.change ?? stock.change_pct) >= 0 ? "+" : ""}${Number(stock.change ?? stock.change_pct).toFixed(2)}%.`),
+            "الترتيب حسب نسبة التغير في الجلسة، وليس توصية شراء أو تقييماً للقيمة العادلة."
+        ].join("\n")
+        : null;
 
-while (attempts < maxAttempts) {
+    while (attempts < maxAttempts) {
         if (remainingExecutionMs() < 5000) {
-            finalReply = buildSafeFallbackResponse(tools.results, plan);
+            finalReply = (plan.ranking_metric === "price_change" ? buildTopMoversResponse(tools) : null)
+                || buildSafeFallbackResponse(tools.results, plan);
             break;
         }
         let currentResponse = "";
@@ -2885,6 +2972,8 @@ while (attempts < maxAttempts) {
                     : briefStockMention ? 550 : undefined
         );
 
+        // A market ranking fallback is still grounded in the live tool result,
+        // so it remains useful even when every configured language provider is down.
         for await (const chunk of stream) {
             // Preserve all answer sections and tables for validation. Removing
             // whole lines based on presentation phrases can delete requested facts.
@@ -2892,12 +2981,21 @@ while (attempts < maxAttempts) {
         }
 
         currentResponse = currentResponse.trim();
+        if (plan.ranking_metric === "price_change" && responderMeta.source === "deterministic" && responderMeta.degraded && verifiedTopMovers
+            && plan.tools.includes("get_market")) {
+            finalReply = verifiedTopMovers;
+            break;
+        }
 
         // Deterministic replies are template-built from live tool data — re-validating
         // them only wastes an attempt cycle. A degraded fallback (all providers failed)
         // gets one cheap retry: models in 429 cooldown are skipped instantly, so the
         // retry only costs time when a short rate-limit window expired and a model recovered.
         if (responderMeta.source === "deterministic") {
+            if (responderMeta.degraded && plan.ranking_metric === "price_change") {
+                finalReply = buildTopMoversResponse(tools) || currentResponse;
+                break;
+            }
             if (!responderMeta.degraded || attempts >= maxAttempts - 1) {
                 finalReply = currentResponse;
                 break;
@@ -3001,7 +3099,12 @@ while (attempts < maxAttempts) {
         attempts++;
     }
 
-    let fullResponse = normalizeStockFreshnessLanguage(sanitizeReply(finalReply), tools.results);
+    let fullResponse = normalizeStockFreshnessLanguage(
+        plan.ranking_metric === "price_change" && verifiedTopMovers && responderMeta.degraded && finalReply === verifiedTopMovers
+            ? verifiedTopMovers
+            : sanitizeReply(finalReply),
+        tools.results
+    );
 
     // 🛡️ Final safety net: if the reply is not an Arabic answer (e.g. leaked
     // English chain-of-thought survived all attempts), use the safe Arabic fallback.

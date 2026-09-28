@@ -250,9 +250,14 @@ export function buildV2FinalMessages(
         })(),
         confidence: plan.confidence,
         entities: plan.entities,
+        request: plan.request || null,
         needs_live_data: plan.needs_live_data,
         needs_historical_data: plan.needs_historical_data
     }, null, 2));
+    if (plan.request) {
+        sections.push("=== REQUEST CONTRACT ===");
+        sections.push(`أجب عن الهدف والمعيار المحددين في العقد. لا تستبدل معيار الترتيب بطلب أسهل. إذا كانت الحقائق المطلوبة غير موجودة في نتائج الأدوات، اذكر بوضوح ما ينقص ولا تعرض ترتيباً بديلاً.`);
+    }
 
     if (guidanceIntent) {
         const guidanceRules: Record<string, string> = {
@@ -1312,11 +1317,6 @@ export async function generateV2Response(
         if (meta) meta.source = "deterministic";
         return sanitizeReply(webSearchResponse);
     }
-    const newsResponse = buildDeterministicNewsResponse(userMessage, plan, toolResults);
-    if (newsResponse) {
-        if (meta) meta.source = "deterministic";
-        return newsResponse;
-    }
     const ytdRanking = buildYtdMarketRankingResponse(userMessage, plan, toolResults);
     if (ytdRanking) {
         if (meta) meta.source = "deterministic";
@@ -1327,30 +1327,9 @@ export async function generateV2Response(
         if (meta) meta.source = "deterministic";
         return sanitizeReply(dailyHistory);
     }
-    const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
-    if (fastAdvisor) {
-        if (meta) meta.source = "deterministic";
-        return fastAdvisor;
-    }
     const hasStockFactsForCompound = plan.entities.symbols.length > 0
         && toolResults.some(result => result.tool === "get_stock")
         && toolResults.some(result => result.tool === "get_stock_levels");
-    const singleStockAccDistResponse = hasStockFactsForCompound
-        ? null
-        : buildSingleStockAccumulationDistributionResponse(userMessage, plan, toolResults);
-    if (singleStockAccDistResponse) {
-        if (meta) meta.source = "deterministic";
-        return sanitizeReply(singleStockAccDistResponse);
-    }
-    const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|اشتريت|خسران|نازل)/i.test(userMessage);
-    const needsGuidanceResponse = plan.guidance_intent;
-    const deterministic = toolResults.length === 0 && !needsGuidanceResponse && !isAnalyticalQuery
-        ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState)
-        : null;
-    if (deterministic) {
-        if (meta) meta.source = "deterministic";
-        return deterministic;
-    }
     if (shouldReturnNoData(plan, visionContext, toolResults, relevantFacts)) {
         if (meta) meta.source = "deterministic";
         const requestedDate = plan.entities.requested_date;
@@ -1477,12 +1456,6 @@ export async function* generateV2Stream(
         yield sanitizeReply(webSearchResponse);
         return;
     }
-    const newsResponse = buildDeterministicNewsResponse(userMessage, plan, toolResults);
-    if (newsResponse) {
-        if (meta) meta.source = "deterministic";
-        yield sanitizeReply(newsResponse);
-        return;
-    }
     const ytdRanking = buildYtdMarketRankingResponse(userMessage, plan, toolResults);
     if (ytdRanking) {
         if (meta) meta.source = "deterministic";
@@ -1493,30 +1466,6 @@ export async function* generateV2Stream(
     if (dailyHistory) {
         if (meta) meta.source = "deterministic";
         yield sanitizeReply(dailyHistory);
-        return;
-    }
-    const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
-    if (fastAdvisor) {
-        if (meta) meta.source = "deterministic";
-        yield sanitizeReply(fastAdvisor);
-        return;
-    }
-    const singleStockAccDistResponse = buildSingleStockAccumulationDistributionResponse(userMessage, plan, toolResults);
-    if (singleStockAccDistResponse) {
-        if (meta) meta.source = "deterministic";
-        yield sanitizeReply(singleStockAccDistResponse);
-        return;
-    }
-
-    const isAnalyticalQueryRegex = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|اشتريت|خسران|نازل|عادله|عادلة|تقييم|قيمته|تسوى|تساوي|أهداف|اهداف|احتفاظ|خروج|دخول|بيجمع|ينطلق|مؤشر|مؤشرات|اخبار|أخبار|إيه|ايه|هل|فين|مين|مسح|شروط|\?|؟)/i;
-    const isAnalyticalQuery = isAnalyticalQueryRegex.test(userMessage) || userMessage.trim().split(/\s+/).length > 4;
-    const needsGuidanceResponse = plan.guidance_intent;
-    const deterministic = toolResults.length === 0 && !needsGuidanceResponse && !isAnalyticalQuery
-        ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState)
-        : null;
-    if (deterministic) {
-        if (meta) meta.source = "deterministic";
-        yield sanitizeReply(deterministic);
         return;
     }
     if (shouldReturnNoData(plan, visionContext, toolResults, relevantFacts)) {
@@ -2081,6 +2030,17 @@ export function buildSingleStockAccumulationDistributionResponse(
 }
 
 export function buildDeterministicResponse(userMessage: string, plan: IntentPlan, toolResults: ToolResult[], sessionState?: SessionState | null): string | null {
+    if (plan.ranking_metric === "price_change") {
+        const market = toolResults.find(result => result.tool === "get_market");
+        const gainers = Array.isArray(market?.data?.top_gainers)
+            ? market.data.top_gainers.filter((stock: any) => Number.isFinite(Number(stock?.change)))
+            : [];
+        if (market && gainers.length) return [
+            `أقوى الأسهم ارتفاعاً حسب آخر جلسة متاحة بتاريخ ${market.data_time}:`,
+            ...gainers.slice(0, 10).map((stock: any, index: number) => `${index + 1}. ${stock.symbol}${stock.name && stock.name !== stock.symbol ? ` (${stock.name})` : ""}: ${Number(stock.change) >= 0 ? "+" : ""}${Number(stock.change).toFixed(2)}%.`),
+            "الترتيب حسب نسبة التغير في الجلسة، وليس توصية شراء أو تقييماً للقيمة العادلة."
+        ].join("\n");
+    }
     if (plan.clarification_needed) {
         if (plan.clarification_options?.length) {
             return `السؤال يحتمل أكثر من معنى. اختار المقصود عشان أستخدم الأداة المناسبة: ${plan.clarification_options.join("، ")}.`;

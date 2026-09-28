@@ -117,7 +117,7 @@ def _fetch_latest_technical_indicators(symbol_pairs: List[tuple[str, str]]) -> D
                     stock_ai.supabase.table("stock_technical_indicators")
                     .select(
                         "symbol,exchange,date,close,volume,ema_50,ema_200,rsi_14,momentum_10,"
-                        "atr_14,adx_14,stoch_k,stoch_d,cci_20,vwap_20,roc_12,vol_sma20,change_pct,"
+                        "atr_14,adx_14,stoch_k,stoch_d,cci_20,vwap_20,roc_12,vol_sma20,change_pct,cmf_20,"
                         "rsi_divergence,macd_divergence,stoch_divergence,divergence_strength,divergence_periods,divergence_summary"
                     )
                     .in_("symbol", chunk)
@@ -1055,7 +1055,7 @@ def _get_heatmap_date_range(symbol_pairs, company_names, start_date: str, end_da
             try:
                 query = (
                     stock_ai.supabase.table("stock_technical_indicators")
-                    .select("symbol,exchange,date,close,volume,change_pct,rsi_14")
+                    .select("symbol,exchange,date,close,volume,change_pct,rsi_14,cmf_20")
                     .in_("symbol", chunk)
                     .eq("exchange", exchange)
                     .gte("date", start_date)
@@ -1106,7 +1106,7 @@ def _get_heatmap_single_date(symbol_pairs, company_names, date: str):
             try:
                 query = (
                     stock_ai.supabase.table("stock_technical_indicators")
-                    .select("symbol,exchange,date,close,volume,change_pct,rsi_14")
+                    .select("symbol,exchange,date,close,volume,change_pct,rsi_14,cmf_20")
                     .in_("symbol", chunk)
                     .eq("exchange", exchange)
                     .eq("date", date)

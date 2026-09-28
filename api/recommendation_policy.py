@@ -32,7 +32,9 @@ def price_basis_matches(entry, signal_close, tolerance=MAX_ENTRY_CLOSE_MISMATCH)
 
 
 def evaluate_bars(*, entry, target, stop, bars, entry_date, cursor, max_sessions=None,
-                  trail_pct=None, trail_trigger_pct=5.0):
+                  trail_pct=None, trail_trigger_pct=5.0, sector_risk_by_date=None,
+                  recommendation_sector=None, recommendation_symbol=None,
+                  weak_symbols_by_date=None):
     """Process new bars in order; adjustments take effect on the NEXT bar.
 
     A cursor is a market-data date, never a row's last modification timestamp.
@@ -70,10 +72,20 @@ def evaluate_bars(*, entry, target, stop, bars, entry_date, cursor, max_sessions
             exit_price, reason = target, "target_hit"
         elif max_sessions is not None and session >= max_sessions:
             exit_price, reason = close, "time_exit"
+        # Sector risk is evaluated at the session close, after intraday barriers.
+        # The caller only supplies dates where both broad-market weakness and
+        # sector distribution were independently confirmed.
+        risk = (sector_risk_by_date or {}).get(day, {})
+        weak_symbols = (weak_symbols_by_date or {}).get(day, set())
+        weak_stock = recommendation_symbol and recommendation_symbol in weak_symbols
+        if exit_price is None and recommendation_sector and recommendation_sector in risk and weak_stock:
+            exit_price, reason = close, "sector_distribution_exit"
         if exit_price is not None:
             pnl = (exit_price / entry - 1) * 100
             result.update(status="win" if pnl >= 0 else "loss", exit_price=exit_price,
                           profit_loss_pct=pnl, closed_on=day, exit_reason=reason)
+            if reason == "sector_distribution_exit":
+                result["sector_risk"] = risk[recommendation_sector]
             return result
         result["profit_loss_pct"] = (close / entry - 1) * 100
         if trail_pct is not None and result["profit_loss_pct"] >= trail_trigger_pct:

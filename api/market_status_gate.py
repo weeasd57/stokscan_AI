@@ -88,10 +88,11 @@ def should_reject_new_buys(max_age_hours: int = 36) -> Dict[str, Any]:
     """Return a normalized gate payload for code that creates new BUY signals."""
     status = load_market_status_cache(max_age_hours=max_age_hours)
     return {
-        "blocked": bool(status.get("reject_buys")),
+        "blocked": bool(status.get("reject_buys")) or bool(status.get("stale", True)) or not bool(status.get("available", False)),
         "reason": status.get("reason") or _market_gate_reason(status),
         "regime": status.get("regime"),
         "egx30_return": status.get("egx30_return"),
+        "market_context": status.get("market_context") or {},
         "updated_at": status.get("updated_at"),
         "stale": bool(status.get("stale", True)),
         "available": bool(status.get("available", False)),
@@ -100,11 +101,15 @@ def should_reject_new_buys(max_age_hours: int = 36) -> Dict[str, Any]:
 
 def _market_gate_reason(status: Dict[str, Any]) -> str:
     if not status.get("available", True):
-        return "market status cache unavailable"
+        return "market status cache unavailable; new BUYs are paused"
     if status.get("stale"):
-        return "market status cache is stale; gate failed open"
+        return "market status cache is stale; new BUYs are paused"
     if bool(status.get("reject_buys")):
         regime = status.get("regime") or "unknown"
+        context = status.get("market_context") or {}
+        reasons = context.get("reasons") or []
+        if reasons:
+            return f"market regime rejects new BUYs ({regime}: {', '.join(map(str, reasons))})"
         ret = status.get("egx30_return")
         if isinstance(ret, (int, float)):
             return f"market regime rejects new BUYs ({regime}, EGX30 {ret:.2%})"

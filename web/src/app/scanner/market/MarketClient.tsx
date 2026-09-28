@@ -12,7 +12,7 @@ import {
     Cpu
 } from "lucide-react";
 import {
-    ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
+    ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, Bar, ComposedChart
 } from "recharts";
 import { MarketHealthScore, MarketBreadthStrip, TopMovers } from "@/components/MarketBreadth";
 import { ActiveAISignals, DailyAnalysisSummary } from "@/components/ActiveAISignals";
@@ -922,13 +922,15 @@ const formatMonth = (m: string, isAr: boolean) => {
 
 const flowM = (v: number) => (Math.abs(v) / 1_000_000).toFixed(0);
 
-const MoneyFlowTimeline = ({ data, loading, error, isAr, t, onRefresh }: {
+const MoneyFlowTimeline = ({ data, loading, error, isAr, t, onRefresh, dailyFrames, onSelectDay }: {
     data: any;
     loading: boolean;
     error: string | null;
     isAr: boolean;
     t: (k: string) => string;
     onRefresh: () => void;
+    dailyFrames: any[];
+    onSelectDay: (frame: any) => void;
 }) => {
     const [selMonth, setSelMonth] = useState<string | null>(null);
 
@@ -998,6 +1000,23 @@ const MoneyFlowTimeline = ({ data, loading, error, isAr, t, onRefresh }: {
             </div>
 
             <div className="p-4 sm:p-5 space-y-5">
+                <div>
+                    <div className={`flex items-baseline justify-between mb-3 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
+                        <span className="text-xs font-black text-zinc-950 dark:text-white uppercase tracking-wider">{isAr ? "سيولة السوق اليومية — اضغط لعرض خريطة اليوم" : "Daily Market Liquidity — click a day to open its heatmap"}</span>
+                        <span className="text-[10px] font-mono text-zinc-400">{dailyFrames.length} {isAr ? "جلسة" : "sessions"}</span>
+                    </div>
+                    {dailyFrames.length ? <div className={`flex items-end gap-1 h-36 overflow-x-auto border-b-2 border-black dark:border-zinc-800 pb-1 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
+                        {dailyFrames.map((frame) => {
+                            const total = Number(frame.total_market_flow || 0);
+                            const max = Math.max(...dailyFrames.map((x) => Number(x.total_market_flow || 0)), 1);
+                            return <button key={frame.date} title={`${frame.date} · ${flowM(total)}M EGP`} onClick={() => onSelectDay(frame)} className="group min-w-5 flex-1 h-full flex flex-col items-center justify-end gap-1 cursor-pointer">
+                                <span className="hidden group-hover:block text-[8px] font-mono text-zinc-500">{flowM(total)}M</span>
+                                <div className="w-full bg-[#FFDC58] border-x border-t border-black/50 hover:bg-rose-500 transition-colors" style={{height:`${Math.max(3,total/max*100)}%`}} />
+                                <span className="text-[8px] whitespace-nowrap text-zinc-500">{String(frame.date).slice(5)}</span>
+                            </button>;
+                        })}
+                    </div> : <p className="text-xs text-zinc-500 py-4">{isAr ? "لا تتوفر لقطات سيولة يومية لهذه الفترة" : "No daily liquidity snapshots are available for this period"}</p>}
+                </div>
                 {/* 1. Simple Bar Chart — total market liquidity per month */}
                 <div>
                     <div className={`flex items-baseline justify-between mb-3 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
@@ -1162,7 +1181,9 @@ export default function MarketClient() {
     const [timelineData, setTimelineData] = useState<any>(null);
     const [timelineLoading, setTimelineLoading] = useState<boolean>(false);
     const [timelineError, setTimelineError] = useState<string | null>(null);
-    const [timelineOpen, setTimelineOpen] = useState<boolean>(false);
+    const [timelineOpen, setTimelineOpen] = useState<boolean>(true);
+    const [dailyHeatmapFrames, setDailyHeatmapFrames] = useState<any[]>([]);
+    const heatmapSectionRef = useRef<HTMLDivElement>(null);
 
     const openDrill = (sec: any) => {
         setSelectedSector(sec);
@@ -1188,6 +1209,7 @@ export default function MarketClient() {
     const [breadthLoading, setBreadthLoading] = useState<boolean>(true);
     const [aiSignals, setAiSignals] = useState<any[]>([]);
     const [aiSignalsLoading, setAiSignalsLoading] = useState<boolean>(true);
+    const [recommendationsByDate, setRecommendationsByDate] = useState<Record<string, number>>({});
 
     const fetchMarketStatus = async () => {
         setLoading(true);
@@ -1234,6 +1256,17 @@ export default function MarketClient() {
             console.error("Failed to fetch AI signals:", err);
         } finally {
             setAiSignalsLoading(false);
+        }
+    };
+
+    const fetchRecommendationCounts = async () => {
+        try {
+            const res = await fetch("/api/market/recommendation-counts", { cache: "no-store" });
+            if (!res.ok) return;
+            const payload = await res.json();
+            setRecommendationsByDate(payload.daily_counts && typeof payload.daily_counts === "object" ? payload.daily_counts : {});
+        } catch (err) {
+            console.error("Failed to fetch recommendation counts for market chart:", err);
         }
     };
 
@@ -1316,12 +1349,50 @@ export default function MarketClient() {
         }
     };
 
+    const fetchDailyHeatmapFrames = async () => {
+        try {
+            const dates = [...availableHeatmapDates].sort().slice(-30);
+            if (dates.length < 2) return;
+            const params = new URLSearchParams({ country: "Egypt", start_date: dates[0], end_date: dates[dates.length - 1] });
+            const res = await fetch(`/api/scan/sectors/heatmap?${params}`);
+            if (!res.ok) return;
+            const payload = await res.json();
+            const frames = payload.frames_by_date || {};
+            const dailyRows = Array.isArray(payload.rows) ? payload.rows : [];
+            const built = dates.map((date) => {
+                const snapshot = buildHeatmapSnapshotFromRows(dailyRows, date);
+                return snapshot ? { ...snapshot, date } : null;
+            }).filter(Boolean);
+            setDailyHeatmapFrames(built.length ? built : Object.keys(frames).sort().map((date) => ({ ...frames[date], date })));
+        } catch (err) {
+            console.error("Failed to load daily liquidity chart data:", err);
+        }
+    };
+
+    const selectLiquidityDay = (frame: any) => {
+        setHeatmapDate(frame.date);
+        setHeatmapData({ ...frame, selected_date: frame.date });
+        const topSector = frame.sectors?.[0];
+        setSelectedSector(topSector ? {
+            name: topSector.sector,
+            sector_ar: topSector.sector_ar,
+            value: topSector.money_flow,
+            change_pct: topSector.change_pct,
+            market_share: topSector.market_share,
+            sentiment: topSector.sentiment,
+            stocks: topSector.stocks,
+        } : null);
+        setDrillOpen(Boolean(topSector));
+        heatmapSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+
     const toggleTimeline = () => {
         const next = !timelineOpen;
         setTimelineOpen(next);
         if (next && !timelineData && !timelineLoading) {
             void fetchTimelineData();
         }
+        if (next && dailyHeatmapFrames.length === 0) void fetchDailyHeatmapFrames();
     };
 
     const fetchCorrSymbols = async () => {
@@ -1383,7 +1454,15 @@ export default function MarketClient() {
         void fetchCorrSymbols();
         void fetchBreadthData();
         void fetchAISignals();
+        void fetchRecommendationCounts();
+        void fetchTimelineData();
     }, []);
+
+    useEffect(() => {
+        if (timelineOpen && availableHeatmapDates.length >= 2 && dailyHeatmapFrames.length === 0) {
+            void fetchDailyHeatmapFrames();
+        }
+    }, [availableHeatmapDates, timelineOpen]);
 
     useEffect(() => {
         if (selectedCorrSymbol) {
@@ -1417,9 +1496,12 @@ export default function MarketClient() {
 
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
-            const val = typeof payload[0].value === "number" ? payload[0].value : null;
+            const pricePayload = payload.find((item: any) => item.dataKey === "close");
+            const recommendationPayload = payload.find((item: any) => item.dataKey === "recommendation_count");
+            const val = typeof pricePayload?.value === "number" ? pricePayload.value : null;
             if (val === null) return null;
-            const prevVal = activeChartData && activeChartData.length > 1 ? activeChartData[activeChartData.length - 2].close : val;
+            const currentIndex = activeChartData.findIndex((point) => point.date === label);
+            const prevVal = currentIndex > 0 ? activeChartData[currentIndex - 1].close : val;
             const dayChange = val - prevVal;
             const up = dayChange >= 0;
             return (
@@ -1432,6 +1514,12 @@ export default function MarketClient() {
                             <span className="text-[9px] text-zinc-500 dark:text-zinc-400 ml-1">EGP</span>
                         </span>
                     </p>
+                    {activeTab !== "usdegp" && (
+                        <p className="flex items-center justify-between gap-3 border-t border-black/10 dark:border-white/10 pt-1.5">
+                            <span className="text-[10px] font-bold text-zinc-400">{isAr ? "التوصيات الصادرة" : "Recommendations issued"}</span>
+                            <span className="font-mono font-black text-amber-500">{Number(recommendationPayload?.value || 0)}</span>
+                        </p>
+                    )}
                     <p className="flex items-center justify-between gap-3">
                         <span className="text-[10px] font-bold text-zinc-400 uppercase">{isAr ? "التغير" : "Change"}</span>
                         <span className={`font-mono font-black flex items-center gap-1 ${up ? "text-emerald-500" : "text-rose-500"}`}>
@@ -1483,6 +1571,10 @@ export default function MarketClient() {
         (activeTab === "egx30" ? data.egx30 :
         activeTab === "egx100" ? data.egx100 :
         data.usdegp) || [];
+    const chartWithRecommendationCounts = activeChartData.map((point) => ({
+        ...point,
+        recommendation_count: activeTab === "usdegp" ? 0 : (recommendationsByDate[point.date.slice(0, 10)] || 0),
+    }));
 
     const chartColor =
         activeTab === "usdegp" ? "#8B5CF6" :
@@ -1711,13 +1803,14 @@ export default function MarketClient() {
                     <div className={`flex items-center gap-1.5 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
                         <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: chartColor }} />
                         <span className="text-xs text-zinc-600 dark:text-zinc-400 font-mono uppercase font-bold">{activeTab}</span>
+                        {activeTab !== "usdegp" && <span className="ms-3 inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-500"><span className="h-2 w-2 rounded-sm bg-amber-500" />{isAr ? "عدد التوصيات يومياً" : "Daily recommendations"}</span>}
                     </div>
                 </div>
 
                 <div className="h-[380px] w-full" dir="ltr">
                     {activeChartData && activeChartData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={activeChartData} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
+                            <ComposedChart data={chartWithRecommendationCounts} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
                                 <defs>
                                     <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
                                         <stop offset="5%" stopColor={chartColor} stopOpacity={0.25}/>
@@ -1739,7 +1832,9 @@ export default function MarketClient() {
                                     tick={{ fontSize: 9, fontFamily: 'monospace' }}
                                     orientation={isAr ? "left" : "right"}
                                 />
+                                {activeTab !== "usdegp" && <YAxis yAxisId="recommendations" orientation={isAr ? "right" : "left"} hide domain={[0, (max: number) => Math.max(max * 3, 3)]} />}
                                 <Tooltip content={<CustomTooltip />} />
+                                {activeTab !== "usdegp" && <Bar yAxisId="recommendations" dataKey="recommendation_count" name={isAr ? "التوصيات" : "Recommendations"} fill="#f59e0b" fillOpacity={0.78} barSize={8} radius={[2, 2, 0, 0]} />}
                                 <Area
                                     type="monotone"
                                     dataKey="close"
@@ -1748,7 +1843,7 @@ export default function MarketClient() {
                                     fillOpacity={1}
                                     fill="url(#chartGradient)"
                                 />
-                            </AreaChart>
+                            </ComposedChart>
                         </ResponsiveContainer>
                     ) : (
                         <div className="flex flex-col items-center justify-center h-full w-full gap-3">
@@ -1792,7 +1887,7 @@ export default function MarketClient() {
             </div>
 
             {/* Smart Money Heatmap Section */}
-            <div className="mb-10 rounded-3xl border border-zinc-200 bg-white/80 p-5 shadow-sm dark:border-white/10 dark:bg-zinc-950/55 sm:p-7">
+            <div ref={heatmapSectionRef} className="mb-10 rounded-3xl border border-zinc-200 bg-white/80 p-5 shadow-sm dark:border-white/10 dark:bg-zinc-950/55 sm:p-7">
                 <div className={`mb-5 flex flex-col justify-between gap-4 border-b border-zinc-200 pb-4 md:flex-row md:items-center dark:border-white/10 ${isAr ? "md:flex-row-reverse" : "md:flex-row"}`}>
                     <div className={isAr ? "text-right" : "text-left"}>
                         <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-2 text-zinc-950 dark:text-white">
@@ -1950,6 +2045,8 @@ export default function MarketClient() {
                                 isAr={isAr}
                                 t={t}
                                 onRefresh={() => void fetchTimelineData(true)}
+                                dailyFrames={dailyHeatmapFrames}
+                                onSelectDay={selectLiquidityDay}
                             />
                         )}
                     </div>

@@ -534,6 +534,14 @@ def calculate_indicators_for_symbol(
     # VWAP
     vwap_20 = (close * volume).rolling(20, min_periods=1).sum() / volume.rolling(20, min_periods=1).sum().replace(0.0, np.nan)
     vwap_20 = vwap_20.fillna(close)
+
+    # Chaikin Money Flow: signed volume pressure used by the sector heatmap.
+    money_flow_multiplier = ((close - low) - (high - close)) / (high - low).replace(0.0, np.nan)
+    money_flow_volume = money_flow_multiplier.fillna(0.0) * volume
+    cmf_20 = (
+        money_flow_volume.rolling(20, min_periods=1).sum()
+        / volume.rolling(20, min_periods=1).sum().replace(0.0, np.nan)
+    ).fillna(0.0)
     
     # ROC & Momentum & Volume indicators
     momentum_10 = close.diff(10).fillna(0.0)
@@ -605,6 +613,7 @@ def calculate_indicators_for_symbol(
             "stoch_d": float(stoch_d.loc[idx]) if not pd.isna(stoch_d.loc[idx]) else None,
             "vol_sma20": int(vol_sma20.loc[idx]) if not pd.isna(vol_sma20.loc[idx]) else None,
             "vwap_20": float(vwap_20.loc[idx]) if not pd.isna(vwap_20.loc[idx]) else None,
+            "cmf_20": float(cmf_20.loc[idx]) if not pd.isna(cmf_20.loc[idx]) else None,
             "r_vol": float(r_vol.loc[idx]) if not pd.isna(r_vol.loc[idx]) else None,
             "cci_20": float(cci_20.loc[idx]) if not pd.isna(cci_20.loc[idx]) else None,
             "change_pct": float(change_pct.loc[idx]) if not pd.isna(change_pct.loc[idx]) else None,
@@ -921,6 +930,7 @@ def _send_telegram_exit(
             "target_hit": ("تحقيق الهدف", "Target hit"),
             "stop_hit": ("تنفيذ الوقف", "Stop executed"),
             "time_exit": ("انتهاء مدة الاحتفاظ", "Holding period ended"),
+            "sector_distribution_exit": ("تصفية بسبب خروج السيولة من القطاع وهبوط المؤشرات", "Sector liquidity outflow during broad-market decline"),
         }
         status_text_ar, status_text_en = reason_labels.get(exit_reason, (
             "إغلاق بربح" if status == "win" else ("بيانات قديمة / سهم غير نشط" if status == "stale" else "إغلاق بخسارة"),
@@ -1444,6 +1454,44 @@ def evaluate_old_recommendations(batch_id=None):
         print("[EVALUATE] No open recommendations to evaluate.")
         return 0
 
+    # Build one shared market/sector snapshot for all open recommendations.
+    # Missing or misaligned data fails closed and never invents a risk exit.
+    sector_risk_by_date = {}
+    sector_by_symbol = {}
+    weak_symbols_by_date = {}
+    try:
+        from api.routers.scan_tech import _fetch_company_fundamentals
+        from api.market_strategy import market_context, sector_snapshot
+        pairs = [(str(r["symbol"]).upper(), str(r.get("exchange") or "EGX")) for r in open_recs]
+        funds = _fetch_company_fundamentals(pairs)
+        for symbol, exchange in pairs:
+            fund = funds.get(f"{symbol}|{exchange}") or {}
+            sector_by_symbol[symbol] = str(fund.get("Sector", fund.get("sector", fund.get("industry", "")))).strip().lower()
+
+        snapshots = supabase.table("market_heatmap").select("symbol,sector,change_pct,cmf_20,cap,captured_at").gte(
+            "captured_at", (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)).isoformat()
+        ).order("captured_at", desc=True).limit(1000).execute().data or []
+        index_history = {}
+        for index_symbol in ("EGX30", "EGX100"):
+            index_rows = supabase.table("stock_prices").select("date,close").eq("symbol", index_symbol).eq(
+                "exchange", "INDX"
+            ).order("date", desc=True).limit(60).execute().data or []
+            index_history[index_symbol] = index_rows
+        context = market_context(index_history.get("EGX30", []), index_history.get("EGX100", []))
+        sector_state = sector_snapshot(snapshots, market_stress=bool(context.get("market_stress")))
+        current = sector_state.get("date")
+        if current and context.get("date") == current:
+            current_risk = {
+                sector: {**state, "market": context}
+                for sector, state in sector_state.get("sectors", {}).items()
+                if state.get("defensive_exit")
+            }
+            if current_risk:
+                sector_risk_by_date[current] = current_risk
+                weak_symbols_by_date[current] = set(sector_state.get("weak_symbols") or [])
+    except Exception as risk_error:
+        print(f"[EVALUATE] Sector-risk confirmation unavailable; continuing with price barriers: {risk_error}")
+
     from api.hf_history_cache import load_history_snapshot, merge_snapshot_with_live
     archive = load_history_snapshot("EGX")
     symbols = {str(row["symbol"]).upper() for row in open_recs}
@@ -1540,6 +1588,10 @@ def evaluate_old_recommendations(batch_id=None):
                     entry_date=created_at_date, cursor=cursor,
                     max_sessions=policy.get("max_sessions"),
                     trail_pct=policy.get("trail_pct"),
+                    sector_risk_by_date=sector_risk_by_date,
+                    recommendation_sector=sector_by_symbol.get(str(symbol).upper()),
+                    recommendation_symbol=str(symbol).upper(),
+                    weak_symbols_by_date=weak_symbols_by_date,
                 )
         except (ValueError, TypeError) as error:
             print(f"[EVALUATE] Invalid data for {symbol}: {error}; leaving checkpoint unchanged.")
@@ -1619,6 +1671,10 @@ def evaluate_old_recommendations(batch_id=None):
             exit_reason=outcome["exit_reason"],
             closed_on=outcome["closed_on"],
         )
+        if outcome.get("sector_risk"):
+            lifecycle["exit_reason_ar"] = "تراجع سيولة القطاع مع هبوط مؤشري EGX30 وEGX100"
+            lifecycle["exit_reason_en"] = "Sector liquidity outflow during broad EGX30/EGX100 drawdown"
+            lifecycle["sector_risk"] = outcome["sector_risk"]
         details = {**details, "evaluation": lifecycle}
 
         # ── UPDATE DATABASE ──
@@ -2213,6 +2269,12 @@ async def generate_daily_recommendations(
     except Exception as capacity_error:
         print(f"[RECOMMENDATIONS] Capacity check unavailable: {capacity_error}")
         return 0
+    market_gate = should_reject_new_buys()
+    if market_gate.get("blocked"):
+        if run_context is not None:
+            run_context.update(market_gate)
+        print(f"[RECOMMENDATIONS] Broad-market gate blocked new BUYs: {market_gate.get('reason')}")
+        return 0
     resolved_model = "model_EGX.bin"
     
     # ── Load EGX30 index data unconditionally for trend check and adaptive selection ──
@@ -2283,24 +2345,6 @@ async def generate_daily_recommendations(
                 market_df["Low"] = market_df["Close"]
             if "Volume" not in market_df.columns:
                 market_df["Volume"] = 0.0
-
-            # ── Run EGX30 Trend Safety Check (Circuit Breaker) ──
-            from api.circuit_breaker_detector import CircuitBreakerDetector
-            detector = CircuitBreakerDetector()
-            if not detector.is_egx30_trend_safe(market_df):
-                print("[RECOMMENDATIONS] ⚠️ EGX30 is under its 50-day SMA. Halting recommendations generation due to market trend circuit breaker!")
-                close_col = "Close" if "Close" in market_df.columns else "close"
-                latest_close = float(market_df[close_col].iloc[-1])
-                sma50 = float(market_df[close_col].rolling(window=50).mean().iloc[-1])
-                if run_context is not None:
-                    run_context.update({
-                        "blocked": True,
-                        "reason": "مؤشر EGX30 أغلق دون متوسطه المتحرك لـ50 جلسة، لذلك أوقف قاطع الاتجاه الفني إنشاء توصيات شراء جديدة.",
-                        "latest_close": latest_close,
-                        "sma50": sma50,
-                        "percent_vs_sma50": ((latest_close / sma50) - 1) * 100 if sma50 else None,
-                    })
-                return 0
 
     if model_name:
         model_lower = model_name.lower().strip()
@@ -2394,6 +2438,43 @@ async def generate_daily_recommendations(
     if not results:
         print("[RECOMMENDATIONS] No candidates passed trade-structure quality filters.")
         return 0
+
+    # Sector gate: do not publish a new BUY into broad distribution.  Keep the
+    # sector snapshot on every accepted row so the entry decision is auditable.
+    try:
+        from api.market_strategy import sector_snapshot
+        from api.routers.scan_tech import _fetch_company_fundamentals
+        snapshot_rows = supabase.table("market_heatmap").select(
+            "symbol,sector,change_pct,cmf_20,cap,captured_at"
+        ).order("captured_at", desc=True).limit(1000).execute().data or []
+        market_snapshot = market_gate.get("market_context") or {}
+        sectors = sector_snapshot(snapshot_rows, market_stress=bool(market_snapshot.get("market_stress")))
+        pairs = [(str(item.get("symbol") or "").upper(), str(item.get("exchange") or "EGX")) for item in results]
+        fundamentals = _fetch_company_fundamentals(pairs)
+        filtered_results = []
+        aligned = bool(sectors.get("date") and sectors.get("date") == market_snapshot.get("date"))
+        for item in results:
+            symbol = str(item.get("symbol") or "").upper()
+            exchange = str(item.get("exchange") or "EGX")
+            fund = fundamentals.get(f"{symbol}|{exchange}") or {}
+            sector_name = str(fund.get("Sector", fund.get("sector", fund.get("industry", "")))).strip()
+            sector_state = (sectors.get("sectors") or {}).get(sector_name.lower(), {}) if aligned else {}
+            if sector_state.get("block_new_buys"):
+                print(f"[RECOMMENDATIONS] Filtered out {symbol}: sector distribution in {sector_name}.")
+                continue
+            change = float(sector_state.get("sector_change_pct") or 0.0)
+            declining_pct = float(sector_state.get("declining_pct") or 50.0)
+            item["sector_name"] = sector_name or None
+            item["sector_context"] = sector_state
+            item["market_context"] = market_snapshot
+            item["sector_rank_multiplier"] = 1.10 if change >= 1.0 and declining_pct <= 40.0 else (0.90 if change < 0 else 1.0)
+            filtered_results.append(item)
+        results = filtered_results
+    except Exception as sector_gate_error:
+        print(f"[RECOMMENDATIONS] Sector gate unavailable; retaining model candidates: {sector_gate_error}")
+    if not results:
+        print("[RECOMMENDATIONS] No candidates remained after sector-flow filtering.")
+        return 0
     
     # Calculate risk_adjusted_return for all candidates and adjust with news sentiment
     _init_supabase()
@@ -2435,7 +2516,7 @@ async def generate_daily_recommendations(
         except Exception as se_err:
             print(f"DEBUG: Error checking sentiment for rank adjustment of {item.get('symbol')}: {se_err}")
             
-        adjusted_return = raw_rar * sentiment_mult
+        adjusted_return = raw_rar * sentiment_mult * float(item.get("sector_rank_multiplier", 1.0))
         item["risk_adjusted_return"] = adjusted_return if math.isfinite(adjusted_return) else 0.0
 
     # Sort by risk_adjusted_return descending to prioritize safer risk-reward profiles
@@ -2484,6 +2565,9 @@ async def generate_daily_recommendations(
                     "target_price": res_item.get("target_price"), "stop_loss": res_item.get("stop_loss"),
                     "price_date": res_item.get("date"), "feature_names": res_item.get("feature_names", []),
                     "council_score": res_item.get("council_score"), "validator_score": res_item.get("validator_score"),
+                    "market_context": res_item.get("market_context") or market_gate.get("market_context") or {},
+                    "sector": res_item.get("sector_name"),
+                    "sector_context": res_item.get("sector_context") or {},
                     "execution": "published_close_reference_not_broker_fill",
                 },
                 "evaluation": {"last_evaluated_date": dt.datetime.now(dt.timezone.utc).date().isoformat()},
@@ -2797,6 +2881,7 @@ def update_market_heatmap():
             close = _local_safe_float(tech.get("close") if tech else None)
             volume = _local_safe_float(tech.get("volume") if tech else None)
             change_pct = _local_safe_float(tech.get("change_pct") if tech else None)
+            cmf_20 = _local_safe_float(tech.get("cmf_20") if tech else None)
             raw_sec = fund.get("Sector", fund.get("sector", fund.get("industry", "Speculative Sector")))
             
             # Using close * volume as cap/money_flow proxy
@@ -2807,6 +2892,7 @@ def update_market_heatmap():
                 "symbol": sym,
                 "sector": raw_sec,
                 "change_pct": change_pct,
+                "cmf_20": cmf_20,
                 "volume": volume,
                 "cap": cap,
                 "source": "daily_job",
