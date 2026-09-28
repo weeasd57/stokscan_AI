@@ -37,7 +37,7 @@ export async function GET(req: Request) {
       .select("captured_at")
       .eq("exchange", "EGX")
       .order("captured_at", { ascending: false })
-      .limit(5000);
+      .limit(12000);
     if (dateError) throw dateError;
 
     const availableDates: string[] = Array.from(new Set<string>(

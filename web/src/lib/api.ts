@@ -799,6 +799,12 @@ export type ScanResult = {
 
   exit_price?: number;
 
+  exit_reason?: string | null;
+
+  exit_reason_ar?: string | null;
+
+  exit_reason_en?: string | null;
+
   features?: number[] | null;
 
   council_score?: number;

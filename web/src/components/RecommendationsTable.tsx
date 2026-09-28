@@ -1084,9 +1084,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         const isLoss = normalizedStatus === "loss";
         const isClosed = isWin || isLoss;
 
-        // Determine exit reason dynamically
-        let exitReason = "";
-        if (isClosed && row.exit_price) {
+        // Prefer the lifecycle reason saved by the daily strategy. Legacy rows
+        // fall back to a price-based explanation when no reason was persisted.
+        let exitReason = isClosed
+            ? String((isAr ? row.exit_reason_ar : row.exit_reason_en) || row.exit_reason || "")
+            : "";
+        if (!exitReason && isClosed && row.exit_price) {
             const diffTarget = Math.abs(row.exit_price - targetPrice);
             const diffStop = Math.abs(row.exit_price - stopLoss);
             if (diffTarget < diffStop && diffTarget < 0.05 * targetPrice) {

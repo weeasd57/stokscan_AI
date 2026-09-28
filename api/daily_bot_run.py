@@ -2453,12 +2453,18 @@ async def generate_daily_recommendations(
         fundamentals = _fetch_company_fundamentals(pairs)
         filtered_results = []
         aligned = bool(sectors.get("date") and sectors.get("date") == market_snapshot.get("date"))
+        if not aligned:
+            print("[RECOMMENDATIONS] Sector snapshot is missing or not aligned with the market session; pausing new recommendations.")
+            return 0
         for item in results:
             symbol = str(item.get("symbol") or "").upper()
             exchange = str(item.get("exchange") or "EGX")
             fund = fundamentals.get(f"{symbol}|{exchange}") or {}
             sector_name = str(fund.get("Sector", fund.get("sector", fund.get("industry", "")))).strip()
-            sector_state = (sectors.get("sectors") or {}).get(sector_name.lower(), {}) if aligned else {}
+            sector_state = (sectors.get("sectors") or {}).get(sector_name.lower(), {})
+            if not sector_name or not sector_state:
+                print(f"[RECOMMENDATIONS] Filtered out {symbol}: sector context is unavailable.")
+                continue
             if sector_state.get("block_new_buys"):
                 print(f"[RECOMMENDATIONS] Filtered out {symbol}: sector distribution in {sector_name}.")
                 continue
@@ -2471,7 +2477,8 @@ async def generate_daily_recommendations(
             filtered_results.append(item)
         results = filtered_results
     except Exception as sector_gate_error:
-        print(f"[RECOMMENDATIONS] Sector gate unavailable; retaining model candidates: {sector_gate_error}")
+        print(f"[RECOMMENDATIONS] Sector gate unavailable; pausing new recommendations: {sector_gate_error}")
+        return 0
     if not results:
         print("[RECOMMENDATIONS] No candidates remained after sector-flow filtering.")
         return 0
@@ -2900,10 +2907,10 @@ def update_market_heatmap():
             })
 
         if records_to_upsert:
-            # First, let's delete records older than 7 days to prevent database bloat
+            # Keep enough daily snapshots for the liquidity timeline and historical drill-down.
             try:
-                seven_days_ago = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)).isoformat()
-                supabase.table("market_heatmap").delete().lt("captured_at", seven_days_ago).execute()
+                retention_cutoff = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=120)).isoformat()
+                supabase.table("market_heatmap").delete().lt("captured_at", retention_cutoff).execute()
             except Exception as del_err:
                 print(f"[HEATMAP] Failed to prune old heatmap records: {del_err}")
 

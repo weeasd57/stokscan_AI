@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
       ? Math.min(Math.floor(requestedLimit), 200)
       : 50;
   const recommendationFields =
-    "id,batch_id,symbol,exchange,name,last_close,precision,signal,status,entry_price,target_price,stop_loss,is_public,created_at,updated_at,exit_price,profit_loss_pct,top_reasons";
+    "id,batch_id,symbol,exchange,name,last_close,precision,signal,status,entry_price,target_price,stop_loss,is_public,created_at,updated_at,exit_price,profit_loss_pct,top_reasons,rich_details";
   
   try {
     const supabase = getSupabaseServiceClient({ cacheMarketData: true });
@@ -89,6 +89,17 @@ export async function GET(req: NextRequest) {
       // Only open high-return opportunities stay encrypted for Free after the delay.
       const createdMs = row.created_at ? new Date(String(row.created_at)).getTime() : Number.NaN;
       const isClosed = closed(row);
+      const richDetails = row.rich_details && typeof row.rich_details === "object"
+        ? row.rich_details as Record<string, any>
+        : {};
+      const evaluation = richDetails.evaluation && typeof richDetails.evaluation === "object"
+        ? richDetails.evaluation as Record<string, unknown>
+        : {};
+      const exitReason = isClosed ? {
+        exit_reason: evaluation.exit_reason || null,
+        exit_reason_ar: evaluation.exit_reason_ar || null,
+        exit_reason_en: evaluation.exit_reason_en || null,
+      } : {};
       const fresh = !Number.isFinite(createdMs) || createdMs > cutoffTime;
       const highReturnPro = !isClosed && isHighReturn(row);
       const locked = delayedVisibility && !isClosed && ((!authenticated || fresh) || highReturnPro);
@@ -169,6 +180,7 @@ export async function GET(req: NextRequest) {
       // delay expires, visible recommendations can safely include their data.
       last_close: toNumber(row.last_close, 0) > 0 ? toNumber(row.last_close, 0) : null,
       top_reasons: row.top_reasons,
+      ...exitReason,
       };
     });
 
