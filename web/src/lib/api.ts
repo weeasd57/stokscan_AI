@@ -2163,3 +2163,38 @@ export async function getAdaptiveRecommendation(params: {
 
 
 
+export interface RecommendationChartMarker {
+  id: string;
+  kind: "entry" | "exit";
+  time: number;
+  price: number;
+  outcome?: string;
+}
+
+export interface RecommendationChartRecord {
+  id: string;
+  created_at: string;
+  status: string | null;
+  signal: string | null;
+  entry_price: number | null;
+  exit_price: number | null;
+  exit_at: string | null;
+  profit_loss_pct: number | null;
+  target_price: number | null;
+  stop_loss: number | null;
+}
+
+export async function getRecommendationChartHistory(symbol: string, exchange: string, signal?: AbortSignal): Promise<{ markers: RecommendationChartMarker[]; recommendations: RecommendationChartRecord[] }> {
+  const params = new URLSearchParams({ symbol, exchange });
+  const response = await fetch(`/api/recommendations/chart-markers?${params}`, { cache: "no-store", signal });
+  if (!response.ok) throw new Error(`Failed to load recommendation history (${response.status})`);
+  const data = await response.json();
+  return {
+    markers: Array.isArray(data.markers) ? data.markers : [],
+    recommendations: Array.isArray(data.recommendations) ? data.recommendations : [],
+  };
+}
+
+export async function getRecommendationChartMarkers(symbol: string, exchange: string, signal?: AbortSignal): Promise<RecommendationChartMarker[]> {
+  return (await getRecommendationChartHistory(symbol, exchange, signal)).markers;
+}

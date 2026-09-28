@@ -3,10 +3,10 @@
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import TradingViewChart from "@/components/TradingViewChartDynamic";
-import { getAdaptiveRecommendation, getStockFundamentals, searchSymbols } from "@/lib/api";
+import { getRecommendationChartHistory, RecommendationChartRecord, getStockFundamentals, searchSymbols } from "@/lib/api";
 import { 
   Loader2, MousePointer, TrendingUp, Minus, Type, CalendarDays, BrainCircuit,
-  Trash2, Compass, Landmark, Activity, Sparkles,
+  Trash2, Compass, Landmark, Activity,
   ChevronRight, ChevronLeft, Search, Star,
   ExternalLink, ArrowRightLeft, Plus
 } from "lucide-react";
@@ -55,8 +55,12 @@ function ChartContent() {
   const [activeTool, setActiveTool] = useState<string>("cursor");
   const [fundamentals, setFundamentals] = useState<any>(null);
   const [loadingFunds, setLoadingFunds] = useState<boolean>(false);
-  const [adaptiveInfo, setAdaptiveInfo] = useState<any>(null);
-  const [loadingAdaptive, setLoadingAdaptive] = useState<boolean>(false);
+  const [recommendations, setRecommendations] = useState<RecommendationChartRecord[]>([]);
+  const [loadingRecommendations, setLoadingRecommendations] = useState(true);
+  const [recommendationsError, setRecommendationsError] = useState(false);
+  const [selectedRecommendationId, setSelectedRecommendationId] = useState<string | null>(null);
+  const [focusTimestamp, setFocusTimestamp] = useState<number | undefined>();
+  const [focusRequestId, setFocusRequestId] = useState(0);
   const [rightSidebarOpen, setRightSidebarOpen] = useState<boolean>(true);
   const [rightSidebarWidth, setRightSidebarWidth] = useState<number>(320);
   const [isResizingRightSidebar, setIsResizingRightSidebar] = useState<boolean>(false);
@@ -119,15 +123,33 @@ function ChartContent() {
   }, [symbol, exchange]);
 
   useEffect(() => {
-    setLoadingAdaptive(true);
-    getAdaptiveRecommendation({ exchange })
-      .then((data) => setAdaptiveInfo(data))
-      .catch((err) => {
-        console.error("Failed to load adaptive recommendation:", err);
-        setAdaptiveInfo(null);
-      })
-      .finally(() => setLoadingAdaptive(false));
-  }, [exchange]);
+    const controller = new AbortController();
+    setLoadingRecommendations(true);
+    setRecommendationsError(false);
+    setRecommendations([]);
+    setSelectedRecommendationId(null);
+    setFocusTimestamp(undefined);
+    getRecommendationChartHistory(symbol, exchange, controller.signal)
+      .then((data) => setRecommendations(data.recommendations))
+      .catch(() => { if (!controller.signal.aborted) setRecommendationsError(true); })
+      .finally(() => { if (!controller.signal.aborted) setLoadingRecommendations(false); });
+    return () => controller.abort();
+  }, [symbol, exchange, user]);
+
+  const closedRecommendations = recommendations.filter((row) => ["win", "loss"].includes(String(row.status).toLowerCase()));
+  const wins = closedRecommendations.filter((row) => String(row.status).toLowerCase() === "win").length;
+  const averageReturn = closedRecommendations.length
+    ? closedRecommendations.reduce((sum, row) => sum + Number(row.profit_loss_pct || 0), 0) / closedRecommendations.length
+    : null;
+  const selectedRecommendation = recommendations.find((row) => row.id === selectedRecommendationId);
+  const jumpToDate = (date: string | null | undefined) => {
+    if (!date) return;
+    const timestamp = Date.parse(date);
+    if (Number.isFinite(timestamp)) {
+      setFocusTimestamp(Math.floor(timestamp / 1000));
+      setFocusRequestId((value) => value + 1);
+    }
+  };
 
   useEffect(() => {
     if (!searchQuery.trim()) {
@@ -301,6 +323,8 @@ function ChartContent() {
             exchange={exchange} 
             theme={theme}
             activeTool={activeTool}
+            focusTimestamp={focusTimestamp}
+            focusRequestId={focusRequestId}
             onToolDrawComplete={() => setActiveTool("cursor")}
           />
         </div>
@@ -393,47 +417,44 @@ function ChartContent() {
                   <div className="mt-3 flex items-start gap-2 border-t border-cyan-200/70 pt-3 text-[11px] leading-relaxed text-zinc-600 dark:border-cyan-400/10 dark:text-zinc-400">
                     <BrainCircuit className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500" />
                     <span>{isAr
-                      ? "قراءة السهم تجمع نماذج كمية وتكيّفية مع المؤشرات الفنية وسياق السوق؛ وليست مؤشرًا تقليديًا منفردًا أو ضمانًا للنتائج."
-                      : "Stock analysis combines quantitative and adaptive models with technical indicators and market context; it is not a single conventional indicator or a guarantee of results."}</span>
+                      ? "قراءة السهم تجمع مؤشرات فنية وسياق السوق؛ والتوصيات السابقة موضحة على الرسم بحسب تاريخها. الأداء السابق لا يضمن النتائج المقبلة."
+                      : "Stock analysis combines technical indicators with market context. Past recommendations appear on the chart by date; past performance does not guarantee future results."}</span>
                   </div>
                 </div>
 
-                <div className="p-4 rounded-2xl border border-indigo-200 bg-indigo-50/70 space-y-3 dark:border-indigo-500/15 dark:bg-indigo-500/[0.03]">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <span className="text-[9px] font-black text-indigo-300 uppercase tracking-widest">Adaptive System</span>
-                      <h4 className="text-sm font-black text-zinc-950 dark:text-white mt-1">Current Model Recommendation</h4>
-                    </div>
-                    <Sparkles className="w-4 h-4 text-indigo-400 shrink-0" />
-                  </div>
-
-                  {loadingAdaptive ? (
-                    <div className="flex items-center gap-2 text-xs text-zinc-500">
-                      <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
-                      Loading adaptive state...
-                    </div>
-                  ) : adaptiveInfo ? (
-                    <div className="space-y-2.5">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="rounded-xl border border-zinc-200 bg-white/80 p-3 dark:border-white/5 dark:bg-zinc-900/30">
-                          <div className="text-[8px] font-black uppercase tracking-wider text-zinc-500">Model</div>
-                          <div className="mt-1 text-xs font-black text-zinc-950 dark:text-white break-all">{adaptiveInfo.recommended_model?.replace(".pkl", "")}</div>
-                        </div>
-                        <div className="rounded-xl border border-zinc-200 bg-white/80 p-3 dark:border-white/5 dark:bg-zinc-900/30">
-                          <div className="text-[8px] font-black uppercase tracking-wider text-zinc-500">Regime</div>
-                          <div className="mt-1 text-xs font-black text-zinc-950 dark:text-white">{adaptiveInfo.regime}</div>
-                        </div>
+                <section className="p-4 rounded-2xl border border-indigo-200 bg-indigo-50/70 space-y-3 dark:border-indigo-500/15 dark:bg-indigo-500/[0.03]">
+                  <h4 className="text-sm font-black text-zinc-950 dark:text-white">{isAr ? "توصياتنا للسهم" : "Our recommendations for this stock"}</h4>
+                  {loadingRecommendations ? <div className="flex items-center gap-2 text-xs text-zinc-500"><Loader2 className="w-4 h-4 animate-spin" />{isAr ? "جاري تحميل التوصيات..." : "Loading recommendations..."}</div>
+                    : recommendationsError ? <p className="text-xs text-red-500">{isAr ? "تعذر تحميل سجل التوصيات." : "Could not load recommendation history."}</p>
+                    : recommendations.length === 0 ? <p className="text-xs text-zinc-500">{isAr ? "لا توجد توصيات متاحة لهذا السهم." : "No recommendations available for this stock."}</p>
+                    : <>
+                      <div className="grid grid-cols-2 gap-2 text-center">
+                        <div className="rounded-lg bg-white/70 p-2 dark:bg-zinc-900/40"><div className="text-lg font-black">{recommendations.length}</div><div className="text-[10px] text-zinc-500">{isAr ? "إجمالي التوصيات" : "Recommendations"}</div></div>
+                        <div className="rounded-lg bg-white/70 p-2 dark:bg-zinc-900/40"><div className="text-lg font-black">{closedRecommendations.length}</div><div className="text-[10px] text-zinc-500">{isAr ? "مغلقة" : "Closed"}</div></div>
+                        <div className="rounded-lg bg-white/70 p-2 dark:bg-zinc-900/40"><div className="text-lg font-black text-emerald-500">{closedRecommendations.length ? `${Math.round(wins / closedRecommendations.length * 100)}%` : "—"}</div><div className="text-[10px] text-zinc-500">{isAr ? "نسبة النجاح" : "Win rate"}</div></div>
+                        <div className="rounded-lg bg-white/70 p-2 dark:bg-zinc-900/40"><div className={`text-lg font-black ${averageReturn !== null && averageReturn >= 0 ? "text-emerald-500" : "text-red-500"}`}>{averageReturn === null ? "—" : `${averageReturn.toFixed(1)}%`}</div><div className="text-[10px] text-zinc-500">{isAr ? "متوسط العائد المغلق" : "Avg. closed return"}</div></div>
                       </div>
-                      <div className="flex items-center justify-between text-[10px] font-semibold text-zinc-400">
-                        <span>Confidence</span>
-                        <span className="text-zinc-950 dark:text-white">{(Number(adaptiveInfo.confidence || 0) * 100).toFixed(1)}%</span>
+                      <p className="text-[10px] text-zinc-500">{isAr ? "الإحصاءات تخص التوصيات المتاحة لحسابك فقط." : "Statistics cover recommendations available to your account."}</p>
+                      <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+                        {recommendations.map((row) => <div key={row.id} className="rounded-lg border border-zinc-200 bg-white/70 p-2 dark:border-white/10 dark:bg-zinc-900/40">
+                          <button className="w-full text-start flex items-center justify-between text-xs font-semibold" onClick={() => { setSelectedRecommendationId(row.id === selectedRecommendationId ? null : row.id); jumpToDate(row.created_at); }}>
+                            <span>{new Date(row.created_at).toLocaleDateString(isAr ? "ar-EG" : "en-US")}</span>
+                            <span className={String(row.status).toLowerCase() === "win" ? "text-emerald-500" : String(row.status).toLowerCase() === "loss" ? "text-red-500" : "text-amber-500"}>{String(row.status || "open").toUpperCase()}</span>
+                          </button>
+                          <div className="mt-2 flex gap-2">
+                            <button onClick={() => { setSelectedRecommendationId(row.id); jumpToDate(row.created_at); }} className="rounded bg-emerald-500/15 px-2 py-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">{isAr ? "اذهب للدخول" : "Go to entry"}</button>
+                            {row.exit_at && <button onClick={() => { setSelectedRecommendationId(row.id); jumpToDate(row.exit_at); }} className="rounded bg-red-500/15 px-2 py-1 text-[10px] font-bold text-red-600 dark:text-red-400">{isAr ? "اذهب للخروج" : "Go to exit"}</button>}
+                          </div>
+                        </div>)}
                       </div>
-                      <div className="text-[10px] leading-relaxed text-zinc-500">{adaptiveInfo.reason}</div>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-zinc-500">Adaptive recommendation is unavailable right now.</div>
-                  )}
-                </div>
+                      {selectedRecommendation && <div className="rounded-lg border border-indigo-500/20 p-3 text-xs space-y-1">
+                        <div className="font-bold">{isAr ? "تفاصيل التوصية" : "Recommendation details"} · {selectedRecommendation.signal || "BUY"}</div>
+                        <div>{isAr ? "الدخول" : "Entry"}: {selectedRecommendation.entry_price ?? "—"} · {isAr ? "الخروج" : "Exit"}: {selectedRecommendation.exit_price ?? "—"}</div>
+                        <div>{isAr ? "الهدف" : "Target"}: {selectedRecommendation.target_price ?? "—"} · {isAr ? "وقف الخسارة" : "Stop"}: {selectedRecommendation.stop_loss ?? "—"}</div>
+                        <div>{isAr ? "العائد" : "Return"}: {selectedRecommendation.profit_loss_pct == null ? "—" : `${Number(selectedRecommendation.profit_loss_pct).toFixed(2)}%`}</div>
+                      </div>}
+                    </>}
+                </section>
 
                 {/* Company Profile Details */}
                 <div className="space-y-4">

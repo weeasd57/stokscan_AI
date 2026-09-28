@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { getRecommendationChartMarkers, RecommendationChartMarker } from "@/lib/api";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import {
   createChart,
@@ -234,6 +235,7 @@ interface TradingViewChartProps {
   onToolDrawComplete?: () => void;
   customMarkers?: CustomMarker[];
   focusTimestamp?: number; // unix seconds — scrolls chart to this candle
+  focusRequestId?: number;
   hideIndicators?: boolean;
   showApiMarkers?: boolean;
 }
@@ -317,6 +319,7 @@ export default function TradingViewChart({
   onToolDrawComplete,
   customMarkers = DEFAULT_CUSTOM_MARKERS,
   focusTimestamp,
+  focusRequestId,
   hideIndicators = false,
   showApiMarkers = true,
 }: TradingViewChartProps) {
@@ -330,6 +333,7 @@ export default function TradingViewChart({
   // States
   const [candlesData, setCandlesData] = useState<Candle[]>([]);
   const [markersData, setMarkersData] = useState<any[]>([]);
+  const [recommendationMarkers, setRecommendationMarkers] = useState<RecommendationChartMarker[]>([]);
   const [timeframe, setTimeframe] = useState<string>("15m");
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -771,6 +775,15 @@ export default function TradingViewChart({
   }, [exchange, supabase, symbol, user]);
 
   // 1. Fetch OHLCV candles data from our FastAPI backend
+  useEffect(() => {
+    const controller = new AbortController();
+    setRecommendationMarkers([]);
+    getRecommendationChartMarkers(symbol, exchange || "EGX", controller.signal)
+      .then(setRecommendationMarkers)
+      .catch(() => { if (!controller.signal.aborted) setRecommendationMarkers([]); });
+    return () => controller.abort();
+  }, [symbol, exchange, user]);
+
   useEffect(() => {
     let isMounted = true;
     setLoading(true);
@@ -1449,6 +1462,7 @@ export default function TradingViewChart({
       // Helper: snap a unix-seconds timestamp to the nearest candle
       const snapToCandle = (ts: number): UTCTimestamp | null => {
         if (isNaN(ts)) return null;
+        if (!sortedCandleTimes.length || ts < sortedCandleTimes[0].tsVal - 86400 || ts > sortedCandleTimes[sortedCandleTimes.length - 1].tsVal + 86400) return null;
 
         // 1. Exact match
         if (candleTimes.has(ts)) return ts as any as UTCTimestamp;
@@ -1484,7 +1498,14 @@ export default function TradingViewChart({
         }));
 
       const injectedMarkers: SeriesMarker<UTCTimestamp>[] = (
-        customMarkers || []
+        [...customMarkers, ...recommendationMarkers.map((marker): CustomMarker => ({
+          time: marker.time,
+          position: marker.kind === "entry" ? "belowBar" : "aboveBar",
+          color: marker.kind === "entry" ? "#22c55e" : marker.outcome === "win" ? "#10b981" : "#ef4444",
+          shape: marker.kind === "entry" ? "arrowUp" : "arrowDown",
+          text: `${marker.kind === "entry" ? "دخول" : "خروج"} ${marker.price.toFixed(2)}`,
+          size: 2,
+        }))]
       )
         .map((m) => {
           const snapped = snapToCandle(m.time as number);
@@ -1791,6 +1812,7 @@ export default function TradingViewChart({
     markersData,
     lowerPaneIndicators,
     customMarkers,
+    recommendationMarkers,
     theme,
   ]);
 
@@ -2285,7 +2307,7 @@ export default function TradingViewChart({
     const from = Math.max(0, targetIndex - half);
     const to = Math.min(candlesData.length - 1, targetIndex + half);
     ts.setVisibleLogicalRange({ from, to });
-  }, [focusTimestamp, candlesData]);
+  }, [focusTimestamp, focusRequestId, candlesData]);
 
   // --- Drawing drag (move) lifecycle ---
   // Permanent global listeners so the drag ends reliably on pointer/mouse up,

@@ -1477,26 +1477,6 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         exchange={row.exchange}
                                         theme={isDark ? "dark" : "light"}
                                         showApiMarkers={false}
-                                        customMarkers={
-                                            [
-                                                ...(row.entry_price && row.created_at ? [{
-                                                    time: Math.floor(new Date(row.created_at).getTime() / 1000),
-                                                    position: "belowBar" as const,
-                                                    color: "#22c55e",
-                                                    shape: "arrowUp" as const,
-                                                    text: isAr ? "توصية" : "Signal",
-                                                    size: 2
-                                                }] : []),
-                                                ...(isClosed && row.updated_at ? [{
-                                                    time: Math.floor(new Date(row.updated_at).getTime() / 1000),
-                                                    position: "aboveBar" as const,
-                                                    color: isWin ? "#10b981" : "#ef4444",
-                                                    shape: "arrowDown" as const,
-                                                    text: isAr ? (isWin ? "خروج بربح" : "خروج بخسارة") : (isWin ? "Exit (Win)" : "Exit (Loss)"),
-                                                    size: 2
-                                                }] : [])
-                                            ]
-                                        }
                                     />
                                 </div>
                             </div>

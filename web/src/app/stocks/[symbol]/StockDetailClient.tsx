@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
+import { getRecommendationChartMarkers, RecommendationChartMarker } from "@/lib/api";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWatchlist } from "@/contexts/WatchlistContext";
@@ -179,6 +180,14 @@ export default function StockDetailClient({
 
   // Active chart hover point state
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [recommendationMarkers, setRecommendationMarkers] = useState<RecommendationChartMarker[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    getRecommendationChartMarkers(symbol, exchange, controller.signal)
+      .then(setRecommendationMarkers)
+      .catch(() => { if (!controller.signal.aborted) setRecommendationMarkers([]); });
+    return () => controller.abort();
+  }, [symbol, exchange, user]);
 
   // Extract fundamentals
   const fundData = fundamentals?.data || {};
@@ -354,6 +363,12 @@ export default function StockDetailClient({
     if (chartPoints.length === 0) return "";
     return chartPoints.map((pt, idx) => `${idx === 0 ? "M" : "L"} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`).join(" ");
   }, [chartPoints]);
+
+  const visibleRecommendationMarkers = useMemo(() => recommendationMarkers.flatMap((marker) => {
+    const day = new Date(marker.time * 1000).toISOString().slice(0, 10);
+    const point = chartPoints.find((item) => item.date === day);
+    return point ? [{ ...marker, x: point.x, y: point.y }] : [];
+  }), [recommendationMarkers, chartPoints]);
 
   const chartAreaPath = useMemo(() => {
     if (chartPoints.length === 0) return "";
@@ -667,6 +682,12 @@ export default function StockDetailClient({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
+                {visibleRecommendationMarkers.map((marker) => (
+                  <g key={`${marker.id}-${marker.kind}`}>
+                    <circle cx={marker.x} cy={marker.y} r="7" fill={marker.kind === "entry" ? "#22c55e" : "#ef4444"} stroke="#0f172a" strokeWidth="2" />
+                    <title>{`${marker.kind === "entry" ? (language === "ar" ? "دخول" : "Entry") : (language === "ar" ? "خروج" : "Exit")} ${marker.price.toFixed(2)}`}</title>
+                  </g>
+                ))}
 
                 {/* Hover indicator line */}
                 {hoverIndex !== null && chartPoints[hoverIndex] && (
