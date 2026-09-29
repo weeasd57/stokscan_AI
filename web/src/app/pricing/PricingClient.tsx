@@ -27,6 +27,7 @@ import {
   Copy,
   ExternalLink,
   Info,
+  Activity,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -322,6 +323,7 @@ export default function PricingClient() {
     { icon: <Zap className="w-4 h-4" />, text: isAr ? `تأخير الإشارات ${freeLimits.signal_delay_days} يوماً` : `Signals delayed ${freeLimits.signal_delay_days} days`, included: true },
     { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? "5 رسائل شات بوت يومياً" : "5 chatbot messages / day", included: true },
     { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? `حتى ${freeLimits.portfolio_stocks} أسهم في المحفظة` : `Up to ${freeLimits.portfolio_stocks} portfolio stocks`, included: true },
+    { icon: <Activity className="w-4 h-4" />, text: isAr ? "النشاط غير الطبيعي (أسهم ارتفع حجمها بشكل غير طبيعي)" : "Unusual Activity (volume spike detection)", included: false },
     { icon: <ShieldCheck className="w-4 h-4" />, text: isAr ? "قناة VIP على تليجرام" : "VIP Telegram Channel", included: false },
     { icon: <Sparkles className="w-4 h-4" />, text: isAr ? "توصيات ونماذج الذكاء الاصطناعي الفورية" : "Full AI models & instant recommendations", included: false },
   ];
@@ -330,6 +332,7 @@ export default function PricingClient() {
     { icon: <Zap className="w-4 h-4" />, text: isAr ? "إشارات وتوصيات يومية فور صدورها (بدون تأخير)" : "Daily signals delivered instantly (zero delay)", included: true },
     { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? `${proLimits.chat_messages_per_month} رسالة شات بوت ذكي شهرياً` : `${proLimits.chat_messages_per_month} smart chatbot messages / month`, included: true },
     { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? `حتى ${proLimits.portfolio_stocks} أسهم نشطة في المحفظة` : `Up to ${proLimits.portfolio_stocks} active portfolio stocks`, included: true },
+    { icon: <Activity className="w-4 h-4" />, text: isAr ? "النشاط غير الطبيعي — أسهم بحجم تداول غير طبيعي + تقييم AI" : "Unusual Activity — volume spikes + AI scoring", included: true },
     { icon: <ShieldCheck className="w-4 h-4" />, text: isAr ? "رابط دخول خاص لقناة VIP على تليجرام" : "Private invite to VIP Telegram channel", included: true },
     { icon: <Sparkles className="w-4 h-4" />, text: isAr ? "نماذج الذكاء الاصطناعي (EGX Booster & King)" : "Full AI models (EGX Booster & King)", included: true },
   ];
