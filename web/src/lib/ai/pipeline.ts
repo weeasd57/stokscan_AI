@@ -3146,8 +3146,8 @@ async function* runPipelineCore(
             // Wait out short per-minute rate-limit windows so the retry can recover
             // a natural reply; long storms (daily quota etc.) fail fast with the template.
             const cooldownMs = getResponderCooldownMs();
-            if (cooldownMs + 5500 >= remainingExecutionMs()) {
-                console.warn("[VALIDATOR] Degraded fallback with long provider cooldown — serving deterministic reply");
+            if (cooldownMs + 5500 >= remainingExecutionMs() || remainingExecutionMs() < 20000) {
+                console.warn("[VALIDATOR] Insufficient execution time or long cooldown for LLM retry — serving deterministic reply");
                 finalReply = currentResponse;
                 break;
             }

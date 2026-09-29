@@ -597,7 +597,14 @@ export function buildV2FinalMessages(
             "هذه مراكز المستخدم الفعلية المسجلة في النظام. عند تحليل سهم موجود هنا، ابدأ بذكر الكمية ومتوسط الشراء واربط الربح/الخطر بسعر التكلفة الفعلي، ولا تتعامل معه كسهم عام فقط.",
             "🚫 قاعدة صارمة لمنع هلوسة المراكز: يُمنع تماماً افتراض أن المستخدم 'خسران' أو 'رابح' في أي سهم إلا إذا توفرت بيانات المركز الفعلية أعلاه. إذا ذكر المستخدم سهماً بدون ظهوره في هذا القسم، تعامل معه على أنه استفسار تحليلي عام فقط.",
             ...(isPortfolioAnalysisRequest(userMessage) ? [
-                `🚨 قاعدة إلزامية لتغطية المحفظة: طلب المستخدم هو تحليل المحفظة، لذلك يجب بالضرورة تحليل وتغطية كل مركز من هذه المراكز بلا استثناء: (${ownedPositions.map((p: any) => p.symbol).join("، ")}). اذكر كل رمز بالاسم وقدم قراءته الفنية.`
+                ownedPositions.length >= 5
+                    ? `🚨 قاعدة إلزامية لهيكلة تقرير المحفظة (${ownedPositions.length} أسهم):
+1. ابدأ بجدول ماركداون شامل يضم كل المراكز بلا استثناء (${ownedPositions.map((p: any) => p.symbol).join("، ")}):
+   | السهم | الكمية | سعر الشراء | آخر سعر | الربح/الخسارة % | RSI | الذكاء الاصطناعي | الدعم | المقاومة |
+2. قدّم قراءة نوعية سريعة لأهم 3 إلى 5 مراكز استراتيجية ومؤثرة في المحفظة (أعلى أرباح/خسائر أو تشبع فني أو أحداث جوهرية).
+3. اختم بتوجيهات عملية لإدارة المخاطر وتوزيع السيولة.
+التزم بهذا التنسيق لضمان تغطية جميع المراكز بدون إطالة مفرطة.`
+                    : `🚨 قاعدة إلزامية لتغطية المحفظة: طلب المستخدم هو تحليل المحفظة، لذلك يجب بالضرورة تحليل وتغطية كل مركز من هذه المراكز بلا استثناء: (${ownedPositions.map((p: any) => p.symbol).join("، ")}). اذكر كل رمز بالاسم وقدم قراءته الفنية ومستوياته.`
             ] : []),
             ...ownedPositions.map((position: any) => `- ${position.symbol}: الكمية=${position.quantity ?? "غير متاح"}، متوسط الشراء=${position.entry_price ?? "غير متاح"}، آخر سعر=${position.last_price ?? "غير متاح"}، قيمة المركز=${position.market_value ?? "غير متاح"}, الربح/الخسارة غير المحققة=${position.unrealized_pnl ?? "غير متاح"}`),
         ].join("\n"));
@@ -948,8 +955,11 @@ async function* parseSseStream(res: Response): AsyncGenerator<string, void, unkn
         if (parsed.error) throw new Error("provider stream returned an error");
         const choice = parsed.choices?.[0];
         if (choice?.finish_reason) {
-            if (choice.finish_reason !== "stop") {
+            if (choice.finish_reason !== "stop" && choice.finish_reason !== "length") {
                 throw new Error(`provider response incomplete: ${choice.finish_reason}`);
+            }
+            if (choice.finish_reason === "length") {
+                console.warn("[Responder] Stream hit token limit (finish_reason: length) — preserving completed content");
             }
             providerDone = true;
         }
@@ -1850,6 +1860,100 @@ export function buildFastConversationalAdvisorResponse(
     return null;
 }
 
+export function buildDeterministicPortfolioAnalysisResponse(
+    userMessage: string,
+    plan: IntentPlan,
+    toolResults: ToolResult[]
+): string | null {
+    const isAnalysisReq = isPortfolioAnalysisRequest(userMessage)
+        || (/(?:محفظ|مراكز)/i.test(normalizeArabicIntent(userMessage)) && /(?:حلل|تحليل|قيم|تقييم|وضع|اداء)/i.test(normalizeArabicIntent(userMessage)));
+    if (!isAnalysisReq && plan.entities?.portfolio_operation !== "view") return null;
+
+    const portfolioRes = toolResults.find(r => r.tool === "manage_portfolio" && !r.error);
+    const stockResults = toolResults.filter(r => r.tool === "get_stock" && r.data?.symbol);
+    const levelResults = toolResults.filter(r => r.tool === "get_stock_levels" && r.data?.symbol);
+    const levelMap = new Map(levelResults.map(r => [String(r.data.symbol).toUpperCase(), r.data]));
+    const stockMap = new Map(stockResults.map(r => [String(r.data.symbol).toUpperCase(), r.data]));
+
+    // If portfolio is confirmed empty
+    if (portfolioRes && portfolioRes.data?.ok === true && Array.isArray(portfolioRes.data?.positions) && portfolioRes.data.positions.length === 0) {
+        return "محفظتك المسجلة فارغة حالياً. سجّل أسهمك وأسعار شرائك في صفحة [إدارة المحفظة](https://egxbots.com/profile#portfolio) لأتابعها معك لحظة بلحظة وأحلل لك مستويات الدعم والمقاومة بدقة.";
+    }
+
+    const positions: any[] = (portfolioRes?.data?.positions && Array.isArray(portfolioRes.data.positions) && portfolioRes.data.positions.length > 0)
+        ? portfolioRes.data.positions
+        : stockResults.map(r => ({ symbol: r.data.symbol, name: r.data.name }));
+
+    if (!positions || positions.length === 0) return null;
+
+    const rows = positions.map((pos: any) => {
+        const symbol = String(pos.symbol || "").toUpperCase();
+        const stock = stockMap.get(symbol) || {};
+        const level = levelMap.get(symbol) || {};
+        const price = stock.price != null ? Number(stock.price) : (pos.last_price != null ? Number(pos.last_price) : null);
+        const entry = pos.entry_price != null ? Number(pos.entry_price) : null;
+        const qty = pos.quantity != null ? Number(pos.quantity) : null;
+        let pnlText = "—";
+        if (price != null && entry != null && entry > 0) {
+            const pnlPct = ((price - entry) / entry) * 100;
+            pnlText = `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%`;
+        }
+        const rsi = stock.rsi_14 != null ? Number(stock.rsi_14).toFixed(1) : "—";
+        const king = Number(stock.king_ai_score ?? stock.king_score);
+        const egx = Number(stock.egx_ai_score ?? stock.egx_score);
+        const aiScore = Number.isFinite(king) && Number.isFinite(egx)
+            ? `${(king * 100).toFixed(0)}% / ${(egx * 100).toFixed(0)}%`
+            : "—";
+        const supp = level.support != null ? Number(level.support).toFixed(2) : "—";
+        const resis = level.resistance != null ? Number(level.resistance).toFixed(2) : "—";
+        const priceText = price != null ? price.toFixed(2) : "—";
+        const entryText = entry != null ? entry.toFixed(2) : "—";
+        const qtyText = qty != null ? qty.toLocaleString() : "—";
+
+        return `| **${symbol}** | ${qtyText} | ${entryText} | ${priceText} | ${pnlText} | ${rsi} | ${aiScore} | ${supp} | ${resis} |`;
+    });
+
+    const table = [
+        "| السهم | الكمية | سعر الشراء | آخر سعر | الربح/الخسارة | RSI | الذكاء الاصطناعي (KING/EGX) | الدعم | المقاومة |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ...rows
+    ].join("\n");
+
+    const insights: string[] = [];
+    for (const pos of positions) {
+        const symbol = String(pos.symbol || "").toUpperCase();
+        const stock = stockMap.get(symbol) || {};
+        const level = levelMap.get(symbol) || {};
+        const rsi = Number(stock.rsi_14);
+        const entry = pos.entry_price != null ? Number(pos.entry_price) : null;
+        const price = stock.price != null ? Number(stock.price) : null;
+        
+        if (Number.isFinite(rsi) && rsi < 30) {
+            insights.push(`• **${symbol}:** في منطقة تشبع بيعي حاد (RSI: ${rsi.toFixed(1)}) مع دعم حسابي عند ${level.support != null ? Number(level.support).toFixed(2) : "غير متاح"} ج.م، مما قد يتيح فرص ارتداد فني شريطة تماسك الدعم.`);
+        } else if (Number.isFinite(rsi) && rsi > 70) {
+            insights.push(`• **${symbol}:** دخل منطقة تشبع شرائي (RSI: ${rsi.toFixed(1)}) قرب مقاومة ${level.resistance != null ? Number(level.resistance).toFixed(2) : "غير متاح"} ج.م، ويُفضل حماية الأرباح عند ضعف العزم.`);
+        } else if (entry != null && price != null && ((price - entry) / entry) > 0.2) {
+            const gain = (((price - entry) / entry) * 100).toFixed(1);
+            insights.push(`• **${symbol}:** محقق ربح غير محقق قوي (+${gain}%)؛ يُنصح برفع مستوى وقف الأرباح (Trailing Stop) لحماية المكاسب.`);
+        }
+    }
+
+    const lines = [
+        "📊 **تقرير التحليل الفني الشامل لمراكز المحفظة:**",
+        "",
+        table,
+        "",
+        insights.length > 0 ? "🔍 **ملاحظات وإشارات فنية محورية:**\n" + insights.slice(0, 4).join("\n") + "\n" : null,
+        "💡 **إدارة المخاطر وتوزيع السيولة:**",
+        "- يُنصح بعدم تركيز السيولة في مراكز متعثرة دون وقف خسارة واضح عند كسر الدعوم الحسابية.",
+        "- متابعة حركة كل مركز بالنسبة لمقاوماته لتحديد نقاط جني الأرباح الجزئي تدريجياً.",
+        "",
+        "الأرقام استرشادية مبنية على البيانات المسجلة، والقرار الاستثماري النهائي يعود لك وفق خطتك المالية."
+    ].filter(Boolean);
+
+    return lines.join("\n");
+}
+
 export function buildDeterministicTechnicalScanResponse(
     userMessage: string,
     plan: IntentPlan,
@@ -2081,6 +2185,10 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     }
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
     if (fastAdvisor) return fastAdvisor;
+
+    // Portfolio analysis template
+    const portfolioAnalysisRes = buildDeterministicPortfolioAnalysisResponse(userMessage, plan, toolResults);
+    if (portfolioAnalysisRes) return portfolioAnalysisRes;
 
     // Technical scan templates
     const techScanRes = buildDeterministicTechnicalScanResponse(userMessage, plan, toolResults);
