@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAIScanner } from "@/contexts/AIScannerContext";
@@ -148,6 +149,7 @@ interface RecommendationsTableProps {
     isLandingPage?: boolean;
     limit?: number;
     hideTelegramToggle?: boolean;
+    analyticsOnly?: boolean;
 }
 
 type SpotlightCardProps = {
@@ -250,7 +252,7 @@ function MarketOverviewSummary({ isAr, onOpen }: { isAr: boolean; onOpen: () => 
     );
 }
 
-export default function RecommendationsTable({ isLandingPage = false, limit = Infinity, hideTelegramToggle = false }: RecommendationsTableProps) {
+export default function RecommendationsTable({ isLandingPage = false, limit = Infinity, hideTelegramToggle = false, analyticsOnly = false }: RecommendationsTableProps) {
     const { user } = useAuth();
     const { language } = useLanguage();
     const { theme } = useTheme();
@@ -335,7 +337,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedSector, setSelectedSector] = useState("");
     const [selectedSignal, setSelectedSignal] = useState("");
-    const [activeTab, setActiveTab] = useState<"active" | "closed" | "all" | "analytics">("active");
+    const [activeTab, setActiveTab] = useState<"active" | "closed" | "all" | "analytics">(analyticsOnly ? "analytics" : "active");
     const [analyticsSubTab, setAnalyticsSubTab] = useState<"calendar" | "performance" | "distribution">("calendar");
     const [timeRange, setTimeRange] = useState<"all" | "7d" | "30d">("all");
     const [sortBy, setSortBy] = useState("precision");
@@ -541,11 +543,11 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <Lock className="w-8 h-8 text-black" />
                     </div>
                     <div className="text-2xl font-black uppercase tracking-wide text-black dark:text-white">
-                        {!user ? (isAr ? "سجّل الدخول لفتح التوصية" : "Sign in to unlock") : (isAr ? "توصية لبرو فقط" : "Pro-only signal")}
+                        {!user ? (isAr ? "سجّل الدخول لفتح الصفقة" : "Sign in to unlock") : (isAr ? "صفقة لبرو فقط" : "Pro-only trade")}
                     </div>
                     <div className="text-sm font-bold text-zinc-600 dark:text-zinc-400 max-w-md leading-relaxed">
                         {!user
-                            ? (isAr ? "بيانات السهم مشفرة. سجّل الدخول لعرض التوصيات المجانية المتاحة بعد تأخير 15 يوماً." : "Stock details are encrypted. Sign in to see Free recommendations after the 15-day delay.")
+                            ? (isAr ? "بيانات السهم مشفرة. سجّل الدخول لعرض الصفقات المجانية المتاحة بعد تأخير 15 يوماً." : "Stock details are encrypted. Sign in to see Free trades after the 15-day delay.")
                             : (isAr ? "بيانات السهم ده متاحة فوراً لمشتركي Pro." : "This stock's details are available instantly to Pro subscribers.")}
                     </div>
                     <button
@@ -2115,7 +2117,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <div className="p-4 border-4 border-black dark:border-white bg-sky-300 text-black font-bold flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs shadow-[4px_4px_0px_rgba(0,0,0,1)]">
                             <div className="flex items-center gap-2">
                                 <Clock className="w-4 h-4 shrink-0" />
-                                <span>{isAr ? "نتائج التوصيات المغلقة ظاهرة فوراً دون رمز السهم؛ الإشارات المفتوحة متأخرة 15 يوماً." : "Closed results appear immediately without stock symbols; open signals are delayed by 15 days."}</span>
+                                <span>{isAr ? "نتائج الصفقات المغلقة ظاهرة فوراً دون رمز السهم؛ الصفقات المفتوحة متأخرة 15 يوماً." : "Closed trade results appear immediately without stock symbols; open trades are delayed by 15 days."}</span>
                             </div>
                             <a href="/login?redirect=%2Fscanner%2Fbacktests%3Ftab%3Dbots" className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black text-white uppercase tracking-wide hover:bg-zinc-800">
                                 {isAr ? "تسجيل الدخول" : "Sign in"}
@@ -2165,7 +2167,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             </div>
                             <div className="min-w-0 flex-1">
                                 <p className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-wider leading-none mb-1.5 truncate">
-                                    {isAr ? "التوصيات النشطة" : "Active Trades"}
+                                    {isAr ? "الصفقات النشطة" : "Active Trades"}
                                 </p>
                                 <p className="text-lg sm:text-2xl font-black font-mono leading-none">{stats.activeCount}</p>
                             </div>
@@ -2224,13 +2226,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             )}
 
             {/* Tabs Navigation Bar */}
-            {limit === Infinity && (!isLandingPage || user) && (
+            {limit === Infinity && (!isLandingPage || user) && !analyticsOnly && (
                 <div className="flex flex-col sm:flex-row border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] p-1.5 gap-2 select-none">
                     {[
                         { id: "active", label: isAr ? "الصفقات النشطة (المفتوحة)" : "Active Trades (Open)", count: tabCounts.activeCount },
-                        { id: "closed", label: isAr ? "أرشيف العمليات (المغلقة)" : "Closed Archive", count: tabCounts.closedCount },
+                        { id: "closed", label: isAr ? "أرشيف الصفقات (المغلقة)" : "Closed Trades", count: tabCounts.closedCount },
                         { id: "all", label: isAr ? "جميع الصفقات" : "All Trades", count: tabCounts.totalCount },
-                        ...(user ? [{ id: "analytics", label: isAr ? "📊 تحليلات التوصيات" : "📊 Analytics", count: null }] : []),
                     ].map(tab => {
                         const isSelected = activeTab === tab.id;
                         return (
@@ -2272,14 +2273,33 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 </div>
             )}
 
+            {user && !analyticsOnly && limit === Infinity && (
+                <div className="mt-3 flex flex-col gap-2 border border-amber-400/30 bg-zinc-950/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between" dir={isAr ? "rtl" : "ltr"}>
+                    <div>
+                        <p className="text-xs font-black text-amber-300">{isAr ? "لوحة تحليلات الصفقات منفصلة عن سجل الصفقات" : "Trade analytics are separate from the trade ledger"}</p>
+                        <p className="mt-1 text-[11px] text-zinc-400">{isAr ? "راجع الأداء الشهري والتقويم وتوزيع العوائد في صفحة مستقلة." : "Review the calendar, monthly performance and return distribution on a dedicated page."}</p>
+                    </div>
+                    <Link href="/scanner/backtests?tab=analytics" className="inline-flex shrink-0 items-center justify-center border-2 border-amber-400 bg-amber-400 px-4 py-2 text-xs font-black text-black transition hover:bg-amber-300">
+                        {isAr ? "فتح تحليلات الصفقات" : "Open trade analytics"}
+                    </Link>
+                </div>
+            )}
+
             {/* ── Analytics Tab (Calendar + Charts) ───────────────────────── */}
             {activeTab === "analytics" ? (
                 <div>
+                    {analyticsOnly && (
+                        <div className="mb-4 border-4 border-amber-400/70 bg-zinc-950 px-5 py-4" dir={isAr ? "rtl" : "ltr"}>
+                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-300">{isAr ? "لوحة مستقلة" : "Dedicated analytics"}</p>
+                            <h2 className="mt-1 text-xl font-black text-white">{isAr ? "تحليلات أداء الصفقات" : "Trade performance analytics"}</h2>
+                            <p className="mt-1 text-xs text-zinc-400">{isAr ? "هذه الصفحة تقيس نتائج الصفقات المغلقة ولا تعرضها كصفقات تداول جديدة." : "This page measures closed trade outcomes and does not present them as new trades."}</p>
+                        </div>
+                    )}
                     {/* Sub-tabs bar */}
                     <div className="flex border-b-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 px-3 pt-3 gap-1">
                         {([
                             { id: "calendar",     icon: <Calendar className="w-3.5 h-3.5" />,  label: isAr ? "تقويم الأرباح"         : "Profit Calendar" },
-                            { id: "performance",  icon: <LineChart className="w-3.5 h-3.5" />,  label: isAr ? "أداء التوصيات"         : "Signal Performance" },
+                            { id: "performance",  icon: <LineChart className="w-3.5 h-3.5" />,  label: isAr ? "أداء الصفقات"         : "Trade Performance" },
                             { id: "distribution", icon: <BarChart3  className="w-3.5 h-3.5" />, label: isAr ? "توزيع المكاسب والخسائر" : "Return Distribution" },
                         ] as const).map(sub => (
                             <button
