@@ -1001,9 +1001,12 @@ export function buildDeterministicNewsResponse(
     const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
     // Compound requests ("سعر راميدا كام واخبار كومي ايه") must reach the LLM with all
     // tool data — this news-only template would hide the price half of the question.
+    const hasOtherIntent = /(?:سعر|اسعار|أسعار|كام|بكام|تحليل|حلل|مستويات|دعم|مقاومة|توصية|توصيات|شراء|بيع|رايك|رأيك)/i.test(normMsg);
+    if (hasOtherIntent) return null;
+
     const compoundSplit = userMessage
         .split(/\s+و?(?=(?:هات|جيب|اعرض|حلل|شوف|قارن|مين|ايه|إيه|اخبار|أخبار|سعر|ترتيب|قايمه|قائمة)(?:\s|$))/i)
-        .filter(part => part.trim() && !/^(?:هات|جيب|اعرض|شوف|اخبار|أخبار)$/i.test(part.trim()));
+        .filter(part => part.trim() && !/^(?:هات|هاتلي|جيب|جبلي|اعرض|اعرضلي|شوف|شوفلي|قولي|عايز|عايزك|ممكن|ابعت|ابعتلي|اخبار|أخبار)$/i.test(part.trim()));
     if (compoundSplit.length > 1) return null;
     const asksForNews = /(?:اخبار|أخبار|خبر(?!ه)|عناوين|news)/i.test(normMsg);
     if (!asksForNews) return null;

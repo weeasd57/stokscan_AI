@@ -12,6 +12,12 @@ describe("news responses share article evidence with coverage", () => {
         expect(result).toContain("2026-09-20");
         expect(result).toContain("2026-09-24");
     });
+    test("colloquial prefixes like هاتلي and عايز count as single requests", () => {
+        const result1 = buildDeterministicNewsResponse("هاتلي اخبار ORWE اليوم", plan, [tool([])]);
+        expect(result1).toContain("لم أجد خبراً موثّقاً");
+        const result2 = buildDeterministicNewsResponse("عايز اخبار ORWE اليوم", plan, [tool([])]);
+        expect(result2).toContain("لم أجد خبراً موثّقاً");
+    });
     test("compound fallback counts titles rather than sentiment rows", () => {
         const result = buildDeterministicResponse("اعرض اخبار ORWE\nهات سعر ORWE", plan, [tool([
             { symbol: "ORWE", date: "2026-09-29", news_count: 4, sentiment_score: .8, headlines: [] },
