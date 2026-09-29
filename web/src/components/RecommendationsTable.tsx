@@ -302,10 +302,17 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             if (!document.hidden && Date.now() - lastCheckAt >= 60_000) void checkPlan();
         };
         void checkPlan();
+        // Entitlements can change while this page stays open after checkout.
+        // Poll the private, no-store quota endpoint so a Free -> Pro upgrade
+        // updates the analytics view without a hard refresh.
+        const planRefresh = window.setInterval(() => {
+            if (!document.hidden) void checkPlan();
+        }, 15_000);
         window.addEventListener("focus", checkOnReturn);
         document.addEventListener("visibilitychange", checkOnReturn);
         return () => {
             active = false;
+            window.clearInterval(planRefresh);
             window.removeEventListener("focus", checkOnReturn);
             document.removeEventListener("visibilitychange", checkOnReturn);
         };
@@ -318,6 +325,19 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         () => recommendations.some(row => row.locked === true || row.identity_locked === true),
         [recommendations],
     );
+    const previousPlanRef = useRef<boolean | null>(null);
+    useEffect(() => {
+        if (!user) {
+            previousPlanRef.current = null;
+            return;
+        }
+        const changed = previousPlanRef.current !== null && previousPlanRef.current !== hasProAccess;
+        previousPlanRef.current = hasProAccess;
+        if (changed) {
+            void loadRecommendations(isLandingPage, true, limit !== Infinity ? limit : undefined);
+            setCalendarRefreshToken(value => value + 1);
+        }
+    }, [user?.id, hasProAccess, isLandingPage, limit, loadRecommendations]);
     useEffect(() => {
         if (!user || !hasProAccess || !hasEncryptedRecommendations) {
             proRefreshViewerRef.current = null;
@@ -2270,17 +2290,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             </button>
                         );
                     })}
-                </div>
-            )}
-
-            {user && !analyticsOnly && limit === Infinity && (
-                <div className="mt-3 flex flex-col gap-2 border border-amber-400/30 bg-zinc-950/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between" dir={isAr ? "rtl" : "ltr"}>
-                    <div>
-                        <p className="text-xs font-black text-amber-300">{isAr ? "لوحة تحليلات الصفقات منفصلة عن سجل الصفقات" : "Trade analytics are separate from the trade ledger"}</p>
-                        <p className="mt-1 text-[11px] text-zinc-400">{isAr ? "راجع الأداء الشهري والتقويم وتوزيع العوائد في صفحة مستقلة." : "Review the calendar, monthly performance and return distribution on a dedicated page."}</p>
-                    </div>
-                    <Link href="/scanner/backtests?tab=analytics" className="inline-flex shrink-0 items-center justify-center border-2 border-amber-400 bg-amber-400 px-4 py-2 text-xs font-black text-black transition hover:bg-amber-300">
-                        {isAr ? "فتح تحليلات الصفقات" : "Open trade analytics"}
+                    <Link
+                        href="/scanner/backtests?tab=analytics"
+                        className="flex-1 py-2.5 sm:py-3 px-3 sm:px-4 font-black text-xs sm:text-sm flex items-center justify-center gap-2 border-2 border-amber-400 bg-amber-400 text-black transition hover:bg-amber-300"
+                    >
+                        <LineChart className="h-4 w-4" />
+                        {isAr ? "تحليلات الصفقات" : "Trade Analytics"}
                     </Link>
                 </div>
             )}
@@ -2295,6 +2310,34 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             <p className="mt-1 text-xs text-zinc-400">{isAr ? "هذه الصفحة تقيس نتائج الصفقات المغلقة ولا تعرضها كصفقات تداول جديدة." : "This page measures closed trade outcomes and does not present them as new trades."}</p>
                         </div>
                     )}
+                    {(() => {
+                        const cutoff15 = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
+                        const closed = recommendations.filter(r => ["win", "loss"].includes((r.status || "").toLowerCase()));
+                        const getCloseDate = (r: any) => r.closed_at || r.updated_at || r.created_at;
+                        const visible = isProView ? closed : closed.filter(r => {
+                            const date = getCloseDate(r);
+                            return date && new Date(date) < cutoff15;
+                        });
+                        const returns = visible.map(r => Number(r.profit_loss_pct)).filter(Number.isFinite);
+                        const wins = visible.filter(r => (r.status || "").toLowerCase() === "win").length;
+                        const avg = returns.length ? returns.reduce((sum, value) => sum + value, 0) / returns.length : null;
+                        const best = returns.length ? Math.max(...returns) : null;
+                        return (
+                            <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 p-3 bg-zinc-100 dark:bg-zinc-900 border-x-4 border-black dark:border-white" dir={isAr ? "rtl" : "ltr"}>
+                                {[
+                                    { label: isAr ? "صفقات مغلقة" : "Closed trades", value: String(visible.length), tone: "text-white" },
+                                    { label: isAr ? "نسبة النجاح" : "Win rate", value: visible.length ? `${((wins / visible.length) * 100).toFixed(1)}%` : "—", tone: "text-emerald-400" },
+                                    { label: isAr ? "متوسط العائد" : "Average return", value: avg == null ? "—" : `${avg >= 0 ? "+" : ""}${avg.toFixed(1)}%`, tone: avg == null || avg >= 0 ? "text-emerald-400" : "text-rose-400" },
+                                    { label: isAr ? "أفضل صفقة" : "Best trade", value: best == null ? "—" : `+${best.toFixed(1)}%`, tone: "text-amber-300" },
+                                ].map(metric => (
+                                    <div key={metric.label} className="border-2 border-zinc-700 bg-zinc-950 px-3 py-3">
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-zinc-500">{metric.label}</p>
+                                        <p className={`mt-1 text-xl font-black font-mono ${metric.tone}`} dir="ltr">{metric.value}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        );
+                    })()}
                     {/* Sub-tabs bar */}
                     <div className="flex border-b-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 px-3 pt-3 gap-1">
                         {([
@@ -2359,12 +2402,23 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         }
                         const months = Object.keys(byMonth).sort();
                         const maxVal = Math.max(1, ...months.flatMap(m => [byMonth[m].wins, byMonth[m].losses]));
+                        const strongestMonth = months.reduce<string | null>((best, month) => {
+                            if (!best) return month;
+                            const current = byMonth[month];
+                            const previous = byMonth[best];
+                            return current.wins / Math.max(1, current.wins + current.losses) > previous.wins / Math.max(1, previous.wins + previous.losses) ? month : best;
+                        }, null);
                         return (
                             <div className="p-4 bg-white dark:bg-zinc-950">
                                 {!isProView && (
                                     <div className="mb-3 flex items-center gap-2 border border-amber-400/50 bg-amber-50 dark:bg-amber-400/10 px-3 py-2 text-xs font-bold text-amber-800 dark:text-amber-300">
                                         <Clock className="h-3.5 w-3.5 shrink-0" />
                                         {isAr ? "الخطة المجانية: البيانات متأخرة 15 يوماً — اشترك في Pro لبيانات فورية." : "Free plan: data is delayed 15 days — upgrade to Pro for live data."}
+                                    </div>
+                                )}
+                                {strongestMonth && (
+                                    <div className="mb-4 border-2 border-blue-400/50 bg-blue-50 dark:bg-blue-400/10 px-3 py-2 text-xs font-bold text-blue-900 dark:text-blue-200">
+                                        {isAr ? `أقوى شهر: ${strongestMonth} بنسبة نجاح ${Math.round((byMonth[strongestMonth].wins / Math.max(1, byMonth[strongestMonth].wins + byMonth[strongestMonth].losses)) * 100)}% — استخدمه لمقارنة تحسن النموذج عبر الزمن.` : `Strongest month: ${strongestMonth} at ${Math.round((byMonth[strongestMonth].wins / Math.max(1, byMonth[strongestMonth].wins + byMonth[strongestMonth].losses)) * 100)}% wins — use it to compare model consistency over time.`}
                                     </div>
                                 )}
                                 <p className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-4">{isAr ? "نسبة الربح/الخسارة شهرياً" : "Win / Loss Rate by Month"}</p>
@@ -2423,12 +2477,33 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             count: visible.filter(r => (r.profit_loss_pct||0) >= b.min && (r.profit_loss_pct||0) < b.max).length
                         }));
                         const maxCount = Math.max(1, ...counts.map(b => b.count));
+                        const returns = visible.map(r => Number(r.profit_loss_pct)).filter(Number.isFinite).sort((a, b) => a - b);
+                        const positive = returns.filter(value => value > 0).length;
+                        const grossProfit = returns.filter(value => value > 0).reduce((sum, value) => sum + value, 0);
+                        const grossLoss = Math.abs(returns.filter(value => value < 0).reduce((sum, value) => sum + value, 0));
+                        const profitFactor = grossLoss ? grossProfit / grossLoss : null;
+                        const median = returns.length ? returns[Math.floor(returns.length / 2)] : null;
                         return (
                             <div className="p-4 bg-white dark:bg-zinc-950">
                                 {!isProView && (
                                     <div className="mb-3 flex items-center gap-2 border border-amber-400/50 bg-amber-50 dark:bg-amber-400/10 px-3 py-2 text-xs font-bold text-amber-800 dark:text-amber-300">
                                         <Clock className="h-3.5 w-3.5 shrink-0" />
                                         {isAr ? "الخطة المجانية: البيانات متأخرة 15 يوماً — اشترك في Pro لبيانات فورية." : "Free plan: data is delayed 15 days — upgrade to Pro for live data."}
+                                    </div>
+                                )}
+                                {visible.length > 0 && (
+                                    <div className="mb-4 grid grid-cols-2 sm:grid-cols-4 gap-2" dir={isAr ? "rtl" : "ltr"}>
+                                        {[
+                                            { label: isAr ? "صفقات رابحة" : "Profitable trades", value: `${positive}/${visible.length}`, tone: "text-emerald-500" },
+                                            { label: isAr ? "المتوسط الأوسط" : "Median return", value: median == null ? "—" : `${median >= 0 ? "+" : ""}${median.toFixed(1)}%`, tone: median == null || median >= 0 ? "text-emerald-500" : "text-rose-500" },
+                                            { label: isAr ? "معامل الربحية" : "Profit factor", value: profitFactor == null ? "—" : `${profitFactor.toFixed(2)}x`, tone: "text-amber-500" },
+                                            { label: isAr ? "العينة" : "Sample", value: String(returns.length), tone: "text-zinc-700 dark:text-zinc-200" },
+                                        ].map(metric => (
+                                            <div key={metric.label} className="border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 px-2.5 py-2">
+                                                <p className="text-[9px] font-black uppercase tracking-wider text-zinc-500">{metric.label}</p>
+                                                <p className={`mt-1 text-sm font-black font-mono ${metric.tone}`} dir="ltr">{metric.value}</p>
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
                                 <p className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-4">{isAr ? "توزيع نسب الربح والخسارة" : "Return Distribution"}</p>
