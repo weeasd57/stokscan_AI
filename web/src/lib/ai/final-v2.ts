@@ -4,7 +4,7 @@ import { getSyncSymbolOfficialNameMap } from "./planner";
 import { AI_CONFIG } from "./config";
 import { getDeepSeekApiKey, getNvidiaApiKeys } from "./server-secrets";
 import { todayInCairo } from "./cairo-date";
-import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isBestBuyStockQuestion, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isTermsDefinitionRequest, isUsageLimitQuestion } from "./intent-policy";
+import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isBestBuyStockQuestion, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isPortfolioAnalysisRequest, normalizeArabicIntent } from "./intent-policy";
 import { sanitizeReply } from "./sanitizer";
 import { executionFetch } from "./execution";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
@@ -445,7 +445,14 @@ export function buildV2FinalMessages(
     sections.push("=== RESPONSE RULES ===");
     sections.push("=== CONVERSATION TONE ===");
     sections.push("- كن مساعداً مالياً محادثياً: ابدأ بإجابة السؤال مباشرة، ثم اذكر أقوى دليل رقمي، ثم اسأل سؤال متابعة واحداً فقط إذا كانت معلومة لازمة ناقصة.");
-    sections.push("- إذا كتب المستخدم اسم سهم أو رمزه فقط، قدم ملخصاً قصيراً: السعر المتاح ونوعه وتوقيته، أهم إشارة فنية واحدة أو اثنتين، والخلاصة في 3 إلى 5 أسطر. لا تكرر بطاقة التوصية أو درجات النماذج إلا إذا طلبها صراحة.");
+    sections.push("- عند الاستعلام عن أي سهم (سواء كتب المستخدم رمزه مثل \"AFMC\" أو اسمه أو طلب تحليله): قدّم المسار التحليلي الفني والمالي الكامل للسهم بشكل منظم ومكتمل:");
+    sections.push("  1. السعر وحركة الجلسة: اذكر اسم السهم ورمزه صراحة في أول سطر (مثال: سهم AFMC)، ثم آخر سعر مسجل ونسبة التغير وتاريخ الجلسة.");
+    sections.push("  2. المؤشرات الفنية والسيولة: مؤشر RSI مع تحديد حالة الزخم، ومؤشر MACD وإشارته، ونسبة السيولة وحجم التداول مقارنة بمتوسط 20 جلسة (vol_ratio).");
+    sections.push("  3. النطاق الفني ومستويات الأسعار: مستويات الدعم والمقاومة المتاحة، والنطاق الفني (Trading Zone)، والمسافة من الدعم.");
+    sections.push("  4. تقييم نماذج الذكاء الاصطناعي (ML Scores): اذكر دائماً تقييم نموذج KING AI وتقييم نموذج EGX AI المتاحين بالبيانات، مع توافق النماذج (Model Consensus).");
+    sections.push("  5. مرحلة وايكوف (Wyckoff) والسيولة المؤسسية: درجة التجميع أو التصريف والنمط إن وُجدت في بيانات المسح.");
+    sections.push("  6. الأحداث المالية المؤثرة (Corporate Actions): أي توزيعات أرباح، تجزئة، أو اكتتابات مرتبطة بالسهم إن توفرت في البيانات.");
+    sections.push("  7. الخلاصة الفنية ورأي المحلل: تقييم واقعي للمخاطر ونقاط القوة الفنية وسيناريوهات الحركة دون تقديم أمر شراء أو بيع مباشر.");
     sections.push("- لا تدّعِ أنك تراقب سهماً لاحقاً أو سترسل تنبيهاً من تلقاء نفسك؛ اعرض فقط ما يستطيع النظام فعله فعلاً الآن.");
     sections.push("- للمبتدئ: بسّط المصطلح بمثال قصير ولا تكدّس المؤشرات. للخبير: اختصر التعريفات واذكر القيم والفروق والافتراضات. للمستخدم القلق: اعرض عوامل الخطر بالأرقام ولا تطمئنه بعبارات عامة.");
     sections.push("- لا تعرض ML Scores إلا إذا كانت موجودة ومرتبطة بالسؤال أو بتحليل السهم؛ لا تكررها في كل رد عام.");
@@ -467,7 +474,7 @@ export function buildV2FinalMessages(
     sections.push("- اذكر مصدر كل رقم (صورة، بيانات حية، بيانات تاريخية)");
     sections.push("- إذا كان مستوى الدعم أو المقاومة المحسوب في === LIVE DATA === بعيداً جداً عن السعر الحالي (بمسافة تزيد عن 40%)، نبّه العميل بوضوح أن هذا المستوى بعيد جداً ولا يعتبر نقطة مرجعية موثوقة أو عمليّة للتداول قصير المدى ولا يُنصح بالاعتماد عليه.");
     sections.push("- اكتب بعربية واضحة وطبيعية، ويمكن استخدام تعبير مصري خفيف إذا كان مناسباً لأسلوب المستخدم.");
-    sections.push("- في التحليل المفصل فقط، اذكر RSI وMACD ونسبة السيولة إن كانت متاحة وذات صلة؛ لا تكدّسها في سؤال عن اسم سهم فقط.");
+    sections.push("- عند تحليل أي سهم، اذكر دائماً مؤشرات RSI وMACD ونسبة السيولة وحجم التداول من المتوسط لأنها ركائز التحليل الفني الأساسية.");
     sections.push("- لا تنشئ جدول Markdown من نفسك؛ سيضيف النظام الجدول المنظم المستخرج من البيانات بعد ردك");
     sections.push("- لا تذكر أو تسرد أي رمز أو اسم شركة غير موجود في مصادر البيانات والجداول أعلاه");
     sections.push("- لا تعيد سرد قوائم الأسهم في النص؛ اشرح الاتجاهات فقط واترك القائمة للجدول المنظم");
@@ -523,7 +530,7 @@ export function buildV2FinalMessages(
     sections.push("  • يمنع تماماً استخدام عنوان '🎯 موقف توصيات المنصة للسهم' في الاستعلامات العامة للتوصيات؛ هذا العنوان مخصص فقط للسهم الفردي.");
     sections.push("  • لا تقل أبداً '📋 جدول توصيات...' أو تعد بجدول تالٍ في ردك، بل ادخل مباشرة في التحليل الفني النوعي.");
     sections.push("  • قدم تحليلاً نوعياً ذكياً وموجزاً يصنف التوصيات إلى: 🟢 الأفضل أداءً (الرابحة مع نسب العائد)، ⚪ المتعادلة (0.00% صفقات راكدة لم تتحرك)، 🔴 المتراجعة (خسائر غير محققة)، و🏁 المنتهية (المغلقة بتحقيق الهدف أو ضرب الوقف إن وُجدت).");
-    sections.push("- 🎯 موقف توصيات منصة EGX Bots للسهم (عند طلب تحليل مفصل أو سؤال صريح عن التوصية، وليس عند كتابة اسم السهم وحده):");
+    sections.push("- 🎯 موقف توصيات منصة EGX Bots للسهم (عند تحليل السهم أو السؤال عن التوصيات):");
     sections.push("  • عند سؤال المستخدم صراحة عن توصية سهم واحد أو طلب تحليل مفصل له، خصص قسماً بعنوان '🎯 موقف توصيات المنصة للسهم' يوضح بدقة:");
     sections.push("    1. إذا كانت هناك توصية نشطة (مفتوحة / open): اذكر نوع الإشارة (شراء BUY أو بيع SELL)، سعر الدخول، المستهدف، وقف الخسارة، تاريخ صدورها والمدة المنقضية (مثال: 'صدرت منذ 4 أيام بتاريخ 2026-08-31')، والعائد المحقق حتى الآن (مثال: +14.20%).");
     sections.push("    2. إذا كانت هناك توصية سابقة مغلقة (حققت الهدف win أو ضربت الوقف loss): اذكر متى صدرت، وكيف انتهت (حققت الهدف بنجاح بربح X% أو ضربت وقف الخسارة بنسبة Y%).");
@@ -589,6 +596,9 @@ export function buildV2FinalMessages(
             "=== OWNED POSITION CONTEXT ===",
             "هذه مراكز المستخدم الفعلية المسجلة في النظام. عند تحليل سهم موجود هنا، ابدأ بذكر الكمية ومتوسط الشراء واربط الربح/الخطر بسعر التكلفة الفعلي، ولا تتعامل معه كسهم عام فقط.",
             "🚫 قاعدة صارمة لمنع هلوسة المراكز: يُمنع تماماً افتراض أن المستخدم 'خسران' أو 'رابح' في أي سهم إلا إذا توفرت بيانات المركز الفعلية أعلاه. إذا ذكر المستخدم سهماً بدون ظهوره في هذا القسم، تعامل معه على أنه استفسار تحليلي عام فقط.",
+            ...(isPortfolioAnalysisRequest(userMessage) ? [
+                `🚨 قاعدة إلزامية لتغطية المحفظة: طلب المستخدم هو تحليل المحفظة، لذلك يجب بالضرورة تحليل وتغطية كل مركز من هذه المراكز بلا استثناء: (${ownedPositions.map((p: any) => p.symbol).join("، ")}). اذكر كل رمز بالاسم وقدم قراءته الفنية.`
+            ] : []),
             ...ownedPositions.map((position: any) => `- ${position.symbol}: الكمية=${position.quantity ?? "غير متاح"}، متوسط الشراء=${position.entry_price ?? "غير متاح"}، آخر سعر=${position.last_price ?? "غير متاح"}، قيمة المركز=${position.market_value ?? "غير متاح"}, الربح/الخسارة غير المحققة=${position.unrealized_pnl ?? "غير متاح"}`),
         ].join("\n"));
     } else if (verifiedPortfolioResults.length > 0) {
@@ -620,10 +630,15 @@ export function buildV2FinalMessages(
     // raw UTC can report yesterday between midnight and 02:00/03:00 Cairo.
     const today = todayInCairo();
 
+    const isPortfolioContext = plan.entities.portfolio_operation === "view"
+        || /(?:محفظ|مراكز)/i.test(normalizeArabicIntent(userMessage))
+        || (Array.isArray(plan.entities.symbols) && plan.entities.symbols.length >= 2);
     const lengthRule = plan.intent === "technical_scan"
         ? "اعرض قائمة الأسهم ونتائج المسح الفني دائمًا في جدول ماركداون (Markdown Table) منسق ومكتمل الأعمدة بدلاً من القوائم المنقطة أو الأسطر الطويلة لتفادي تداخل النصوص واللغات."
-        : (plan.intent === "stock_analysis" || plan.intent === "general_chat")
-        ? "أجب مباشرة في فقرة قصيرة أو نقطتين إلى أربع نقاط حسب عدد الأرقام المطلوبة، من دون افتتاحية محفوظة أو حشو."
+        : isPortfolioContext
+        ? "قدّم تقريراً شاملاً ومنظماً للمحفظة والمراكز: ابدأ بنظرة عامة على الأداء والمراكز، ثم فصّل التحليل الفني ومستويات الدعم والمقاومة والزخم لكل سهم مسجل في البيانات، واختم بإدارة المخاطر والتوجيهات العملية."
+        : (plan.intent === "stock_analysis" || (Array.isArray(plan.entities.symbols) && plan.entities.symbols.length === 1))
+        ? "قدّم تحليلاً فنياً ومالياً متكاملاً وشاملاً للسهم يغطي السعر، المؤشرات الفنية، مستويات الدعم والمقاومة، تقييمات نماذج الذكاء الاصطناعي (KING AI و EGX AI)، مرحلة وايكوف، والأحداث المؤثرة بأسلوب تحليلي محادثي احترافي متكامل."
         : "أجب مباشرة وبقدر التفصيل الذي يحتاجه السؤال؛ اجمع الأرقام المتصلة في جمل طبيعية ولا تحوّل كل حقل إلى سطر ثابت (إلا في حالة القوائم أو نتائج الفلاتر فاستخدم الجداول دائماً).";
 
     const systemPrompt = `أنت الخبير والمحلل الفني الاحترافي للبورصة المصرية (EGX Bots). اليوم: ${today}.
@@ -792,7 +807,7 @@ async function callDeepSeekApi(
     const timeoutMs = modelName === "deepseek-reasoner" ? 45000 : responseMaxTokens ? 45000 : 30000;
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const maxTokens = modelName === "deepseek-reasoner" ? Math.max(4000, responseMaxTokens || 0) : responseMaxTokens || AI_CONFIG.limits.responseMaxTokens;
+        const maxTokens = modelName === "deepseek-reasoner" ? Math.max(4500, responseMaxTokens || 0) : responseMaxTokens || AI_CONFIG.limits.responseMaxTokens;
         const res = await executionFetch(AI_CONFIG.api.deepseekBaseUrl, {
             method: "POST",
             headers: {
@@ -832,9 +847,9 @@ const DEEPSEEK_RESPONDER_MODELS = [
 ];
 
 const NVIDIA_MODEL_TUNING: Record<string, { maxTokens: number; timeoutMs: number; reasoningEffort?: string }> = {
-    "meta/llama-3.2-11b-vision-instruct": { maxTokens: 2500, timeoutMs: 25000 },
-    "nvidia/nemotron-3.5-lightning-30b-a3b": { maxTokens: 2500, timeoutMs: 15000 },
-    "meta/muse-glimmer-30b": { maxTokens: 2500, timeoutMs: 20000 }
+    "meta/llama-3.2-11b-vision-instruct": { maxTokens: 3500, timeoutMs: 30000 },
+    "nvidia/nemotron-3.5-lightning-30b-a3b": { maxTokens: 4000, timeoutMs: 25000 },
+    "meta/muse-glimmer-30b": { maxTokens: 4000, timeoutMs: 25000 }
 };
 
 // Text fallback chain used when DEEPSEEK_API_KEY is not configured (e.g. the
@@ -2155,17 +2170,26 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         )?.data;
         const rsi = Number(stock.rsi_14);
         const momentum = Number.isFinite(rsi)
-            ? rsi >= 70 ? "تشبع شرائي" : rsi >= 50 ? "زخم إيجابي" : rsi <= 30 ? "تشبع بيعي" : "زخم محايد"
+            ? rsi >= 70 ? "تشبع شرائي (مخاطر جني أرباح مرتفعة)" : rsi >= 50 ? "زخم إيجابي يميل للصعود" : rsi <= 30 ? "تشبع بيعي (فرصة ارتداد مشروطة بحجم داعم)" : "زخم محايد"
             : "الزخم غير متاح";
-        const lines = [
-            `${stock.symbol}: السعر ${stock.price ?? "غير متاح"} جنيه، والتغير ${stock.change_pct ?? "غير متاح"}.`,
-            `RSI ${stock.rsi_14 ?? "غير متاح"} (${momentum})، الحجم ${stock.vol_ratio ?? "غير متاح"} من المتوسط، وMACD ${stock.macd_signal ?? "غير متاح"}.`,
+        const kingScore = stock.king_ai_score != null ? `${(Number(stock.king_ai_score) * 100).toFixed(1)}%` : null;
+        const egxScore = stock.egx_ai_score != null ? `${(Number(stock.egx_ai_score) * 100).toFixed(1)}%` : null;
+        const wyckoffPhase = stock.wyckoff?.phase || (stock.acc_score > 0 ? `تجميع (${stock.acc_score}/100)` : stock.dist_score > 0 ? `تصريف (${stock.dist_score}/100)` : null);
+
+        const sections = [
+            `📊 **التحليل الفني والمالي لسهم ${stock.symbol}${stock.name && stock.name !== stock.symbol ? ` (${stock.name})` : ""}:**`,
+            `- **السعر والأداء:** السعر الحالي ${stock.price ?? "غير متاح"} جنيه، وتغير الجلسة ${stock.change_pct ?? "غير متاح"}.`,
+            `- **المؤشرات الفنية والسيولة:** RSI يبلغ ${stock.rsi_14 ?? "غير متاح"} (${momentum})، ونسبة الحجم ${stock.vol_ratio ?? "غير متاح"} من المتوسط، وMACD ${stock.macd_signal ?? "غير متاح"}.`,
             level?.support != null && level?.resistance != null
-                ? `النطاق الفني: دعم ${Number(level.support).toFixed(2)} ومقاومة ${Number(level.resistance).toFixed(2)} جنيه.`
-                : "مستويات الدعم والمقاومة غير متاحة حالياً.",
-            "الأرقام وصفية ومبنية على آخر بيانات متاحة وليست توصية شراء أو بيع."
-        ];
-        return lines.join("\n");
+                ? `- **النطاق الفني ومستويات الأسعار:** الدعم ${Number(level.support).toFixed(2)} جنيه، والمقاومة ${Number(level.resistance).toFixed(2)} جنيه${level.trading_zone ? ` — موقع السعر: ${level.trading_zone}` : ""}.`
+                : "- **النطاق الفني:** مستويات الدعم والمقاومة غير مكتملة في البيانات الحالية.",
+            (kingScore || egxScore)
+                ? `- **تقييم نماذج الذكاء الاصطناعي:** نموذج KING AI: ${kingScore ?? "غير متوفر"} | نموذج EGX AI: ${egxScore ?? "غير متوفر"}.`
+                : null,
+            wyckoffPhase ? `- **مرحلة وايكوف والسيولة المؤسسية:** ${wyckoffPhase}.` : null,
+            "💡 **الخلاصة الفنية:** البيانات تعكس مستويات الحركة الفنية والزخم، ويُنصح بمراقبة مستويات الدعم والمقاومة المذكورة لإدارة المخاطر. (الأرقام استرشادية وليست توصية شراء أو بيع مباشرة)."
+        ].filter(Boolean) as string[];
+        return sections.join("\n");
     }
     const asksForNews = /(?:اخبار|أخبار|خبر(?!ة)|عناوين|news)/i.test(userMessage);
     if (asksForNews && !compoundNews) {
@@ -2178,14 +2202,22 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         return `لا تتوفر لدي حالياً بيانات أرباح موثقة للفترة المطلوبة للسهم ${plan.entities.symbols.join("، ")}. لذلك لن أستبدل سؤال الأرباح بالسعر أو RSI. يمكنني تحليل السعر فنياً، أو عرض الأرباح عند إضافة مصدر قوائم مالية مؤرخ للنظام.`;
     }
     if (stockResults.length >= 2 && /(?:حلل|تحليل|بيانات|مؤشرات|مسح)/i.test(userMessage)) {
-        const lines = stockResults.map(result => {
+        const items = stockResults.map(result => {
             const data = result.data;
             const level = levelResults.find(item => String(item.data?.symbol || item.symbols?.[0] || "").toUpperCase() === String(data.symbol).toUpperCase())?.data;
             const rsi = Number(data.rsi_14);
-            const momentum = Number.isFinite(rsi) ? rsi >= 70 ? "تشبع شرائي" : rsi >= 50 ? "زخم إيجابي" : rsi <= 30 ? "تشبع بيعي" : "زخم محايد" : "الزخم غير متاح";
-            return `${data.symbol}: ${data.change_pct ?? "التغير غير متاح"}، RSI ${data.rsi_14 ?? "غير متاح"} (${momentum})، حجم ${data.vol_ratio ?? "غير متاح"}، MACD ${data.macd_signal ?? "غير متاح"}${level?.support != null && level?.resistance != null ? `، دعم ${Number(level.support).toFixed(2)} ومقاومة ${Number(level.resistance).toFixed(2)}` : ""}.`;
+            const momentum = Number.isFinite(rsi) ? rsi >= 70 ? "تشبع شرائي" : rsi >= 50 ? "زخم إيجابي" : rsi <= 30 ? "تشبع بيعي" : "محايد" : "غير متاح";
+            const king = data.king_ai_score != null ? `${(Number(data.king_ai_score) * 100).toFixed(1)}%` : null;
+            const egx = data.egx_ai_score != null ? `${(Number(data.egx_ai_score) * 100).toFixed(1)}%` : null;
+            const levelsStr = level?.support != null && level?.resistance != null ? `الدعم ${Number(level.support).toFixed(2)} | المقاومة ${Number(level.resistance).toFixed(2)}` : "المستويات غير متاحة";
+            const mlStr = (king || egx) ? ` | الذكاء الاصطناعي: KING ${king || "—"} / EGX ${egx || "—"}` : "";
+            return `• **${data.symbol}** (${data.name || data.symbol}): السعر ${data.price ?? "—"} ج.م (${data.change_pct ?? "—"}) | RSI: ${data.rsi_14 ?? "—"} (${momentum}) | حجم: ${data.vol_ratio ?? "—"} | ${levelsStr}${mlStr}`;
         });
-        return ["ملخص فني مختصر للبيانات الحالية:", ...lines, "الأرقام وصفية وليست توصية شراء أو بيع."].join("\n");
+        return [
+            "📊 **تقرير التحليل الفني الشامل للأسهم المطلوبة:**",
+            ...items,
+            "\n💡 **إدارة المخاطر:** يُنصح بمتابعة حركة كل سهم بالنسبة لمستويات دعمه ومقاومته لتحديد فرص الارتداد وتخفيف المخاطر عند كسر الدعوم. الأرقام وصفية استرشادية وليست توصية شراء أو بيع مباشرة."
+        ].join("\n");
     }
     const priceHistories = toolResults.filter(result => result.tool === "get_price_history" && result.data?.symbol);
     const forecastRequest = /(توقعات|توقع|متوقع|تقعات|وقعات).{0,35}(?:5|خمس|الخمسه|الخمسة|15|خمستاشر|خمسة عشر).{0,15}(جلسات|جلسه|جلسة|يوم)|(?:5|خمس|الخمسه|الخمسة|15|خمستاشر|خمسة عشر).{0,15}(جلسات|جلسه|جلسة|يوم).{0,35}(توقعات|توقع|متوقع|تقعات|وقعات)/i.test(userMessage);

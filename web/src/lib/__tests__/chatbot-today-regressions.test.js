@@ -34,9 +34,9 @@ describe("today's chatbot response regressions", () => {
         expect(result).not.toMatch(/السعر الحالي|تداولات حية|يقف الآن/);
     });
 
-    test("bare stock queries get a concise answer instruction", () => {
+    test("bare stock queries get a comprehensive structured analysis instruction", () => {
         const messages = buildV2FinalMessages("لوتس", { ...newsPlan, intent: "stock_analysis", tools: ["get_stock"] }, null, [], [], [], { symbol: null, message_id: null, confidence: 0 });
-        expect(JSON.stringify(messages)).toContain("3 إلى 5 أسطر");
+        expect(JSON.stringify(messages)).toContain("المسار التحليلي الفني والمالي الكامل");
     });
 
     test("asking to analyse an unfinished screenshot does not reuse a previous ticker", async () => {

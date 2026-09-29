@@ -683,6 +683,7 @@ export default function ChatWidget() {
                 {/* Input Form */}
                 <div className="p-3 sm:p-4 border-t-4 border-black dark:border-white bg-[#FFE600] shrink-0 min-w-0 overflow-hidden">
                     {user ? (
+                        <>
                         <form onSubmit={handleSubmit} className="space-y-2">
                             {/* Image Previews List */}
                             {imagePreviews.length > 0 && (
@@ -862,6 +863,12 @@ export default function ChatWidget() {
                                 </span>
                             </div>
                         </form>
+                        <div className="text-[10px] text-zinc-500 dark:text-zinc-400 text-center pt-1 font-semibold leading-tight">
+                            {language === "ar"
+                                ? "ℹ️ مخرجات المساعد لأغراض التحليل الفني والتعليم فقط وليست استشارة مالية ملزمة."
+                                : "ℹ️ AI outputs are for educational technical analysis only and not financial advice."}
+                        </div>
+                        </>
                     ) : (
                         <div className="text-center text-xs text-zinc-500 dark:text-zinc-400 py-1">
                             🔒 سجل الدخول أولاً لتتمكن من كتابة وإرسال الأسئلة.

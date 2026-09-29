@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Image from "next/image";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -897,6 +898,14 @@ export default function PricingClient() {
                   ? "المنصة لا تقدم شاشة بث أسعار لحظية للأسهم (Live Ticker) أثناء جلسة التداول، وإنما تعتمد على بيانات الإغلاق والتحليل الفني والكمي. المقصود بـ «الإشارات الفورية» هو وصول تنبيهات التوصيات للمشتركين فور صدورها واعتمادها من نماذج الذكاء الاصطناعي دون أي تأخير زمني، بينما يتم تنفيذ عمليات الشراء والبيع عبر تطبيق السمسرة المعتمد الخاص بك."
                   : "The platform does not provide a live streaming stock ticker during trading sessions; it relies on closing data and quantitative technical analysis. «Instant Signals» refers to recommendation alerts being delivered to subscribers immediately upon AI model approval without delay. Buy/sell orders are executed through your personal licensed broker."}
               </p>
+              <div className="pt-1.5">
+                <Link
+                  href="/legal-status"
+                  className="inline-flex items-center gap-1 text-xs font-black text-amber-800 dark:text-amber-300 underline underline-offset-4 hover:text-amber-950 dark:hover:text-amber-200"
+                >
+                  {isAr ? "اقرأ بيان الموقف القانوني والتنظيمي للمنصة (الهيئة العامة للرقابة المالية) ←" : "Read our full Legal & Regulatory Compliance Statement (Egyptian FRA) →"}
+                </Link>
+              </div>
             </div>
           </div>
         </div>

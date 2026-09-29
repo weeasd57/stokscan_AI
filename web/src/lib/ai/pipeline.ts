@@ -14,6 +14,7 @@ import { extractExcludedSectorNames, extractMentionedSectorNames } from "./secto
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { isEgxSessionOpen } from "./live-stock-updater";
 import { replacePortfolioFromImage, checkPortfolioImportCapacity } from "./portfolio-tools";
+import { isPro } from "./plan-gate";
 import { getDeepSeekApiKey } from "./server-secrets";
 import { createExecutionScope, awaitExecution, executionFetch, executionSupabase, getExecutionSignal, remainingExecutionMs, withExecutionTimeout } from "./execution";
 import { attachEvidenceContract } from "./evidence";
@@ -3047,7 +3048,7 @@ async function* runPipelineCore(
     }
 
     let attempts = 0;
-    const maxAttempts = 2;
+    const maxAttempts = remainingExecutionMs() > 18000 ? 3 : 2;
     let correctionPrompt: string | undefined = undefined;
     let finalReply = "";
     const answerFacts = buildFactRecords(tools.results);
@@ -3076,9 +3077,31 @@ async function* runPipelineCore(
 
         responderMeta.source = undefined;
         responderMeta.degraded = false;
-        const briefStockMention = plan.entities.symbols.length === 1
-            && userMessage.trim().split(/\s+/).length <= 3
-            && !/(?:حلل|تحليل|اخبار|أخبار|توصي|هدف|مقارن|سعر|ليه|لماذا|ازاي|إزاي|هل|؟|\?)/i.test(userMessage);
+        let userIsPro = false;
+        try {
+            if (userId && supabase) {
+                const { data: subData } = await supabase.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", userId).limit(5);
+                userIsPro = isPro(subData || []);
+            }
+        } catch {
+            userIsPro = false;
+        }
+
+        const activeSymbolsCount = Math.max(
+            portfolioAnalysisSymbols.length,
+            Array.isArray(plan.entities.symbols) ? plan.entities.symbols.length : 0
+        );
+
+        const dynamicResponseTokens = userIsPro
+            ? AI_CONFIG.limits.proResponseTokens
+            : activeSymbolsCount >= AI_CONFIG.limits.portfolioResponseTokens.largePortfolioMinSymbols
+                ? AI_CONFIG.limits.portfolioResponseTokens.large
+                : activeSymbolsCount >= 3
+                    ? AI_CONFIG.limits.portfolioResponseTokens.medium
+                    : activeSymbolsCount >= 1
+                        ? AI_CONFIG.limits.responseMaxTokens
+                        : undefined;
+
         const stream = generateV2Stream(
             userMessage, plan, vision, tools.results,
             scopedMemory,
@@ -3089,11 +3112,7 @@ async function* runPipelineCore(
             sessionState,
             correctionPrompt,
             responderMeta,
-            portfolioAnalysisSymbols.length >= AI_CONFIG.limits.portfolioResponseTokens.largePortfolioMinSymbols
-                ? AI_CONFIG.limits.portfolioResponseTokens.large
-                : portfolioAnalysisSymbols.length > 4
-                    ? AI_CONFIG.limits.portfolioResponseTokens.medium
-                    : briefStockMention ? 550 : undefined
+            dynamicResponseTokens
         );
 
         // A market ranking fallback is still grounded in the live tool result,
@@ -3249,11 +3268,16 @@ async function* runPipelineCore(
     const preSendGate = runAnswerGate({ reply: fullResponse, plan, toolResults: tools.results, userMessage, facts: answerFacts, history });
     if (!preSendGate.ok) {
         console.warn(`[ANSWER_GATE] Rejected final response: ${preSendGate.reasons.join("; ")}`);
-        const portfolioSnapshot = tools.results.find(result => result.tool === "manage_portfolio"
-            && !result.error && result.data?.ok === true && Array.isArray(result.data?.positions));
-        fullResponse = plan.entities.portfolio_operation === "view" && portfolioSnapshot
-            ? `${formatPortfolioSnapshotResponse(portfolioSnapshot.data)}\n\nتعذر إكمال التحليل الفني لكل المراكز بصورة موثوقة حالياً؛ أعد طلب التحليل بعد قليل.`
-            : safeEvidenceResponse(userMessage, tools.results);
+        const deterministicAlt = buildDeterministicResponse(userMessage, plan, tools.results, sessionState);
+        if (deterministicAlt && runAnswerGate({ reply: deterministicAlt, plan, toolResults: tools.results, userMessage, facts: answerFacts, history }).ok) {
+            fullResponse = deterministicAlt;
+        } else {
+            const portfolioSnapshot = tools.results.find(result => result.tool === "manage_portfolio"
+                && !result.error && result.data?.ok === true && Array.isArray(result.data?.positions));
+            fullResponse = plan.entities.portfolio_operation === "view" && portfolioSnapshot
+                ? (deterministicAlt || `${formatPortfolioSnapshotResponse(portfolioSnapshot.data)}\n\nتعذر إكمال التحليل الفني لكل المراكز بصورة موثوقة حالياً؛ أعد طلب التحليل بعد قليل.`)
+                : safeEvidenceResponse(userMessage, tools.results);
+        }
     }
 
     // 📢 Ensure the free Telegram channel footer is appended to every response

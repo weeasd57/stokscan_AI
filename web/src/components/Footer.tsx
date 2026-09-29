@@ -104,6 +104,14 @@ export default function Footer() {
               </li>
               <li>
                 <Link
+                  href="/legal-status"
+                  className="text-sm text-amber-500/90 dark:text-amber-400/90 light:text-amber-600 hover:text-amber-500 dark:hover:text-amber-300 transition-colors font-bold"
+                >
+                  {t("footer.legal_status")}
+                </Link>
+              </li>
+              <li>
+                <Link
                   href="/pricing"
                   className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors"
                 >

@@ -30,8 +30,8 @@ export default function RefundClient() {
       icon: <BadgeCheck className="w-6 h-6 text-black" />,
       title: { en: "How Refunds Are Processed", ar: "كيفية معالجة الاسترداد" },
       content: {
-        en: "Approved refunds are processed back to the original payment method used at checkout (via our payment provider Kashier). The refund typically reflects within 5–10 business days depending on your bank or payment provider.",
-        ar: "تتم معالجة الاستردادات المعتمدة من خلال إعادة المبلغ إلى طريقة الدفع الأصلية المستخدمة في عملية الشراء (عبر مزوّد الدفع Kashier). عادةً يظهر المبلغ خلال 5–10 أيام عمل حسب البنك أو مزوّد الدفع الخاص بك."
+        en: "Approved refunds are processed back to the original payment method used at checkout (via our payment provider EasyKash). The refund typically reflects within 5–10 business days depending on your bank or payment provider.",
+        ar: "تتم معالجة الاستردادات المعتمدة من خلال إعادة المبلغ إلى طريقة الدفع الأصلية المستخدمة في عملية الشراء (عبر مزوّد الدفع EasyKash). عادةً يظهر المبلغ خلال 5–10 أيام عمل حسب البنك أو مزوّد الدفع الخاص بك."
       }
     },
     {

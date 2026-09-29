@@ -9,6 +9,7 @@ import {
   FileText,
   Sparkles,
   ArrowRight,
+  Scale,
 } from "lucide-react";
 import Link from "next/link";
 import BrandedPageHeader from "@/components/BrandedPageHeader";
@@ -60,6 +61,17 @@ export default function DisclaimerClient() {
       content: {
         en: "To the maximum extent permitted by law, EGX BOTS, its developers, operators, and affiliates shall not be liable for any direct, indirect, incidental, consequential, or punitive damages, including but not limited to loss of profits, trading losses, or data loss arising out of the use or inability to use this platform.",
         ar: "إلى أقصى حد يسمح به القانون، لا تتحمل منصة EGX BOTS أو مطوروها أو مشغلوها أو الكيانات التابعة لها المسؤولية عن أي خسائر مالية أو أضرار مباشرة أو غير مباشرة أو عرضية أو تبعية أو عقابية، بما في ذلك على سبيل المثال لا الحصر، خسائر الأرباح أو خسائر التداول الناتجة عن استخدام أو عدم القدرة على استخدام هذه المنصة."
+      }
+    },
+    {
+      icon: <Scale className="w-6 h-6 text-black" />,
+      title: {
+        en: "Regulatory Status (Egyptian FRA)",
+        ar: "الموقف التنظيمي والهيئة العامة للرقابة المالية (FRA)"
+      },
+      content: {
+        en: "EGX BOTS is an auxiliary financial technology software tool, not a licensed securities brokerage or investment advisory firm under the Egyptian Financial Regulatory Authority (FRA) or Capital Market Law 95/1992. The platform never manages client portfolios, accepts deposits, or executes trades. Trade decisions are solely executed by the investor via their authorized broker.",
+        ar: "منصة EGX BOTS هي أداة برمجيات وتكنولوجيا مالية (FinTech Software)، وليست وسيطاً للأوراق المالية (Brokerage) ولا شركة استشارات مالية مرخصة من الهيئة العامة للرقابة المالية المصرية (FRA) وفق قانون 95 لسنة 1992. لا تقدم المنصة خدمات إدارة المحافظ أو توظيف الأموال، والقرار الاستثماري النهائي يقع على مسؤولية المتداول منفرداً عبر شركة السمسرة المرخصة الخاصة به."
       }
     }
   ];
@@ -113,10 +125,10 @@ export default function DisclaimerClient() {
             : "By using EGX BOTS, browsing its content, or subscribing to its alerts and signals, you acknowledge that you have read and understood this legal disclaimer, agree to its terms, and assume full and exclusive responsibility for all your trading actions."}
         </p>
 
-        <div className="flex flex-col sm:flex-row gap-4 max-w-md mx-auto pt-2">
+        <div className="flex flex-col sm:flex-row gap-4 max-w-xl mx-auto pt-2 justify-center">
           <Link
             href="/"
-            className="h-14 px-8 border-4 border-black bg-black text-white text-xs font-black uppercase tracking-widest hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100 cursor-pointer flex items-center justify-center gap-2"
+            className="h-14 px-6 border-4 border-black bg-black text-white text-xs font-black uppercase tracking-widest hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100 cursor-pointer flex items-center justify-center gap-2"
           >
             {isAr ? "الرئيسية" : "Home"}
             <ArrowRight
@@ -124,8 +136,15 @@ export default function DisclaimerClient() {
             />
           </Link>
           <Link
+            href="/legal-status"
+            className="h-14 px-6 border-4 border-black bg-amber-300 text-black text-xs font-black uppercase tracking-widest hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100 cursor-pointer flex items-center justify-center gap-2"
+          >
+            <Scale className="w-4 h-4" />
+            {isAr ? "الموقف القانوني والتنظيمي" : "Legal & Regulatory Status"}
+          </Link>
+          <Link
             href="/scanner/technical"
-            className="h-14 px-8 border-4 border-black bg-white text-black text-xs font-black uppercase tracking-widest hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100 cursor-pointer flex items-center justify-center"
+            className="h-14 px-6 border-4 border-black bg-white text-black text-xs font-black uppercase tracking-widest hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100 cursor-pointer flex items-center justify-center"
           >
             {isAr ? "ابدأ الفحص الفني" : "Technical Scanner"}
           </Link>
