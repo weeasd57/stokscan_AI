@@ -2148,10 +2148,10 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             </div>
                             <a
                                 href="/login?redirect=%2Fscanner%2Fbacktests%3Ftab%3Dbots"
-                                className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black !text-white uppercase tracking-wide hover:bg-zinc-800 shadow-[2px_2px_0px_rgba(0,0,0,1)] transition-all"
-                                style={{ color: "#ffffff" }}
+                                className="btn-banner-action inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black uppercase tracking-wide hover:bg-zinc-800 shadow-[2px_2px_0px_rgba(0,0,0,1)] transition-all"
+                                style={{ color: "#ffffff", backgroundColor: "#000000" }}
                             >
-                                <span className="!text-white font-black" style={{ color: "#ffffff" }}>
+                                <span className="font-black" style={{ color: "#ffffff" }}>
                                     {isAr ? "تسجيل الدخول" : "Sign in"}
                                 </span>
                             </a>
@@ -2164,10 +2164,10 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         </div>
                         <a
                             href="/pricing"
-                            className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black !text-white uppercase tracking-wide hover:bg-zinc-800 shadow-[2px_2px_0px_rgba(0,0,0,1)] transition-all"
-                            style={{ color: "#ffffff" }}
+                            className="btn-banner-action inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black uppercase tracking-wide hover:bg-zinc-800 shadow-[2px_2px_0px_rgba(0,0,0,1)] transition-all"
+                            style={{ color: "#ffffff", backgroundColor: "#000000" }}
                         >
-                            <span className="!text-white font-black" style={{ color: "#ffffff" }}>
+                            <span className="font-black" style={{ color: "#ffffff" }}>
                                 {isAr ? "اشترك في Pro" : "Subscribe to Pro"}
                             </span>
                         </a>
@@ -2183,7 +2183,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     {limit === Infinity && (
                         <button
                             onClick={refreshRecommendationData}
-                            className="underline font-black uppercase tracking-wider"
+                            className="underline font-black uppercase tracking-wider text-black"
+                            style={{ color: "#000000" }}
                         >
                             {translate("retryBtn")}
                         </button>

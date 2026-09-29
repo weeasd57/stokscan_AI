@@ -657,42 +657,32 @@ html.light .scanner-templates-panel [class*="border-white/10"] {
   border-color: var(--app-border) !important;
 }
 
-html.light .backtests-shell [class*="text-white"]:not([class*="bg-black"]):not([class*="bg-zinc-950"]):not([class*="bg-zinc-900"]):not([class*="bg-emerald"]):not([class*="bg-rose"]):not([class*="bg-amber"]):not([class*="bg-blue"]):not([class*="bg-teal"]),
-html.light .backtests-shell [class*="text-zinc-100"]:not([class*="bg-black"]):not([class*="bg-zinc-950"]):not([class*="bg-zinc-900"]),
-html.light .backtests-shell [class*="text-zinc-200"]:not([class*="bg-black"]):not([class*="bg-zinc-950"]):not([class*="bg-zinc-900"]),
-html.light .backtests-shell [class*="text-zinc-300"]:not([class*="bg-black"]):not([class*="bg-zinc-950"]):not([class*="bg-zinc-900"]),
-html.light .comparison-shell [class*="text-white"]:not([class*="bg-black"]),
-html.light .comparison-shell [class*="text-zinc-200"],
-html.light .comparison-shell [class*="text-zinc-300"],
-html.light .landing-shell [class*="text-white"]:not([class*="bg-black"]),
-html.light .landing-shell [class*="text-zinc-200"],
-html.light .landing-shell [class*="text-zinc-300"],
-html.light .scanner-templates-panel [class*="text-white"]:not([class*="bg-black"]) {
-  color: var(--app-text) !important;
-}
-
-/* Ensure dark elements and buttons always retain high-contrast white text in light mode */
-html.light .backtests-shell [class*="bg-black"],
-html.light .backtests-shell [class*="bg-black"] *,
-html.light .comparison-shell [class*="bg-black"],
-html.light .comparison-shell [class*="bg-black"] *,
-html.light .landing-shell [class*="bg-black"],
-html.light .landing-shell [class*="bg-black"] *,
-html.light [class*="bg-black"] [class*="text-white"],
-html.light [class*="bg-black"] [class*="!text-white"],
-html.light .force-text-white {
+/* All black buttons and dark action links in light & dark modes must have pure white text */
+.btn-banner-action,
+.btn-banner-action *,
+.btn-banner-action span,
+a.btn-banner-action,
+a.btn-banner-action span,
+html.light .btn-banner-action,
+html.light .btn-banner-action *,
+html.light .btn-banner-action span,
+html.light a.btn-banner-action,
+html.light a.btn-banner-action span,
+html.light .backtests-shell a[class*="bg-black"],
+html.light .backtests-shell a[class*="bg-black"] *,
+html.light .backtests-shell a[class*="bg-black"] span,
+html.light .backtests-shell button[class*="bg-black"],
+html.light .backtests-shell button[class*="bg-black"] *,
+html.light a[class*="bg-black"],
+html.light a[class*="bg-black"] *,
+html.light a[class*="bg-black"] span,
+html.light button[class*="bg-black"],
+html.light button[class*="bg-black"] *,
+html.light [class*="bg-black"],
+html.light [class*="bg-black"] * {
   color: #ffffff !important;
 }
 
-html.light .backtests-shell [class*="text-zinc-400"],
-html.light .backtests-shell [class*="text-zinc-500"],
-html.light .backtests-shell [class*="text-zinc-600"],
-html.light .comparison-shell [class*="text-zinc-400"],
-html.light .comparison-shell [class*="text-zinc-500"],
-html.light .comparison-shell [class*="text-zinc-600"],
-html.light .landing-shell [class*="text-zinc-400"],
-html.light .landing-shell [class*="text-zinc-500"],
-html.light .landing-shell [class*="text-zinc-600"],
 html.light .scanner-templates-panel [class*="text-zinc-400"],
 html.light .scanner-templates-panel [class*="text-zinc-500"],
 html.light .scanner-templates-panel [class*="text-zinc-600"] {
