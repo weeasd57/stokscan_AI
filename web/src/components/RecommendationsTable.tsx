@@ -17,7 +17,8 @@ import {
     TrendingUp, TrendingDown, Layers, Info, CheckCircle2, X, BarChart2,
     Target, ShieldAlert, Cpu, BookOpen, TrendingUp as Bullish, Calendar,
     Award, ArrowUpRight, ArrowDownRight, Minus, ExternalLink, ShieldCheck,
-    Share2, Loader2, Download, Check, Copy, Send, MessageCircle, Lock, Crown
+    Share2, Loader2, Download, Check, Copy, Send, MessageCircle, Lock, Crown,
+    LineChart, PieChart, BarChart3
 } from "lucide-react";
 import { isShariaCompliant } from "@/lib/shariaStocks";
 import { toPng } from "html-to-image";
@@ -334,7 +335,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedSector, setSelectedSector] = useState("");
     const [selectedSignal, setSelectedSignal] = useState("");
-    const [activeTab, setActiveTab] = useState<"active" | "closed" | "all" | "calendar">("active");
+    const [activeTab, setActiveTab] = useState<"active" | "closed" | "all" | "analytics">("active");
+    const [analyticsSubTab, setAnalyticsSubTab] = useState<"calendar" | "performance" | "distribution">("calendar");
     const [timeRange, setTimeRange] = useState<"all" | "7d" | "30d">("all");
     const [sortBy, setSortBy] = useState("precision");
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
@@ -2227,8 +2229,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     {[
                         { id: "active", label: isAr ? "الصفقات النشطة (المفتوحة)" : "Active Trades (Open)", count: tabCounts.activeCount },
                         { id: "closed", label: isAr ? "أرشيف العمليات (المغلقة)" : "Closed Archive", count: tabCounts.closedCount },
-                        ...(user ? [{ id: "calendar", label: isAr ? "📅 تقويم أرباح التوصيات" : "📅 Profit Calendar", count: tabCounts.totalCount }] : []),
-                        { id: "all", label: isAr ? "جميع الصفقات" : "All Trades", count: tabCounts.totalCount }
+                        { id: "all", label: isAr ? "جميع الصفقات" : "All Trades", count: tabCounts.totalCount },
+                        ...(user ? [{ id: "analytics", label: isAr ? "📊 تحليلات التوصيات" : "📊 Analytics", count: null }] : []),
                     ].map(tab => {
                         const isSelected = activeTab === tab.id;
                         return (
@@ -2255,37 +2257,175 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                 >
                                     {tab.label}
                                 </span>
-                                <span className={`px-2 py-0.5 text-xs font-bold font-mono ${
-                                    isSelected
-                                        ? "bg-zinc-800 dark:bg-zinc-200 text-zinc-100 dark:text-zinc-900"
-                                        : "bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800"
-                                }`}>
-                                    {tab.count}
-                                </span>
+                                {tab.count != null && (
+                                    <span className={`px-2 py-0.5 text-xs font-bold font-mono ${
+                                        isSelected
+                                            ? "bg-zinc-800 dark:bg-zinc-200 text-zinc-100 dark:text-zinc-900"
+                                            : "bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800"
+                                    }`}>
+                                        {tab.count}
+                                    </span>
+                                )}
                             </button>
                         );
                     })}
                 </div>
             )}
 
-            {/* Calendar View Tab */}
-            {activeTab === "calendar" ? (
-                user ? (
-                    <RecommendationCalendar
-                        recommendations={recommendations}
-                        loading={recsLoading}
-                        refreshToken={calendarRefreshToken}
-                        onSelectStock={handleStockClick}
-                        isPro={isProView}
-                    />
-                ) : (
-                    <div className="border-4 border-black dark:border-white bg-amber-300 text-black p-8 text-center shadow-[4px_4px_0px_rgba(0,0,0,1)]">
-                        <ShieldCheck className="mx-auto mb-3 h-10 w-10" />
-                        <h3 className="text-xl font-black">{isAr ? "التقويم والإحصائيات متاحة لمشتركي Pro فقط" : "Calendar and live statistics require Pro"}</h3>
-                        <p className="mt-2 font-bold text-sm">{isAr ? "اشترك في Pro للوصول إلى بيانات الأداء الحية والتقويم الكامل." : "Subscribe to Pro to access live performance data and the full recommendation calendar."}</p>
-                        <a href="/pricing" className="mt-5 inline-flex border-2 border-black bg-black px-5 py-2 font-black text-white">{isAr ? "الترقية إلى Pro" : "Upgrade to Pro"}</a>
+            {/* ── Analytics Tab (Calendar + Charts) ───────────────────────── */}
+            {activeTab === "analytics" ? (
+                <div>
+                    {/* Sub-tabs bar */}
+                    <div className="flex border-b-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 px-3 pt-3 gap-1">
+                        {([
+                            { id: "calendar",     icon: <Calendar className="w-3.5 h-3.5" />,  label: isAr ? "تقويم الأرباح"         : "Profit Calendar" },
+                            { id: "performance",  icon: <LineChart className="w-3.5 h-3.5" />,  label: isAr ? "أداء التوصيات"         : "Signal Performance" },
+                            { id: "distribution", icon: <BarChart3  className="w-3.5 h-3.5" />, label: isAr ? "توزيع المكاسب والخسائر" : "Return Distribution" },
+                        ] as const).map(sub => (
+                            <button
+                                key={sub.id}
+                                onClick={() => setAnalyticsSubTab(sub.id)}
+                                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-black border-b-4 -mb-1 transition-all ${
+                                    analyticsSubTab === sub.id
+                                        ? "border-black dark:border-white text-black dark:text-white"
+                                        : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                                }`}
+                            >
+                                {sub.icon}{sub.label}
+                            </button>
+                        ))}
                     </div>
-                )
+
+                    {/* Sub-tab content */}
+                    {analyticsSubTab === "calendar" && (
+                        user ? (
+                            <RecommendationCalendar
+                                recommendations={recommendations}
+                                loading={recsLoading}
+                                refreshToken={calendarRefreshToken}
+                                onSelectStock={handleStockClick}
+                                isPro={isProView}
+                            />
+                        ) : (
+                            <div className="border-4 border-black dark:border-white bg-amber-300 text-black p-8 text-center shadow-[4px_4px_0px_rgba(0,0,0,1)]">
+                                <ShieldCheck className="mx-auto mb-3 h-10 w-10" />
+                                <h3 className="text-xl font-black">{isAr ? "التحليلات متاحة للمشتركين فقط" : "Analytics require an account"}</h3>
+                                <p className="mt-2 font-bold text-sm">{isAr ? "سجّل الدخول أو اشترك في Pro للوصول إلى تقويم الأداء والرسوم البيانية." : "Sign in or subscribe to Pro to access performance charts and calendar."}</p>
+                                <a href="/login" className="mt-5 inline-flex border-2 border-black bg-black px-5 py-2 font-black text-white">{isAr ? "تسجيل الدخول" : "Sign In"}</a>
+                            </div>
+                        )
+                    )}
+
+                    {/* Performance Chart — win/loss rate over time */}
+                    {analyticsSubTab === "performance" && (() => {
+                        const cutoff15 = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
+                        const closed = recommendations.filter(r => ["win","loss"].includes((r.status||"").toLowerCase()));
+                        // For free users: only show recs older than 15 days
+                        const visible = isProView ? closed : closed.filter(r => r.closed_at && new Date(r.closed_at) < cutoff15);
+                        // Group by month
+                        const byMonth: Record<string, {wins:number; losses:number}> = {};
+                        for (const r of visible) {
+                            const d = r.closed_at ? new Date(r.closed_at) : null;
+                            if (!d) continue;
+                            const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+                            if (!byMonth[key]) byMonth[key] = {wins:0, losses:0};
+                            if ((r.status||"").toLowerCase() === "win") byMonth[key].wins++;
+                            else byMonth[key].losses++;
+                        }
+                        const months = Object.keys(byMonth).sort();
+                        const maxVal = Math.max(1, ...months.flatMap(m => [byMonth[m].wins, byMonth[m].losses]));
+                        return (
+                            <div className="p-4 bg-white dark:bg-zinc-950">
+                                {!isProView && (
+                                    <div className="mb-3 flex items-center gap-2 border border-amber-400/50 bg-amber-50 dark:bg-amber-400/10 px-3 py-2 text-xs font-bold text-amber-800 dark:text-amber-300">
+                                        <Clock className="h-3.5 w-3.5 shrink-0" />
+                                        {isAr ? "الخطة المجانية: البيانات متأخرة 15 يوماً — اشترك في Pro لبيانات فورية." : "Free plan: data is delayed 15 days — upgrade to Pro for live data."}
+                                    </div>
+                                )}
+                                <p className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-4">{isAr ? "نسبة الربح/الخسارة شهرياً" : "Win / Loss Rate by Month"}</p>
+                                {months.length === 0 ? (
+                                    <p className="text-center text-xs text-zinc-500 py-12">{isAr ? "لا توجد بيانات كافية بعد." : "No closed signals yet."}</p>
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        <div className="flex items-end gap-2 min-w-max" style={{height:"180px"}}>
+                                            {months.map(m => {
+                                                const {wins, losses} = byMonth[m];
+                                                const total = wins + losses;
+                                                const winH = Math.round((wins/maxVal)*160);
+                                                const lossH = Math.round((losses/maxVal)*160);
+                                                const winPct = total > 0 ? Math.round(wins/total*100) : 0;
+                                                return (
+                                                    <div key={m} className="flex flex-col items-center gap-0.5" title={`${m}: ${wins}W / ${losses}L (${winPct}%)`}>
+                                                        <div className="flex items-end gap-0.5">
+                                                            <div className="w-5 bg-emerald-500 rounded-t-sm transition-all" style={{height:`${winH}px`}} />
+                                                            <div className="w-5 bg-rose-500 rounded-t-sm transition-all" style={{height:`${lossH}px`}} />
+                                                        </div>
+                                                        <span className="text-[9px] font-mono text-zinc-400 rotate-45 origin-left mt-1 whitespace-nowrap">{m.slice(5)}/{m.slice(2,4)}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="flex items-center gap-4 mt-6 text-[11px] font-bold">
+                                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-emerald-500 inline-block"/>{isAr?"ربح":"Win"}</span>
+                                            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-rose-500 inline-block"/>{isAr?"خسارة":"Loss"}</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
+
+                    {/* Distribution Chart — return % buckets */}
+                    {analyticsSubTab === "distribution" && (() => {
+                        const cutoff15 = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
+                        const closed = recommendations.filter(r => r.profit_loss_pct != null && ["win","loss"].includes((r.status||"").toLowerCase()));
+                        const visible = isProView ? closed : closed.filter(r => r.closed_at && new Date(r.closed_at) < cutoff15);
+                        // Buckets: <-20, -20:-10, -10:0, 0:10, 10:20, >20
+                        const buckets = [
+                            { label: "< -20%", min:-Infinity, max:-20, color:"bg-rose-700" },
+                            { label: "-20 : -10%", min:-20, max:-10, color:"bg-rose-400" },
+                            { label: "-10 : 0%", min:-10, max:0, color:"bg-orange-400" },
+                            { label: "0 : 10%", min:0, max:10, color:"bg-emerald-300" },
+                            { label: "10 : 20%", min:10, max:20, color:"bg-emerald-500" },
+                            { label: "> 20%", min:20, max:Infinity, color:"bg-emerald-700" },
+                        ];
+                        const counts = buckets.map(b => ({
+                            ...b,
+                            count: visible.filter(r => (r.profit_loss_pct||0) >= b.min && (r.profit_loss_pct||0) < b.max).length
+                        }));
+                        const maxCount = Math.max(1, ...counts.map(b => b.count));
+                        return (
+                            <div className="p-4 bg-white dark:bg-zinc-950">
+                                {!isProView && (
+                                    <div className="mb-3 flex items-center gap-2 border border-amber-400/50 bg-amber-50 dark:bg-amber-400/10 px-3 py-2 text-xs font-bold text-amber-800 dark:text-amber-300">
+                                        <Clock className="h-3.5 w-3.5 shrink-0" />
+                                        {isAr ? "الخطة المجانية: البيانات متأخرة 15 يوماً — اشترك في Pro لبيانات فورية." : "Free plan: data is delayed 15 days — upgrade to Pro for live data."}
+                                    </div>
+                                )}
+                                <p className="text-xs font-black uppercase tracking-widest text-zinc-500 mb-4">{isAr ? "توزيع نسب الربح والخسارة" : "Return Distribution"}</p>
+                                {visible.length === 0 ? (
+                                    <p className="text-center text-xs text-zinc-500 py-12">{isAr ? "لا توجد بيانات كافية بعد." : "No closed signals yet."}</p>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {counts.map(b => (
+                                            <div key={b.label} className="flex items-center gap-3">
+                                                <span className="w-24 text-[11px] font-mono text-zinc-500 text-right shrink-0">{b.label}</span>
+                                                <div className="flex-1 bg-zinc-100 dark:bg-zinc-800 h-6 rounded-sm overflow-hidden">
+                                                    <div
+                                                        className={`h-full ${b.color} transition-all duration-500 rounded-sm`}
+                                                        style={{width: `${Math.round(b.count/maxCount*100)}%`, minWidth: b.count > 0 ? "4px" : "0"}}
+                                                    />
+                                                </div>
+                                                <span className="w-6 text-[11px] font-black text-zinc-700 dark:text-zinc-300 shrink-0">{b.count}</span>
+                                            </div>
+                                        ))}
+                                        <p className="text-[10px] text-zinc-400 mt-3">{isAr ? `إجمالي ${visible.length} صفقة مغلقة` : `${visible.length} closed signals total`}</p>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
+                </div>
             ) : (
                 <>
             {/* Interactive Filters */}

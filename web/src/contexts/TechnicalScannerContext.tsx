@@ -372,6 +372,38 @@ export function TechnicalScannerProvider({ children }: { children: ReactNode }) 
           selectedStock: null,
         };
       });
+
+      // ── Analytics tracking (non-blocking) ─────────────────────────────
+      // Detect active filter groups to understand what users scan for
+      const activeFilters: string[] = [];
+      if (filter.rsi_min != null || filter.rsi_max != null) activeFilters.push("rsi");
+      if (filter.above_ema50) activeFilters.push("ema50");
+      if (filter.above_ema200) activeFilters.push("ema200");
+      if (filter.golden_cross) activeFilters.push("golden_cross");
+      if (filter.adx_min != null || filter.adx_max != null) activeFilters.push("adx");
+      if (filter.volume_above_sma20) activeFilters.push("volume");
+      if (filter.above_vwap20) activeFilters.push("vwap");
+      if (filter.sector) activeFilters.push("sector");
+      if (filter.divergence_type) activeFilters.push("divergence");
+      if (filter.use_ai_filter) activeFilters.push("ai_filter");
+      if (current.shariaOnly) activeFilters.push("sharia");
+      void fetch("/api/analytics/events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event_name: "feature_use",
+          path: "/scanner/technical",
+          metadata: {
+            feature: "tech_scan",
+            country: filter.country || "Egypt",
+            results_count: next.length,
+            scanned_count: res.scanned_count,
+            filters: activeFilters.join(",") || "default",
+            filter_count: activeFilters.length,
+          },
+        }),
+      }).catch(() => { /* non-critical */ });
+
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
         return;
