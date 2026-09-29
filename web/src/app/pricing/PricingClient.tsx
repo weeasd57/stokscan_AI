@@ -49,6 +49,16 @@ export default function PricingClient() {
   const [telegramProUrl, setTelegramProUrl] = useState("");
   const [isPro, setIsPro] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState("pro_6m");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const planParam = params.get("plan");
+      if (planParam && ["pro", "pro_6m", "pro_1y"].includes(planParam)) {
+        setSelectedPlan(planParam);
+      }
+    }
+  }, []);
   const [copiedOrder, setCopiedOrder] = useState(false);
   const [pollRestart, setPollRestart] = useState(0);
   const [pollingExhausted, setPollingExhausted] = useState(false);
@@ -310,7 +320,7 @@ export default function PricingClient() {
   const proLimits = localConfig.limits?.pro || { chat_messages_per_month: 350, portfolio_stocks: 10 };
   const freeFeatures = [
     { icon: <Zap className="w-4 h-4" />, text: isAr ? `تأخير الإشارات ${freeLimits.signal_delay_days} يوماً` : `Signals delayed ${freeLimits.signal_delay_days} days`, included: true },
-    { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? `${freeLimits.chat_messages_per_month} رسالة شات بوت / شهر` : `${freeLimits.chat_messages_per_month} chatbot messages / month`, included: true },
+    { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? "5 رسائل شات بوت يومياً" : "5 chatbot messages / day", included: true },
     { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? `حتى ${freeLimits.portfolio_stocks} أسهم في المحفظة` : `Up to ${freeLimits.portfolio_stocks} portfolio stocks`, included: true },
     { icon: <ShieldCheck className="w-4 h-4" />, text: isAr ? "قناة VIP على تليجرام" : "VIP Telegram Channel", included: false },
     { icon: <Sparkles className="w-4 h-4" />, text: isAr ? "توصيات ونماذج الذكاء الاصطناعي الفورية" : "Full AI models & instant recommendations", included: false },

@@ -70,9 +70,17 @@ export async function GET() {
       console.warn("[api/user/quota] limits count error:", limitRowsRes.error);
     }
 
+    const today = new Date().toISOString().split("T")[0];
+    const todayLimitRow = (limitRowsRes.data || []).find((r: any) => r.date === today);
+    const todayChatCount = Number(todayLimitRow?.chat_count || 0);
+
     const messagesCount = new Set((chatRowsRes.data || []).map((row: any) => row.client_message_id || row.id)).size;
-    const limitsCount = (limitRowsRes.data || []).reduce((acc: number, row: any) => acc + (Number(row.chat_count) || 0), 0);
-    const chatUsed = Math.max(messagesCount, limitsCount);
+    const monthlyLimitsCount = (limitRowsRes.data || []).reduce((acc: number, row: any) => acc + (Number(row.chat_count) || 0), 0);
+    const monthlyChatUsed = Math.max(messagesCount, monthlyLimitsCount);
+
+    const chatUsed = pro ? monthlyChatUsed : todayChatCount;
+    const chatLimit = pro ? limits.chat_messages_per_month : 5;
+    const quotaPeriod = pro ? "monthly" : "daily";
 
     // 3. Portfolio stocks currently open
     const { data: positionRows, error: posErr } = await supabase
@@ -90,7 +98,6 @@ export async function GET() {
     );
     const portfolioStocksCount = uniqueSymbols.size;
 
-    const chatLimit = limits.chat_messages_per_month;
     const portfolioLimit = limits.portfolio_stocks;
 
     return NextResponse.json({
@@ -109,6 +116,7 @@ export async function GET() {
           limit: chatLimit,
           remaining: Math.max(0, chatLimit - chatUsed),
           percent: Math.min(100, Math.round((chatUsed / Math.max(1, chatLimit)) * 100)),
+          period: quotaPeriod,
         },
         portfolio_stocks: {
           used: portfolioStocksCount,

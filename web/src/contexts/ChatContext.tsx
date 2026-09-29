@@ -49,6 +49,8 @@ interface ChatContextType {
     stopResponding: () => void;
     isLoading: boolean;
     remainingQuota: number;
+    showUpgradeModal: boolean;
+    setShowUpgradeModal: (v: boolean) => void;
     selectedModel: string;
     setSelectedModel: (model: string) => void;
     sessions: ChatSession[];
@@ -125,7 +127,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isLoading, setIsLoading] = useState(false);
-    const [remainingQuota, setRemainingQuota] = useState<number>(50);
+    const [remainingQuota, setRemainingQuota] = useState<number>(5);
+    const [showUpgradeModal, setShowUpgradeModal] = useState<boolean>(false);
     const [selectedModel, setSelectedModelState] = useState<string>("deepseek-chat");
     const [sessions, setSessionsState] = useState<ChatSession[]>([]);
     const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
@@ -486,7 +489,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         try {
             if (remainingQuota <= 0) {
-                assistantMsg.content = "وصلت للحد الأقصى اليومي (50 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!";
+                setShowUpgradeModal(true);
+                assistantMsg.content = "لقد استهلكت رصيدك اليومي المجاني (5/5). تريد تحليلاً غير محدود لمحفظتك وتوصيات الأسهم لحظة بلحظة؟ اشترك الآن في Pro بـ 200 ج.م فقط شهرياً واشترك في قناة الـ VIP.";
                 assistantMsg.isStreaming = false;
                 assistantMsg.statusText = undefined;
                 updateAssistantMsgInState(assistantMsg);
@@ -521,12 +525,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
             if (response.status === 429) {
                 setRemainingQuota(0);
-                let detail = "وصلت للحد الأقصى اليومي (50 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!";
+                setShowUpgradeModal(true);
+                let detail = "لقد استهلكت رصيدك اليومي المجاني (5/5). تريد تحليلاً غير محدود لمحفظتك وتوصيات الأسهم لحظة بلحظة؟ اشترك الآن في Pro بـ 200 ج.م فقط شهرياً واشترك في قناة الـ VIP.";
                 try {
                     const data = await response.json();
-                    if (data.detail && typeof data.detail === "string" && data.detail.includes("Daily limit")) {
-                        detail = "وصلت للحد الأقصى اليومي (50 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!";
-                    } else if (data.detail) {
+                    if (data.detail && typeof data.detail === "string") {
                         detail = data.detail;
                     }
                 } catch {}
@@ -756,6 +759,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             stopResponding,
             isLoading,
             remainingQuota,
+            showUpgradeModal,
+            setShowUpgradeModal,
             selectedModel,
             setSelectedModel,
             sessions,

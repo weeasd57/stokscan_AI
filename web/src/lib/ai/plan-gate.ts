@@ -10,6 +10,7 @@
 export interface PlanLimits {
   name: string;
   signal_delay_days: number;
+  chat_messages_daily: number;
   chat_messages_per_month: number;
   portfolio_stocks: number;
   price_egp: number;
@@ -26,7 +27,8 @@ export function paymentsEnabled(): boolean {
 const FREE: PlanLimits = {
   name: "free",
   signal_delay_days: Number(process.env.FREE_SIGNAL_DELAY_DAYS || "15"),
-  chat_messages_per_month: Number(process.env.FREE_CHAT_MESSAGES || "50"),
+  chat_messages_daily: Number(process.env.FREE_CHAT_DAILY_MESSAGES || "5"),
+  chat_messages_per_month: Number(process.env.FREE_CHAT_MESSAGES || "150"),
   portfolio_stocks: Number(process.env.FREE_PORTFOLIO_STOCKS || "5"),
   price_egp: 0,
   billing: "enabled",
@@ -35,6 +37,7 @@ const FREE: PlanLimits = {
 const PRO: PlanLimits = {
   name: "pro",
   signal_delay_days: 0,
+  chat_messages_daily: Number(process.env.PRO_CHAT_DAILY_MESSAGES || "350"),
   chat_messages_per_month: Number(process.env.PRO_CHAT_MESSAGES || "350"),
   portfolio_stocks: Number(process.env.PRO_PORTFOLIO_STOCKS || "10"),
   price_egp: Number(process.env.NEXT_PUBLIC_PRO_PRICE_EGP || process.env.PRO_PRICE_EGP || "200"),
@@ -44,6 +47,7 @@ const PRO: PlanLimits = {
 const UNLIMITED: PlanLimits = {
   ...FREE,
   signal_delay_days: 0,
+  chat_messages_daily: Number.MAX_SAFE_INTEGER,
   chat_messages_per_month: Number.MAX_SAFE_INTEGER,
   portfolio_stocks: Number.MAX_SAFE_INTEGER,
   billing: "disabled",

@@ -379,6 +379,7 @@ export async function POST(req: NextRequest) {
         // Once plans are active, every account must have an active Pro
         // subscription to bypass the Free quota.
         const isUnlimited = !billingOn && isUnlimitedChatUser(user);
+        let userIsPro = false;
         let userMonthlyCap = Number.MAX_SAFE_INTEGER;
         if (billingOn) {
             try {
@@ -387,9 +388,10 @@ export async function POST(req: NextRequest) {
                     .select("plan_id,status,current_period_end")
                     .eq("user_id", userId)
                     .limit(10);
-                const pro = gateIsPro(planRows || []);
-                userMonthlyCap = planLimits(pro ? "pro" : "free").chat_messages_per_month;
+                userIsPro = gateIsPro(planRows || []);
+                userMonthlyCap = planLimits(userIsPro ? "pro" : "free").chat_messages_per_month;
             } catch {
+                userIsPro = false;
                 userMonthlyCap = planLimits("free").chat_messages_per_month;
             }
         }
@@ -489,9 +491,11 @@ export async function POST(req: NextRequest) {
 
         // 2. Consume / record chat quota in ai_chatbot_limits
         if (!isUnlimited) {
-            const effectiveDailyLimit = billingOn
+            // Free users get strictly 5 messages per day.
+            // Pro users get up to their monthly cap / daily usage.
+            const effectiveDailyLimit = userIsPro
                 ? Math.max(AI_CONFIG.limits.dailyMessages, userMonthlyCap)
-                : AI_CONFIG.limits.dailyMessages;
+                : 5;
             const { data: quotaRows, error: quotaError } = await supabase.rpc("consume_ai_chat_quota", {
                 p_user_id: userId,
                 p_date: today,
@@ -501,7 +505,10 @@ export async function POST(req: NextRequest) {
             const quota = Array.isArray(quotaRows) ? quotaRows[0] : quotaRows;
             if (!quota?.allowed) {
                 return NextResponse.json({
-                    detail: `Daily limit reached. You can send up to ${effectiveDailyLimit} messages per day.`
+                    error: "LIMIT_REACHED",
+                    limit_type: "daily",
+                    daily_limit: effectiveDailyLimit,
+                    detail: "لقد استهلكت رصيدك اليومي المجاني (5/5). تريد تحليلاً غير محدود لمحفظتك وتوصيات الأسهم لحظة بلحظة؟ اشترك الآن في Pro بـ 200 ج.م فقط شهرياً واشترك في قناة الـ VIP."
                 }, { status: 429 });
             }
             limitData = { chat_count: Number(quota.chat_count || 0) };
@@ -510,11 +517,11 @@ export async function POST(req: NextRequest) {
 
         const calcRemainingQuota = () => {
             if (isUnlimited) return 999;
-            if (billingOn) {
+            if (userIsPro) {
                 return Math.max(0, userMonthlyCap - monthlyUsed);
             }
             const todayCount = limitData?.chat_count || 0;
-            return Math.max(0, AI_CONFIG.limits.dailyMessages - todayCount);
+            return Math.max(0, 5 - todayCount);
         };
 
         const keysToTry = getNvidiaApiKeys();
@@ -1005,22 +1012,34 @@ export async function GET(req: NextRequest) {
             if (billingOn) {
                 const { data: planRows } = await authClient.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", userId);
                 const pro = gateIsPro(planRows || []);
-                quotaLimit = planLimits(pro ? "pro" : "free").chat_messages_per_month;
                 isUnlimited = false;
 
-                const monthStart = new Date();
-                monthStart.setDate(1);
-                monthStart.setHours(0, 0, 0, 0);
-                const monthStartStr = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, "0")}-01`;
+                if (pro) {
+                    quotaLimit = planLimits("pro").chat_messages_per_month;
+                    const monthStart = new Date();
+                    monthStart.setDate(1);
+                    monthStart.setHours(0, 0, 0, 0);
+                    const monthStartStr = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, "0")}-01`;
 
-                const [limitRowsRes, msgRowsRes] = await Promise.all([
-                    supabase.from("ai_chatbot_limits").select("chat_count").eq("user_id", userId).gte("date", monthStartStr),
-                    supabase.from("ai_chat_messages").select("id, client_message_id").eq("user_id", userId).eq("role", "user").gte("created_at", monthStart.toISOString()),
-                ]);
+                    const [limitRowsRes, msgRowsRes] = await Promise.all([
+                        supabase.from("ai_chatbot_limits").select("chat_count").eq("user_id", userId).gte("date", monthStartStr),
+                        supabase.from("ai_chat_messages").select("id, client_message_id").eq("user_id", userId).eq("role", "user").gte("created_at", monthStart.toISOString()),
+                    ]);
 
-                const limitsCount = (limitRowsRes.data || []).reduce((acc: number, row: any) => acc + (Number(row.chat_count) || 0), 0);
-                const msgCount = new Set((msgRowsRes.data || []).map((row: any) => row.client_message_id || row.id)).size;
-                usedCount = Math.max(limitsCount, msgCount);
+                    const limitsCount = (limitRowsRes.data || []).reduce((acc: number, row: any) => acc + (Number(row.chat_count) || 0), 0);
+                    const msgCount = new Set((msgRowsRes.data || []).map((row: any) => row.client_message_id || row.id)).size;
+                    usedCount = Math.max(limitsCount, msgCount);
+                } else {
+                    // Free user: strictly 5 messages daily
+                    quotaLimit = 5;
+                    const { data: limitData } = await supabase
+                        .from("ai_chatbot_limits")
+                        .select("chat_count")
+                        .eq("user_id", userId)
+                        .eq("date", today)
+                        .maybeSingle();
+                    usedCount = limitData?.chat_count || 0;
+                }
             } else {
                 const { data: limitData } = await supabase
                     .from("ai_chatbot_limits")
@@ -1028,6 +1047,7 @@ export async function GET(req: NextRequest) {
                     .eq("user_id", userId)
                     .eq("date", today)
                     .maybeSingle();
+                quotaLimit = 5;
                 usedCount = limitData?.chat_count || 0;
             }
 

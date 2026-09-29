@@ -42,9 +42,9 @@ describe("chat security guards", () => {
         expect(adminUi).not.toContain("api_key");
         expect(adminRoute).not.toContain('select("*")');
         expect(settingsRoute).not.toContain('select("*")');
-        expect(config).toContain("dailyMessages: 50");
+        expect(config).toContain("dailyMessages: 5");
         expect(config).not.toContain("unlimitedEmails");
-        expect(context).toContain("useState<number>(50)");
+        expect(context).toContain("useState<number>(5)");
         expect(route).not.toContain("remaining_quota: 4");
         expect(route).toContain("isUnlimitedChatUser(user)");
         expect(secrets).toContain("user?.email_confirmed_at");
@@ -56,6 +56,6 @@ describe("chat security guards", () => {
         expect(adminUsersListRoute).toContain("requireAdmin");
         expect(adminUsersListRoute).not.toContain('select("*")');
         expect(adminUsersStatsRoute).toContain("requireAdmin");
-        expect(chatWidget).toContain("${remainingQuota}/50 Left");
+        expect(chatWidget).toContain("${remainingQuota}/5 Left");
     });
 });

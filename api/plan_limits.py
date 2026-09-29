@@ -23,7 +23,8 @@ def free_limits() -> Dict[str, Any]:
     return {
         "name": "free",
         "signal_delay_days": int(os.getenv("FREE_SIGNAL_DELAY_DAYS", "15")),
-        "chat_messages_per_month": int(os.getenv("FREE_CHAT_MESSAGES", "50")),
+        "chat_messages_daily": int(os.getenv("FREE_CHAT_DAILY_MESSAGES", "5")),
+        "chat_messages_per_month": int(os.getenv("FREE_CHAT_MESSAGES", "150")),
         "portfolio_stocks": int(os.getenv("FREE_PORTFOLIO_STOCKS", "5")),
         "price_egp": 0,
     }
@@ -33,6 +34,7 @@ def pro_limits() -> Dict[str, Any]:
     return {
         "name": "pro",
         "signal_delay_days": 0,
+        "chat_messages_daily": int(os.getenv("PRO_CHAT_DAILY_MESSAGES", "350")),
         "chat_messages_per_month": int(os.getenv("PRO_CHAT_MESSAGES", "350")),
         "portfolio_stocks": int(os.getenv("PRO_PORTFOLIO_STOCKS", "10")),
         "price_egp": int(plan_amount_egp("pro")),
@@ -55,6 +57,7 @@ def effective_limits(plan_id: str) -> Dict[str, Any]:
         return {
             "name": "free",
             "signal_delay_days": int(os.getenv("FREE_SIGNAL_DELAY_DAYS", "15")),
+            "chat_messages_daily": 10 ** 9,
             "chat_messages_per_month": 10 ** 9,  # effectively unlimited
             "portfolio_stocks": 10 ** 9,
             "price_egp": 0,

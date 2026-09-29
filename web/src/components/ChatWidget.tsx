@@ -22,6 +22,8 @@ export default function ChatWidget() {
         stopResponding,
         isLoading, 
         remainingQuota, 
+        showUpgradeModal,
+        setShowUpgradeModal,
         selectedModel, 
         setSelectedModel,
         sessions,
@@ -400,7 +402,7 @@ export default function ChatWidget() {
                     <div className="flex items-center gap-2">
                         {user && (
                             <div className="text-[10px] font-black px-2.5 py-1.5 bg-white text-black border-2 border-black uppercase shadow-[2px_2px_0_0_#000]">
-                                {remainingQuota >= 99 ? "Unlimited ♾️" : `${remainingQuota}/50 Left`}
+                                {remainingQuota >= 99 ? "Unlimited ♾️" : `${remainingQuota}/5 Left`}
                             </div>
                         )}
                         <button
@@ -458,9 +460,35 @@ export default function ChatWidget() {
                         </div>
                     ) : (
                         <>
+                            {remainingQuota === 1 && (
+                                <div className="flex items-center justify-between p-3 rounded-xl bg-amber-500/15 border-2 border-amber-500/40 text-xs text-amber-800 dark:text-amber-200 mb-4 font-bold animate-in fade-in">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-base">⚠️</span>
+                                        <span>متبقي لك رسالة واحدة اليوم مجاناً</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowUpgradeModal(true)}
+                                        className="px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-black text-[11px] font-black border border-black shadow-[1px_1px_0_0_#000] transition-all cursor-pointer"
+                                    >
+                                        ترقية إلى Pro
+                                    </button>
+                                </div>
+                            )}
+
                             {remainingQuota === 0 && (
-                                <div className="p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-xs text-orange-200 mb-4">
-                                    ⚠️ Daily chat limit reached. Please come back tomorrow to chat more!
+                                <div className="flex items-center justify-between p-3.5 rounded-xl bg-rose-500/15 border-2 border-rose-500/40 text-xs text-rose-800 dark:text-rose-200 mb-4 font-bold animate-in fade-in">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-base">🛑</span>
+                                        <span>استهلكت رصيدك اليومي المجاني (5/5)</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowUpgradeModal(true)}
+                                        className="px-3 py-1.5 bg-[#FFE600] hover:bg-yellow-300 text-black text-xs font-black border-2 border-black shadow-[2px_2px_0_0_#000] transition-all cursor-pointer animate-pulse"
+                                    >
+                                        اشترك في Pro الآن
+                                    </button>
                                 </div>
                             )}
 
@@ -876,6 +904,85 @@ export default function ChatWidget() {
                     )}
                 </div>
             </div>
+
+            {/* Paywall / Upgrade Modal */}
+            {showUpgradeModal && (
+                <div 
+                    className="fixed inset-0 z-[100001] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200 dir-rtl"
+                    onClick={() => setShowUpgradeModal(false)}
+                >
+                    <div 
+                        className="max-w-md w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 sm:p-7 space-y-5 shadow-[8px_8px_0_0_#FFE600] text-right"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Modal Header */}
+                        <div className="flex items-center justify-between border-b-2 border-black dark:border-white pb-3">
+                            <div className="flex items-center gap-2">
+                                <span className="px-2 py-0.5 bg-[#FFE600] text-black text-xs font-black uppercase border-2 border-black">
+                                    ترقية الحساب ⚡
+                                </span>
+                            </div>
+                            <button
+                                onClick={() => setShowUpgradeModal(false)}
+                                className="p-1 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-black dark:text-white border-2 border-black dark:border-white transition-all cursor-pointer"
+                            >
+                                <X className="w-5 h-5 stroke-[2.5]" />
+                            </button>
+                        </div>
+
+                        {/* Title & Description */}
+                        <div className="space-y-2">
+                            <h3 className="text-xl sm:text-2xl font-black text-black dark:text-white leading-tight">
+                                لقد استهلكت رصيدك اليومي المجاني (5/5)
+                            </h3>
+                            <p className="text-sm text-zinc-600 dark:text-zinc-300 font-medium leading-relaxed">
+                                تريد تحليلاً غير محدود لمحفظتك وتوصيات الأسهم لحظة بلحظة؟ اشترك الآن في Pro بـ 200 ج.م فقط شهرياً واشترك في قناة الـ VIP.
+                            </p>
+                        </div>
+
+                        {/* Feature Highlights */}
+                        <div className="space-y-2.5 py-2">
+                            <div className="flex items-center gap-2.5 text-xs sm:text-sm font-bold text-zinc-800 dark:text-zinc-200">
+                                <span className="h-5 w-5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xs shrink-0">✓</span>
+                                <span>شات ذكي مفتوح لتحليل الأسهم والمحافظ بالصور</span>
+                            </div>
+                            <div className="flex items-center gap-2.5 text-xs sm:text-sm font-bold text-zinc-800 dark:text-zinc-200">
+                                <span className="h-5 w-5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xs shrink-0">✓</span>
+                                <span>إشارات وتوصيات يومية فورية (صفر تأخير)</span>
+                            </div>
+                            <div className="flex items-center gap-2.5 text-xs sm:text-sm font-bold text-zinc-800 dark:text-zinc-200">
+                                <span className="h-5 w-5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xs shrink-0">✓</span>
+                                <span>رابط دخول فوري لقناة الـ VIP على تليجرام</span>
+                            </div>
+                            <div className="flex items-center gap-2.5 text-xs sm:text-sm font-bold text-zinc-800 dark:text-zinc-200">
+                                <span className="h-5 w-5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xs shrink-0">✓</span>
+                                <span>حتى 10 أسهم نشطة في المحفظة</span>
+                            </div>
+                        </div>
+
+                        {/* CTA Buttons */}
+                        <div className="space-y-2 pt-2">
+                            <button
+                                onClick={() => {
+                                    setShowUpgradeModal(false);
+                                    setIsOpen(false);
+                                    router.push("/pricing?plan=pro");
+                                }}
+                                className="w-full py-3 px-4 bg-[#FFE600] hover:bg-yellow-300 text-black font-black text-sm border-3 border-black shadow-[4px_4px_0_0_#000] active:translate-x-0.5 active:translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                            >
+                                <span>اشترك الآن في Pro (200 ج.م / شهر)</span>
+                                <span>←</span>
+                            </button>
+                            <button
+                                onClick={() => setShowUpgradeModal(false)}
+                                className="w-full py-2 px-4 text-xs font-bold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors cursor-pointer"
+                            >
+                                المتابعة غداً مع تجدد الرصيد المجاني
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Fullscreen Image Lightbox Modal */}
             {previewModalImage && (
