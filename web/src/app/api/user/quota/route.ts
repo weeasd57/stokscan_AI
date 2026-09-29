@@ -36,7 +36,11 @@ export async function GET() {
     const planName = pro ? "pro" : "free";
     const limits = planLimits(planName);
 
-    // 2. Chatbot messages used this month (permanent ledger via ai_chatbot_limits)
+    // 2. Chatbot messages used — read from the permanent ledger (ai_chatbot_limits).
+    //    This table is write-once: consume_ai_chat_quota() increments it each request.
+    //    Deleting a chat session removes rows from ai_chat_messages but NEVER touches
+    //    ai_chatbot_limits, so the usage count here is always accurate regardless of
+    //    whether the user deletes old conversations.
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
@@ -49,23 +53,13 @@ export async function GET() {
       serviceClient = supabase;
     }
 
-    const [chatRowsRes, limitRowsRes] = await Promise.all([
-      supabase
-        .from("ai_chat_messages")
-        .select("id, client_message_id")
-        .eq("user_id", user.id)
-        .eq("role", "user")
-        .gte("created_at", monthStart.toISOString()),
-      serviceClient
-        .from("ai_chatbot_limits")
-        .select("chat_count")
-        .eq("user_id", user.id)
-        .gte("date", monthStartStr),
-    ]);
+    // Fetch ai_chatbot_limits rows — MUST include "date" so we can find today's row.
+    const limitRowsRes = await serviceClient
+      .from("ai_chatbot_limits")
+      .select("date, chat_count")
+      .eq("user_id", user.id)
+      .gte("date", monthStartStr);
 
-    if (chatRowsRes.error) {
-      console.warn("[api/user/quota] chat count error:", chatRowsRes.error);
-    }
     if (limitRowsRes.error) {
       console.warn("[api/user/quota] limits count error:", limitRowsRes.error);
     }
@@ -74,11 +68,15 @@ export async function GET() {
     const todayLimitRow = (limitRowsRes.data || []).find((r: any) => r.date === today);
     const todayChatCount = Number(todayLimitRow?.chat_count || 0);
 
-    const messagesCount = new Set((chatRowsRes.data || []).map((row: any) => row.client_message_id || row.id)).size;
-    const monthlyLimitsCount = (limitRowsRes.data || []).reduce((acc: number, row: any) => acc + (Number(row.chat_count) || 0), 0);
-    const monthlyChatUsed = Math.max(messagesCount, monthlyLimitsCount);
+    // Monthly total: sum all days in this month from the permanent ledger.
+    const monthlyLimitsCount = (limitRowsRes.data || []).reduce(
+      (acc: number, row: any) => acc + (Number(row.chat_count) || 0),
+      0
+    );
 
-    const chatUsed = pro ? monthlyChatUsed : todayChatCount;
+    // For Pro: monthly sum from ledger.
+    // For Free: today's count from ledger (daily limit = 5).
+    const chatUsed = pro ? monthlyLimitsCount : todayChatCount;
     const chatLimit = pro ? limits.chat_messages_per_month : 5;
     const quotaPeriod = pro ? "monthly" : "daily";
 

@@ -34,6 +34,7 @@ interface QuotaData {
       limit: number;
       remaining: number;
       percent: number;
+      period?: "daily" | "monthly";
     };
     portfolio_stocks: {
       used: number;
@@ -198,7 +199,9 @@ export default function PlanQuotaCard({ refreshTrigger = 0 }: Props) {
               </span>
             </div>
             <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400">
-              {isAr ? "شهريًا" : "Monthly"}
+              {chat?.period === "daily"
+                ? isAr ? "يوميًا" : "Daily"
+                : isAr ? "شهريًا" : "Monthly"}
             </span>
           </div>
 
