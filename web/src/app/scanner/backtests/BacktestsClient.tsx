@@ -364,7 +364,7 @@ export default function AIScannerPage() {
     const searchParams = useSearchParams();
 
     const tabParam = searchParams.get("tab");
-    const activeTab = tabParam === "backtests" ? "backtests" : tabParam === "similarity" ? "similarity" : tabParam === "analytics" ? "analytics" : "bots";
+    const activeTab = tabParam === "backtests" ? "backtests" : tabParam === "similarity" ? "similarity" : "bots";
 
     // States for Similarity tab
     const [publishedReport, setPublishedReport] = useState<any | null>(null);
@@ -1161,22 +1161,16 @@ export default function AIScannerPage() {
                     ? t("backtest.model_evaluation")
                     : activeTab === "similarity"
                         ? (language === "ar" ? "تحليل الأنماط التاريخية" : "HISTORICAL PATTERN MATCHING")
-                        : activeTab === "analytics"
-                            ? (language === "ar" ? "لوحة أداء الصفقات" : "TRADE PERFORMANCE")
                         : (language === "ar" ? "ترتيب السوق اليوم" : "TODAY'S MARKET RANKING")}
                 title={activeTab === "backtests"
                     ? (language === "ar" ? "نتائج الاختبار العكسي" : "Backtest Results")
                     : activeTab === "similarity"
                         ? (language === "ar" ? "النماذج المتكررة (شبه ده)" : "Historical Similarity")
-                        : activeTab === "analytics"
-                            ? (language === "ar" ? "تحليلات أداء الصفقات" : "Trade Analytics")
                         : (language === "ar" ? "أفضل الأسهم الشعبية تصنيفاً" : "Top Ranked Popular Stocks")}
                 description={activeTab === "backtests"
                     ? t("backtest.subtitle")
                     : activeTab === "similarity"
                         ? (language === "ar" ? "حالات تاريخية متكررة في البورصة تتطابق مع التكوين الحالي للأسهم بنسب نجاح مرتفعة." : "Historical patterns that closely match the current setups of stocks with high win rates.")
-                        : activeTab === "analytics"
-                            ? (language === "ar" ? "تقويم الأداء وتوزيع العوائد للصفقات المغلقة مع توضيح جودة البيانات." : "Calendar, return distribution and outcome quality for closed trades.")
                         : t("bots.banner_desc")}
             />
 
@@ -1189,11 +1183,6 @@ export default function AIScannerPage() {
                 </div>
             )}
 
-            {activeTab === "analytics" && (
-                <div className="space-y-6">
-                    <RecommendationsTable hideTelegramToggle={true} analyticsOnly={true} />
-                </div>
-            )}
 
             {/* TAB CONTENT: HISTORICAL SIMILARITY */}
             {activeTab === "similarity" && (

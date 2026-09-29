@@ -177,7 +177,7 @@ function buildFilterKey(filter: TechFilter): string {
 function buildFilterFromState(s: TechScannerState): TechFilter {
   return {
     country: s.country,
-    limit: 100,
+    limit: 300,
     rsi_min: s.rsiMin ? parseFloat(s.rsiMin) : undefined,
     rsi_max: s.rsiMax ? parseFloat(s.rsiMax) : undefined,
     min_price: s.minPrice ? parseFloat(s.minPrice) : undefined,

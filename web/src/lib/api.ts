@@ -773,6 +773,10 @@ export type ScanResult = {
 
   logo_url?: string | null;
 
+  ai_precision?: number | null;
+
+  ai_signal?: string | null;
+
   ai_score?: number;
 
   fundamental_score?: number;
@@ -1290,6 +1294,10 @@ export type TechResult = {
   beta?: number;
 
   logo_url?: string | null;
+
+  ai_precision?: number | null;
+
+  ai_signal?: string | null;
 
   ai_score?: number;
 

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { unstable_cache } from "next/cache";
 import { getSupabaseClient, toNumber } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
 
@@ -7,6 +9,58 @@ export const runtime = "nodejs";
 // Keep them opt-in so every scanner request does not first issue a guaranteed
 // failing PostgREST query and then repeat the full query as a fallback.
 const MONEY_FLOW_COLUMNS_ENABLED = process.env.TECHNICAL_MONEY_FLOW_COLUMNS_ENABLED === "true";
+
+type TechnicalDataset = {
+  indicators: any[];
+  fundamentals: any[];
+  scanResults: any[];
+};
+
+const getCachedTechnicalDataset = unstable_cache(
+  async (): Promise<TechnicalDataset> => {
+    const supabase = getSupabaseClient();
+    const { data: egxStocks } = await supabase
+      .from("stocks")
+      .select("symbol")
+      .eq("exchange", "EGX")
+      .eq("is_active", true);
+    const symbols = (egxStocks || []).map((s: any) => s.symbol).filter(Boolean);
+
+    const moneyFlowFields = MONEY_FLOW_COLUMNS_ENABLED
+      ? ", cmf_20, mm_accumulation, mm_distribution"
+      : "";
+    const fields = `symbol, exchange, date, close, rsi_14, ema_20, ema_50, ema_200,
+      atr_14, adx_14, stoch_k, stoch_d, volume, change_pct, vol_sma20, momentum_10,
+      roc_12, macd, macd_signal, r_vol, vwap_20${moneyFlowFields}, rsi_divergence,
+      macd_divergence, stoch_divergence, divergence_strength, divergence_periods,
+      divergence_summary`;
+    let { data: indicators, error } = await supabase
+      .from("stock_technical_indicators")
+      .select(fields)
+      .in("exchange", ["EGX"])
+      .limit(1000)
+      .order("date", { ascending: false });
+
+    if (error && MONEY_FLOW_COLUMNS_ENABLED) {
+      ({ data: indicators, error } = await supabase
+        .from("stock_technical_indicators")
+        .select(fields.replace(", cmf_20, mm_accumulation, mm_distribution", ""))
+        .in("exchange", ["EGX"])
+        .limit(1000)
+        .order("date", { ascending: false }));
+    }
+    if (error) throw error;
+
+    const uniqueSymbols = [...new Set((indicators || []).map((row: any) => row.symbol).filter(Boolean))];
+    const [{ data: fundamentals }, { data: scanResults }] = await Promise.all([
+      supabase.from("stock_fundamentals").select("symbol, name, fund_score, data").in("symbol", uniqueSymbols),
+      supabase.from("scan_results").select("symbol, precision").in("symbol", uniqueSymbols),
+    ]);
+    return { indicators: indicators || [], fundamentals: fundamentals || [], scanResults: scanResults || [] };
+  },
+  ["technical-scanner-egx-daily"],
+  { revalidate: 86400, tags: [DAILY_CACHE_TAGS.market] },
+);
 
 export async function POST(req: Request) {
   try {
@@ -45,118 +99,10 @@ export async function POST(req: Request) {
       divergence_min_strength,
     } = body;
 
-    const supabase = getSupabaseClient();
-
-    // 1. Get symbols matching country from stocks table
-    const { data: countryStocks } = await supabase
-      .from('stocks')
-      .select('symbol')
-      .eq('country', country);
-
-    const countrySymbols = (countryStocks || []).map((s: any) => s.symbol);
-
-    // 2. Fetch technical indicators from Supabase
-    const moneyFlowFields = MONEY_FLOW_COLUMNS_ENABLED
-      ? ", cmf_20, mm_accumulation, mm_distribution"
-      : "";
-    let queryFields = `
-      symbol,
-      exchange,
-      date,
-      close,
-      rsi_14,
-      ema_20,
-      ema_50,
-      ema_200,
-      atr_14,
-      adx_14,
-      stoch_k,
-      stoch_d,
-      volume,
-      change_pct,
-      vol_sma20,
-      momentum_10,
-      roc_12,
-      macd,
-      macd_signal,
-      r_vol,
-      vwap_20${moneyFlowFields},
-      rsi_divergence,
-      macd_divergence,
-      stoch_divergence,
-      divergence_strength,
-      divergence_periods,
-      divergence_summary
-    `;
-
-    let query = supabase
-      .from('stock_technical_indicators')
-      .select(queryFields);
-
-    if (countrySymbols.length > 0) {
-      query = query.in('symbol', countrySymbols);
-    }
-
-    // Read one shared country dataset; slider/filter changes must not create
-    // another Supabase query/cache key. Filter the latest symbol rows below.
-
-    let { data: indicators, error } = await query
-      .limit(1000) // Fetch a larger pool to allow client-side filters (joins)
-      .order('date', { ascending: false });
-
-    if (error) {
-      // Fallback query without the missing fields (if legacy schema is in place)
-      queryFields = `
-        symbol,
-        exchange,
-        date,
-        close,
-        rsi_14,
-        ema_20,
-        ema_50,
-        ema_200,
-        atr_14,
-        adx_14,
-        stoch_k,
-        stoch_d,
-        volume,
-        change_pct,
-        vol_sma20,
-        momentum_10,
-        roc_12,
-        macd,
-        macd_signal,
-        r_vol,
-        vwap_20,
-        rsi_divergence,
-        macd_divergence,
-        stoch_divergence,
-        divergence_strength,
-        divergence_periods,
-        divergence_summary
-      `;
-      let fallbackQuery = supabase
-        .from('stock_technical_indicators')
-        .select(queryFields);
-
-      if (countrySymbols.length > 0) {
-        fallbackQuery = fallbackQuery.in('symbol', countrySymbols);
-      }
-
-
-      const fallbackResult = await fallbackQuery
-        .limit(1000)
-        .order('date', { ascending: false });
-
-      indicators = fallbackResult.data;
-      if (fallbackResult.error) {
-        console.error('Technical scan Supabase fallback error:', fallbackResult.error);
-        return NextResponse.json({ results: [], scanned_count: 0 });
-      }
-    }
+    const { indicators, fundamentals, scanResults } = await getCachedTechnicalDataset();
 
     if (!indicators || indicators.length === 0) {
-      return NextResponse.json({ results: [], scanned_count: 0 });
+      return NextResponse.json({ results: [], scanned_count: 0 }, { headers: dailyCacheHeaders(DAILY_CACHE_TAGS.market) });
     }
 
     // Sort in memory by date descending to ensure the latest row comes first for deduplication
@@ -177,18 +123,6 @@ export async function POST(req: Request) {
     const dedupedIndicators = Array.from(uniqueIndicatorsMap.values());
 
     const scannedSymbols = dedupedIndicators.map((ind: any) => ind.symbol);
-
-    // 3. Fetch fundamentals for these symbols
-    const { data: fundamentals } = await supabase
-      .from('stock_fundamentals')
-      .select('symbol, name, fund_score, data')
-      .in('symbol', scannedSymbols);
-
-    // 4. Fetch AI scan results for these symbols
-    const { data: scanResults } = await supabase
-      .from('scan_results')
-      .select('symbol, precision')
-      .in('symbol', scannedSymbols);
 
     const fundMap = new Map();
     if (fundamentals) {
@@ -480,10 +414,10 @@ export async function POST(req: Request) {
     return NextResponse.json({
       results: scanned,
       scanned_count: indicators.length
-    });
+    }, { headers: dailyCacheHeaders(DAILY_CACHE_TAGS.market) });
 
   } catch (error) {
     console.error('Technical scan API error:', error);
-    return NextResponse.json({ results: [], scanned_count: 0 });
+    return NextResponse.json({ results: [], scanned_count: 0 }, { headers: dailyCacheHeaders(DAILY_CACHE_TAGS.market) });
   }
 }

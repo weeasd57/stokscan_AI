@@ -813,7 +813,8 @@ export default function TradingViewChart({
 
         setCandlesData(data.candles);
         setMarkersData(data.markers || []);
-        setTimeframe(data.timeframe || "15m");
+        // EGX is end-of-day data; do not surface a stale intraday label.
+        setTimeframe(String(exchange || "EGX").toUpperCase() === "EGX" ? "1d" : (data.timeframe || "1d"));
         setLoading(false);
       } catch (err: any) {
         if (isMounted) {

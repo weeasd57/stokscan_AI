@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const revalidate = 86400;
 
 function getBackendBaseUrl() {
   return (
@@ -42,12 +43,12 @@ export async function GET(req: NextRequest) {
       backendUrl.searchParams.set("limit", String(limit));
       backendUrl.searchParams.set("bot_id", bot_id);
       const backendResponse = await fetch(backendUrl, {
-        cache: "no-store",
+        next: { revalidate: 86400, tags: [DAILY_CACHE_TAGS.market] },
         signal: AbortSignal.timeout(30000),
       });
       if (backendResponse.ok) {
         return NextResponse.json(await backendResponse.json(), {
-          headers: { "Cache-Control": "private, max-age=60" },
+          headers: dailyCacheHeaders(DAILY_CACHE_TAGS.market),
         });
       }
     } catch (error) {
@@ -120,7 +121,7 @@ export async function GET(req: NextRequest) {
       candles,
       markers,
       timeframe,
-    });
+    }, { headers: dailyCacheHeaders(DAILY_CACHE_TAGS.market) });
   } catch (err: any) {
     console.error("Candles endpoint error:", err);
     return NextResponse.json({ candles: [], markers: [] }, { status: 500 });
