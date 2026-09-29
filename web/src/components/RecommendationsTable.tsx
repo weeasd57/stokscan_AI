@@ -2320,13 +2320,18 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     {analyticsSubTab === "performance" && (() => {
                         const cutoff15 = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
                         const closed = recommendations.filter(r => ["win","loss"].includes((r.status||"").toLowerCase()));
+                        const getCloseDate = (r: any) => r.closed_at || r.updated_at || r.created_at;
                         // For free users: only show recs older than 15 days
-                        const visible = isProView ? closed : closed.filter(r => r.closed_at && new Date(r.closed_at) < cutoff15);
+                        const visible = isProView ? closed : closed.filter(r => {
+                            const d = getCloseDate(r);
+                            return d && new Date(d) < cutoff15;
+                        });
                         // Group by month
                         const byMonth: Record<string, {wins:number; losses:number}> = {};
                         for (const r of visible) {
-                            const d = r.closed_at ? new Date(r.closed_at) : null;
-                            if (!d) continue;
+                            const dStr = getCloseDate(r);
+                            const d = dStr ? new Date(dStr) : null;
+                            if (!d || isNaN(d.getTime())) continue;
                             const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
                             if (!byMonth[key]) byMonth[key] = {wins:0, losses:0};
                             if ((r.status||"").toLowerCase() === "win") byMonth[key].wins++;
@@ -2379,7 +2384,11 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     {analyticsSubTab === "distribution" && (() => {
                         const cutoff15 = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
                         const closed = recommendations.filter(r => r.profit_loss_pct != null && ["win","loss"].includes((r.status||"").toLowerCase()));
-                        const visible = isProView ? closed : closed.filter(r => r.closed_at && new Date(r.closed_at) < cutoff15);
+                        const getCloseDate = (r: any) => r.closed_at || r.updated_at || r.created_at;
+                        const visible = isProView ? closed : closed.filter(r => {
+                            const d = getCloseDate(r);
+                            return d && new Date(d) < cutoff15;
+                        });
                         // Buckets: <-20, -20:-10, -10:0, 0:10, 10:20, >20
                         const buckets = [
                             { label: "< -20%", min:-Infinity, max:-20, color:"bg-rose-700" },
