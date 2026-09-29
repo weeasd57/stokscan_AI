@@ -2416,6 +2416,7 @@ async function* runPipelineCore(
     // being forced into a regex fallback that silently reuses an old symbol.
     const deterministicPlannerResult = buildCompoundDeterministicPlan(userMessage, sessionState);
     let plannerResult = options.mockPlannerResult ?? deterministicPlannerResult ?? generalChatPlan(sessionState);
+    let isSemanticPlanAuthoritative = false;
     const greetingOnly = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم|شكرا|شكرًا|تمام|اوكي|أوكي)[؟?،,.!\s]*$/i.test(userMessage.trim());
     const preserveDeterministicPlan = greetingOnly
         || /^(?:جدع|عاش|تمام|تسلم|شكرا|شكراً|حلو|ممتاز|برافو)\s*[!؟?.]*$/i.test(userMessage.trim())
@@ -2435,7 +2436,10 @@ async function* runPipelineCore(
                 Math.min(7000, Math.max(1000, remainingExecutionMs() - 1000)),
                 () => runPlanner(userMessage, [], sessionState, history, apiKeys, vision),
             );
-            if (semanticPlan.confidence >= 0.6) plannerResult = semanticPlan;
+            if (semanticPlan.confidence >= 0.6) {
+                plannerResult = semanticPlan;
+                isSemanticPlanAuthoritative = true;
+            }
         } catch (error) {
             console.warn("[PLANNER] semantic routing unavailable; using safe deterministic fallback:", error);
         }
@@ -2622,7 +2626,9 @@ async function* runPipelineCore(
         && !unresolvedStockName
     );
     if (dateOnlyFollowUp) mergedSymbols = [sessionState.current_symbol!];
-    const enforced: ReturnType<typeof enforceIntentFromMessage> = dateOnlyFollowUp
+    const enforced: ReturnType<typeof enforceIntentFromMessage> = isSemanticPlanAuthoritative
+        ? { intent: plannerResult.intent, tools: plannerResult.tools || [], replaceTools: false }
+        : dateOnlyFollowUp
         ? { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true }
         : compoundRequest
         ? { 
@@ -2649,7 +2655,7 @@ async function* runPipelineCore(
     if (explicitSymbols.length === 0 && !isExplicitStockIntent && enforced.tools.some(tool => marketScopedTools.has(tool))) mergedSymbols = [];
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
     const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
-    let effectiveIntent = historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent;
+    let effectiveIntent = isSemanticPlanAuthoritative ? plannerResult.intent : (historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent);
 
     const requiredFactTools: Record<string, string[]> = {
         stock_quote: ["get_stock"], technical_indicators: ["get_stock"], price_levels: ["get_stock", "get_stock_levels"],
@@ -2661,7 +2667,9 @@ async function* runPipelineCore(
     const requestedFactTools = compoundRequest ? [] : Array.from(new Set((plannerResult.request?.required_facts || []).flatMap(fact => requiredFactTools[fact] || [])));
     const plannedTools = plannerResult.clarification_needed
         ? []
-        : sanitizePlannerTools(userMessage, enforced.replaceTools
+        : sanitizePlannerTools(userMessage, isSemanticPlanAuthoritative
+        ? Array.from(new Set([...(plannerResult.tools || []), ...requestedFactTools]))
+        : enforced.replaceTools
         ? [...enforced.tools, ...requestedFactTools]
         : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools])));
     const marketRankingMode = mergedSymbols.length === 0 ? getMarketRankingMode(userMessage, plannerResult.request) : null;

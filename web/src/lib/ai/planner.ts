@@ -448,6 +448,7 @@ EXAMPLE: If you see 4 stocks in the image, you MUST extract all 4 symbols, and l
   Use when user asks about any of these screener templates or technical indicator filters across the market.
 
 - "get_comparison": Fetches data to compare two or more stocks. Use when the user explicitly asks to compare stocks (e.g., 'مقارنة بين', 'أيهما أفضل').
+- "manage_portfolio": Views or analyzes the user's investment portfolio positions, quantities, profits, or cash. Use when the user asks about their portfolio (محفظتي، أسهمي، مراكزي، أرباحي، رصيدي).
 - "search_web": Searches the internet for information that is NOT available in the database (general knowledge, companies/events outside the market data, recent happenings, or when the user explicitly asks to search the internet e.g. 'ابحث في النت', 'دور على الإنترنت'). Use only when the requested information cannot come from stock/market/news database tools.
 
 **YOUR TASK:**
@@ -495,6 +496,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
 - For beginners, savings, brokerage products, or portfolio allocation: set guidance_intent to onboarding, allocation, product_comparison, or product_explainer. Do not fetch recommendations until goals, horizon, liquidity, and risk tolerance are known.
 - Thndr/ثندر is a brokerage platform in phrases like 'أستثمر في ثندر'; it is not a stock or a slang signal for explosive price movement.
 - Do not select recommendation tools merely because the request says 'فرص' or 'النهارده'. Use them only for explicit recorded recommendations/signals.
+- MULTI-TURN CONVERSATIONAL CONTINUITY: If the user request is a follow-up, choice, or contains a pronoun (e.g. 'ده', 'فيه', 'فيهم', 'الاتنين', 'وريني السيولة', 'أفضل واحد'): resolve the intended stock and context from Recent Dialogue and Current Session State. NEVER claim the request is vague or ask for clarification if the prior turn makes the context clear.
 - ⚠️ CRITICAL IMAGE RULE: If an image is uploaded (hasImages is true), prioritize image analysis. Extract all visible tickers into entities.symbols, set intent to "portfolio" or "chart_analysis", and set tools to ["get_stock"].
 - NEVER use double quotes (") inside string values like image_summary. Use single quotes (').
 - Return ONLY valid JSON, starting with '{' and ending with '}'.`;

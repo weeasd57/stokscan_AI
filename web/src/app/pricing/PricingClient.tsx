@@ -25,6 +25,7 @@ import {
   HelpCircle,
   Copy,
   ExternalLink,
+  Info,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -311,11 +312,11 @@ export default function PricingClient() {
     { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? `${freeLimits.chat_messages_per_month} رسالة شات بوت / شهر` : `${freeLimits.chat_messages_per_month} chatbot messages / month`, included: true },
     { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? `حتى ${freeLimits.portfolio_stocks} أسهم في المحفظة` : `Up to ${freeLimits.portfolio_stocks} portfolio stocks`, included: true },
     { icon: <ShieldCheck className="w-4 h-4" />, text: isAr ? "قناة VIP على تليجرام" : "VIP Telegram Channel", included: false },
-    { icon: <Sparkles className="w-4 h-4" />, text: isAr ? "توصيات ونماذج الذكاء الاصطناعي لحظياً" : "Live AI models & intraday signals", included: false },
+    { icon: <Sparkles className="w-4 h-4" />, text: isAr ? "توصيات ونماذج الذكاء الاصطناعي الفورية" : "Full AI models & instant recommendations", included: false },
   ];
 
   const proFeatures = [
-    { icon: <Zap className="w-4 h-4" />, text: isAr ? "إشارات وتوصيات يومية فورية ولحظية" : "Daily real-time instant signals", included: true },
+    { icon: <Zap className="w-4 h-4" />, text: isAr ? "إشارات وتوصيات يومية فور صدورها (بدون تأخير)" : "Daily signals delivered instantly (zero delay)", included: true },
     { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? `${proLimits.chat_messages_per_month} رسالة شات بوت ذكي شهرياً` : `${proLimits.chat_messages_per_month} smart chatbot messages / month`, included: true },
     { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? `حتى ${proLimits.portfolio_stocks} أسهم نشطة في المحفظة` : `Up to ${proLimits.portfolio_stocks} active portfolio stocks`, included: true },
     { icon: <ShieldCheck className="w-4 h-4" />, text: isAr ? "رابط دخول خاص لقناة VIP على تليجرام" : "Private invite to VIP Telegram channel", included: true },
@@ -686,7 +687,7 @@ export default function PricingClient() {
                 </div>
                 <div className="flex items-center gap-2 text-zinc-300">
                   <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span>{isAr ? "إشارات وتوصيات يومية بدون تأخير" : "Zero-delay real-time signals"}</span>
+                  <span>{isAr ? "إشارات وتوصيات يومية فور صدورها بدون تأخير" : "Daily signals delivered instantly without delay"}</span>
                 </div>
                 <div className="flex items-center gap-2 text-zinc-300">
                   <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
@@ -879,6 +880,25 @@ export default function PricingClient() {
               </div>
             );
           })}
+        </div>
+
+        {/* Notice: Market Data & Signal Nature */}
+        <div className="border-4 border-black dark:border-white bg-amber-50 dark:bg-amber-950/20 p-5 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_#f59e0b]">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <div className="p-2.5 border-2 border-black dark:border-white bg-amber-300 dark:bg-amber-400 text-black shrink-0 shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+              <Info className="w-5 h-5" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-black text-zinc-950 dark:text-white">
+                {isAr ? "تنويه هام بشأن طبيعة الأسعار والإشارات الفنية" : "Important Notice on Market Data & Technical Signals"}
+              </h4>
+              <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300 leading-relaxed">
+                {isAr
+                  ? "المنصة لا تقدم شاشة بث أسعار لحظية للأسهم (Live Ticker) أثناء جلسة التداول، وإنما تعتمد على بيانات الإغلاق والتحليل الفني والكمي. المقصود بـ «الإشارات الفورية» هو وصول تنبيهات التوصيات للمشتركين فور صدورها واعتمادها من نماذج الذكاء الاصطناعي دون أي تأخير زمني، بينما يتم تنفيذ عمليات الشراء والبيع عبر تطبيق السمسرة المعتمد الخاص بك."
+                  : "The platform does not provide a live streaming stock ticker during trading sessions; it relies on closing data and quantitative technical analysis. «Instant Signals» refers to recommendation alerts being delivered to subscribers immediately upon AI model approval without delay. Buy/sell orders are executed through your personal licensed broker."}
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Guarantee Banner */}
