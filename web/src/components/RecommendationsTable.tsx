@@ -2142,22 +2142,34 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 <div className="space-y-3" dir={isAr ? "rtl" : "ltr"}>
                     {!user && (
                         <div className="p-4 border-4 border-black dark:border-white bg-sky-300 text-black font-bold flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs shadow-[4px_4px_0px_rgba(0,0,0,1)]">
-                            <div className="flex items-center gap-2">
-                                <Clock className="w-4 h-4 shrink-0" />
-                                <span>{isAr ? "نتائج الصفقات المغلقة ظاهرة فوراً دون رمز السهم؛ الصفقات المفتوحة متأخرة 15 يوماً." : "Closed trade results appear immediately without stock symbols; open trades are delayed by 15 days."}</span>
+                            <div className="flex items-center gap-2 text-black">
+                                <Clock className="w-4 h-4 shrink-0 text-black" />
+                                <span className="text-black font-bold">{isAr ? "نتائج الصفقات المغلقة ظاهرة فوراً دون رمز السهم؛ الصفقات المفتوحة متأخرة 15 يوماً." : "Closed trade results appear immediately without stock symbols; open trades are delayed by 15 days."}</span>
                             </div>
-                            <a href="/login?redirect=%2Fscanner%2Fbacktests%3Ftab%3Dbots" className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black text-white uppercase tracking-wide hover:bg-zinc-800">
-                                {isAr ? "تسجيل الدخول" : "Sign in"}
+                            <a
+                                href="/login?redirect=%2Fscanner%2Fbacktests%3Ftab%3Dbots"
+                                className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black !text-white uppercase tracking-wide hover:bg-zinc-800 shadow-[2px_2px_0px_rgba(0,0,0,1)] transition-all"
+                                style={{ color: "#ffffff" }}
+                            >
+                                <span className="!text-white font-black" style={{ color: "#ffffff" }}>
+                                    {isAr ? "تسجيل الدخول" : "Sign in"}
+                                </span>
                             </a>
                         </div>
                     )}
                     <div className="p-4 border-4 border-black dark:border-white bg-amber-300 text-black font-bold flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs shadow-[4px_4px_0px_rgba(0,0,0,1)]">
-                        <div className="flex items-center gap-2">
-                            <Clock className="w-4 h-4 shrink-0" />
-                            <span>{isAr ? "Free: الإشارات المفتوحة متأخرة 15 يوماً، والمغلقة بلا رمز، والأرباح فوق 50% غير مدرجة؛ لذلك إحصاءات Free ليست سجل الأداء الكامل. Pro يعرض السجل الكامل." : "Free: open signals are delayed 15 days, closed symbols are hidden, and wins above 50% are excluded. Free statistics are not the full performance record; Pro shows the complete history."}</span>
+                        <div className="flex items-center gap-2 text-black">
+                            <Clock className="w-4 h-4 shrink-0 text-black" />
+                            <span className="text-black font-bold">{isAr ? "Free: الإشارات المفتوحة متأخرة 15 يوماً، والمغلقة بلا رمز، والأرباح فوق 50% غير مدرجة؛ لذلك إحصاءات Free ليست سجل الأداء الكامل. Pro يعرض السجل الكامل." : "Free: open signals are delayed 15 days, closed symbols are hidden, and wins above 50% are excluded. Free statistics are not the full performance record; Pro shows the complete history."}</span>
                         </div>
-                        <a href="/pricing" className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black text-white uppercase tracking-wide hover:bg-zinc-800">
-                            {isAr ? "اشترك في Pro" : "Subscribe to Pro"}
+                        <a
+                            href="/pricing"
+                            className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black !text-white uppercase tracking-wide hover:bg-zinc-800 shadow-[2px_2px_0px_rgba(0,0,0,1)] transition-all"
+                            style={{ color: "#ffffff" }}
+                        >
+                            <span className="!text-white font-black" style={{ color: "#ffffff" }}>
+                                {isAr ? "اشترك في Pro" : "Subscribe to Pro"}
+                            </span>
                         </a>
                     </div>
                 </div>
