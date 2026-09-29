@@ -7,6 +7,8 @@
  * Latin ticker ("عامر جروب …" for AMER).
  */
 
+import { ARABIC_STOCK_MAPPINGS } from "./symbol-aliases";
+
 export function normalizeArabicText(text: string): string {
     return String(text ?? "")
         .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g, "")
@@ -28,7 +30,7 @@ const GENERIC_NAME_TOKENS = new Set<string>([
     "للاستثمار", "للاستثمارات", "استثمار", "استثمارات", "الاستثمار", "الاستثمارات",
     "للتنميه", "تنميه", "التنميه",
     "القاهره", "قاهره", "الجيزه", "الاسكندريه", "اسكندريه",
-    "العربيه", "عربي", "العربي", "الدوليه", "دولي", "الدولي",
+    "العربيه", "عربيه", "عربي", "العربي", "الدوليه", "دولي", "الدولي",
     "القوميه", "قومي", "القومي", "العالميه", "العالمي",
     "الوطنيه", "وطنيه", "الوطني", "بنك", "البنك",
     "شمال", "جنوب", "شرق", "غرب", "الشرقيه", "الغربيه",
@@ -98,6 +100,15 @@ export function isUnrelatedNews(title: string): boolean {
  * distinctive company-name token.
  */
 export function isRelevantNews(title: string, symbol: string, companyName: string): boolean {
+    // Use the same approved identity aliases as the planner, without importing
+    // the planner (which also imports tools). Ambiguous aliases are excluded.
+    const aliases = Object.entries(ARABIC_STOCK_MAPPINGS)
+        .filter(([, value]) => typeof value === "string" && value === symbol.toUpperCase().split(".")[0])
+        .map(([alias]) => alias);
+    return [companyName, ...aliases].some(name => matchesNewsIdentity(title, symbol, name));
+}
+
+function matchesNewsIdentity(title: string, symbol: string, companyName: string): boolean {
     if (!title || !symbol) return false;
     const normTitle = normalizeArabicText(title);
     const sym = String(symbol).split(".")[0].trim().toLowerCase();

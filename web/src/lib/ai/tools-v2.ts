@@ -4,7 +4,7 @@ import { classificationMatchesSector } from "./sector-taxonomy";
 import { searchWeb } from "./web-search";
 import { isEgxSessionOpen, fetchLiveStockIndicators } from "./live-stock-updater";
 import { getCorporateActionsForSymbols, formatCorporateActionsSummary, CORPORATE_ACTIONS_QUERY_PATTERN } from "./corporate-actions";
-import { isRelevantNews } from "./news-relevance";
+import { sanitizeNewsRows, summarizeNewsEvidence } from "./news-evidence";
 import {
     getPortfolioSnapshot, addPortfolioPosition, updatePortfolioPosition,
     removePortfolioPosition, sellPortfolioPosition, setPortfolioCash, addPortfolioCash,
@@ -1435,11 +1435,13 @@ export async function executeStructuredTools(
                                 king_ai_score: techData?.king_ai_score ?? null,
                                 egx_ai_score: techData?.egx_ai_score ?? null,
                                 wyckoff_phase: wyckoffPhase,
+                                wyckoff_status: scanData && (wyckoffPhase != null || accScore != null || distScore != null) ? "observed" : "unavailable",
+                                wyckoff_as_of: scanData?.scan_date || null,
                                 acc_score: accScore,
                                 dist_score: distScore,
                                 signal: scanData?.signal || null,
-                                consecutive_acc_days: scanData?.consecutive_acc_days ?? 0,
-                                consecutive_dist_days: scanData?.consecutive_dist_days ?? 0,
+                                consecutive_acc_days: scanData?.consecutive_acc_days ?? null,
+                                consecutive_dist_days: scanData?.consecutive_dist_days ?? null,
                                 market_cap: fundamentals.marketCap ?? fundamentals.market_cap ?? null,
                                 eps: fundamentals.eps ?? null,
                                 book_value_per_share: fundamentals.bookValuePerShare ?? fundamentals.book_value_per_share ?? null,
@@ -1532,7 +1534,7 @@ export async function executeStructuredTools(
             if (marketCache?.payload && !requestedDate) {
                 usedCache = true;
                 const payload = marketCache.payload;
-                const egxDate = payload.egx30?.[payload.egx30.length - 1]?.date || payload.usdegp?.[payload.usdegp.length - 1]?.date || now.split("T")[0];
+                const egxDate = payload.egx30?.[payload.egx30.length - 1]?.date || "";
                 textParts.push(`\n [حالة السوق - ${egxDate}]:`);
 
                 const latestClose = (rows: any[]) => Number(rows?.[rows.length - 1]?.close);
@@ -1578,8 +1580,15 @@ export async function executeStructuredTools(
                     source: "database",
                     data_time: egxDate,
                     symbols: ["EGX30", "EGX100", "USDEGP"],
-                    data_type: "live",
+                    data_type: "historical",
                     data: {
+                        quote_kind: "daily_close",
+                        is_live_intraday: false,
+                        component_dates: {
+                            egx30: egxDate || null,
+                            egx100: payload.egx100?.[payload.egx100.length - 1]?.date || null,
+                            usd: payload.usdegp?.[payload.usdegp.length - 1]?.date || null,
+                        },
                         egx30: egx30Close,
                         egx30_change_pct: egx30ChangePct,
                         egx100: egx100Close,
@@ -1632,13 +1641,13 @@ export async function executeStructuredTools(
                     }
 
                     if (gainers.length > 0) {
-                        textParts.push(`\n [أعلى الأسهم ارتفاعاً - من البيانات الفنية المباشرة]:`);
+                        textParts.push(`\n [أعلى الأسهم ارتفاعاً - إغلاق يومي ${maxTechDate}]:`);
                         gainers.forEach((r: any) => {
                             textParts.push(`• ${r.symbol}: +${Number(r.change_pct).toFixed(2)}%`);
                         });
                     }
                     if (losers.length > 0) {
-                        textParts.push(`\n [أعلى الأسهم انخفاضاً - من البيانات الفنية المباشرة]:`);
+                        textParts.push(`\n [أعلى الأسهم انخفاضاً - إغلاق يومي ${maxTechDate}]:`);
                         losers.forEach((r: any) => {
                             textParts.push(`• ${r.symbol}: ${Number(r.change_pct).toFixed(2)}%`);
                         });
@@ -1652,8 +1661,10 @@ export async function executeStructuredTools(
                             source: "database",
                             data_time: maxTechDate,
                             symbols: ["EGX30", "USDEGP"],
-                            data_type: "live",
+                            data_type: "historical",
                             data: {
+                                quote_kind: "daily_close",
+                                is_live_intraday: false,
                                 egx30: null,
                                 usd: null,
                                 regime: null,
@@ -1663,6 +1674,7 @@ export async function executeStructuredTools(
                         };
                         results.push(marketResult);
                     }
+                    marketResult.data.component_dates = { ...marketResult.data.component_dates, movers: maxTechDate };
                     marketResult.data.top_gainers = gainers.map((g: any) => ({ symbol: g.symbol, name: g.name, change: g.change_pct }));
                     marketResult.data.top_losers = losers.map((l: any) => ({ symbol: l.symbol, name: l.name, change: l.change_pct }));
                 }
@@ -1676,7 +1688,6 @@ export async function executeStructuredTools(
     // ===== NEWS =====
     if (plan.tools.includes("get_news")) {
         try {
-            const articleRows: any[] = [];
             const lookbackDate = requestedStartDate ? new Date(`${requestedStartDate}T00:00:00Z`) : requestedDate ? new Date(`${requestedDate}T00:00:00Z`) : new Date();
             if (!requestedStartDate) lookbackDate.setDate(lookbackDate.getDate() - AI_CONFIG.tools.newsDaysLookback);
             const lookbackDateStr = lookbackDate.toISOString().split("T")[0];
@@ -1698,22 +1709,14 @@ export async function executeStructuredTools(
             if (requestedStartDate && requestedEndDate) newsQuery = newsQuery.gte("date", requestedStartDate).lte("date", requestedEndDate);
             const { data: newsData } = await newsQuery;
 
-            let filteredNewsData = newsData || [];
-            if (filteredNewsData.length > 0 && scopedNewsSymbols.length > 0) {
-                const uniqueSymbols = Array.from(new Set(scopedNewsSymbols.map(s => String(s).toUpperCase()).filter(Boolean)));
-                const { data: nameRows } = await supabase.from("stocks").select("symbol, name").in("symbol", uniqueSymbols).limit(uniqueSymbols.length);
-                const nameMap = new Map<string, string>((nameRows || []).map((r: any): [string, string] => [String(r.symbol).toUpperCase(), String(r.name || "") ]));
-                filteredNewsData = filteredNewsData.filter((item: any) => {
-                    const sym = String(item.symbol || "").toUpperCase();
-                    const name = nameMap.get(sym) ?? "";
-                    const headlines = Array.isArray(item.headlines) ? item.headlines : [];
-                    const validHeadlines = headlines.map((hl: any) => String(hl ?? "")).filter((hl: string) => isRelevantNews(hl, sym, name));
-                    item.headlines = validHeadlines;
-                    item.news_count = validHeadlines.length;
-                    return validHeadlines.length > 0 || Number(item.sentiment_score) !== 0;
-                }).filter((item: any) => item.headlines.length > 0 || Number(item.sentiment_score) !== 0);
-            }
-
+            const uniqueSymbols = Array.from(new Set((newsData || []).map((r: any) => String(r.symbol || "").toUpperCase()).filter(Boolean))) as string[];
+            const { data: nameRows } = uniqueSymbols.length
+                ? await supabase.from("stocks").select("symbol, name").in("symbol", uniqueSymbols).limit(uniqueSymbols.length)
+                : { data: [] };
+            const nameMap = new Map<string, string>((nameRows || []).map((r: any): [string, string] => [String(r.symbol).toUpperCase(), String(r.name || "")]));
+            const filteredNewsData = sanitizeNewsRows(newsData || [], nameMap);
+            const newsEvidence = summarizeNewsEvidence(filteredNewsData);
+            textParts.push(`\n[تغطية أخبار اليوم ${newsEvidence.today} بتوقيت القاهرة]: ${newsEvidence.today_count ? `${newsEvidence.today_count} عنوان بتاريخ اليوم` : "لم نعثر على خبر موثق بتاريخ اليوم في المصدر المتاح؛ هذا لا يثبت عدم وجود أخبار"}.`);
             if (filteredNewsData.length > 0) {
                 const newsPeriodLabel = requestedStartDate && requestedEndDate
                     ? `الفترة من ${requestedStartDate} إلى ${requestedEndDate}`
@@ -1721,7 +1724,7 @@ export async function executeStructuredTools(
                 textParts.push(`\n [أخبار وتحليلات المعنويات للأسهم - ${newsPeriodLabel}]:\n`);
                 const newsByDate = new Map<string, any[]>();
                 filteredNewsData.forEach((item: any) => {
-                    const dateKey = item.date || now.split("T")[0];
+                    const dateKey = item.event_date || "تاريخ النشر غير موثق";
                     if (!newsByDate.has(dateKey)) {
                         newsByDate.set(dateKey, []);
                     }
@@ -1733,10 +1736,10 @@ export async function executeStructuredTools(
                     textParts.push(` تاريخ: ${date}`);
                     const items = newsByDate.get(date) || [];
                     items.slice(0, AI_CONFIG.tools.newsHeadlinesMaxPerDay).forEach((item: any) => {
-                        const sentiment = item.sentiment_score > 0.15 ? "إيجابي" :
+                        const sentiment = item.sentiment_score == null ? "غير متاح" : item.sentiment_score > 0.15 ? "إيجابي" :
                             item.sentiment_score < -0.15 ? "سلبي" : "محايد";
-                        const scorePercent = ((item.sentiment_score || 0) * 100).toFixed(1);
-                        textParts.push(`  • ${item.symbol}: معنويات = ${sentiment} (${scorePercent}%) | عدد الأخبار: ${item.news_count || 0}`);
+                        const scorePercent = item.sentiment_score == null ? "غير متاح" : `${(item.sentiment_score * 100).toFixed(1)}%`;
+                        textParts.push(`  • ${item.symbol}: معنويات = ${sentiment} (${scorePercent}) | عدد الأخبار: ${item.news_count || 0}`);
 
                         if (Array.isArray(item.headlines) && item.headlines.length > 0) {
                             item.headlines.forEach((hl: string) => {
@@ -1750,18 +1753,26 @@ export async function executeStructuredTools(
             results.push({
                 tool: "get_news",
                 source: "database",
-                data_time: requestedDate || requestedEndDate || now,
+                data_time: newsEvidence.latest_event_date || "",
                 symbols,
-                data_type: requestedDate || requestedStartDate ? "historical" : "live",
-                data: [...articleRows, ...filteredNewsData]
+                data_type: newsEvidence.today_count ? "cached" : "historical",
+                availability: !newsEvidence.headline_count ? "empty" : newsEvidence.today_count ? "available" : "stale",
+                data: filteredNewsData,
+                evidence: newsEvidence.articles.map((article, index) => ({
+                    id: `get_news-${index}`, source: "stock_news_sentiment", title: article.title,
+                    as_of: article.event_date, fetched_at: now,
+                    freshness: article.event_date === newsEvidence.today ? "fresh" as const : article.event_date ? "stale" as const : "unknown" as const,
+                    claim: article.title, confidence: null,
+                })),
             });
 
             // The requested news is not in the database: fall back to a keyless
             // web search so the user still gets sourced results instead of a
             // plain "no news" answer (only for undated, current-news requests).
-            const combinedNews = [...articleRows, ...filteredNewsData];
+            const combinedNews = filteredNewsData;
             const hasNewsContent = combinedNews.some((item: any) => (Array.isArray(item?.headlines) && item.headlines.length > 0) || Number(item?.news_count) > 0);
-            if (!hasNewsContent && !requestedDate && !requestedStartDate && symbols.length > 0) {
+            const requestsCurrentNews = !requestedStartDate && (!requestedDate || requestedDate === todayInCairo());
+            if (requestsCurrentNews && (!hasNewsContent || newsEvidence.today_count === 0) && symbols.length > 0) {
                 const { data: nameRows } = await supabase.from("stocks").select("symbol, name");
                 const nameMap = new Map((nameRows || []).map((r: any) => [String(r.symbol).toUpperCase(), r.name]));
                 const names = symbols.map(s => nameMap.get(String(s).toUpperCase()) || s);

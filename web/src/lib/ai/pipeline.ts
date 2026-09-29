@@ -19,6 +19,7 @@ import { createExecutionScope, awaitExecution, executionFetch, executionSupabase
 import { attachEvidenceContract } from "./evidence";
 import { buildFactRecords } from "./facts";
 import { runAnswerGate, buildGateCorrectionBlock } from "./answer-gate";
+import { safeEvidenceResponse } from "./response-evidence";
 
 export interface PipelineResult {
     vision: VisionContext | null;
@@ -1866,14 +1867,43 @@ export async function* runPipelineStream(
     const scope = createExecutionScope(options.timeoutMs ?? AI_CONFIG.limits.requestDeadlineMs, options.signal);
     const core = runPipelineCore(userMessage, images, sessionState, sessionSummary, history,
         executionSupabase(supabase), apiKeys, userId, sessionId, messageId, requestedModel, options);
+    let publicationPlan: IntentPlan | null = null;
+    let publicationTools: StructuredToolOutput | null = null;
     try {
         while (true) {
             const next = await scope.run(() => awaitExecution(core.next()));
             if (next.done) return;
+            if (next.value.type === "plan") publicationPlan = next.value.data;
+            if (next.value.type === "tools_data") publicationTools = next.value.data;
             // Publish only the canonical, validated response. A persistence error
             // or interrupted provider must never append an error to partial text.
             if (next.value.type === "token") continue;
             if (next.value.type === "done") {
+                if (publicationPlan && publicationTools) {
+                    const gateInput = { reply: String(next.value.data.response || ""), plan: publicationPlan,
+                        toolResults: publicationTools.results, userMessage, history,
+                        facts: buildFactRecords(publicationTools.results) };
+                    const gate = runAnswerGate(gateInput);
+                    if (!gate.ok) {
+                        let repaired = safeEvidenceResponse(userMessage, publicationTools.results);
+                        // Deterministic shortcuts also get a contextual LLM repair,
+                        // preserving other parts of compound requests when possible.
+                        if ((apiKeys.length || getDeepSeekApiKey()) && remainingExecutionMs() > 12000) {
+                            try {
+                                const candidate = await scope.run(() => generateV2Response(userMessage, publicationPlan!, null,
+                                    publicationTools!.results, [], history,
+                                    { symbol: sessionState.current_symbol, message_id: null, confidence: 1 },
+                                    apiKeys, requestedModel, sessionState,
+                                    `${buildGateCorrectionBlock(gate.reasons)}\nالرد السابق:\n${gateInput.reply}\nحافظ على جميع أجزاء طلب المستخدم مع تصحيح المخالفات.`));
+                                if (runAnswerGate({ ...gateInput, reply: candidate }).ok) repaired = candidate;
+                            } catch { /* A provider failure must not publish the rejected candidate. */ }
+                        }
+                        const repairedGate = runAnswerGate({ ...gateInput, reply: repaired });
+                        next.value.data.response = repairedGate.ok ? repaired : "تعذر التحقق من إجابة متسقة مع سؤالك والبيانات المتاحة. أعد المحاولة لاستكمال التحقق.";
+                        next.value.data.degraded = true;
+                    }
+                    next.value.data.publication_review = { passed: gate.ok, repaired: !gate.ok, reasons: gate.reasons };
+                }
                 yield { type: "token", data: next.value.data.response };
                 yield next.value;
                 return;
@@ -3112,7 +3142,7 @@ async function* runPipelineCore(
         // Run validation
         currentResponse = autoFixNumbers(currentResponse, tools.results);
         const validation = validateResponse(currentResponse, liveDataString, validSymbols, tools.results, userMessage, plan.intent);
-        const answerGate = runAnswerGate({ reply: currentResponse, plan, toolResults: tools.results, userMessage, facts: answerFacts, history: scopedMemory?.recent_messages || history });
+        const answerGate = runAnswerGate({ reply: currentResponse, plan, toolResults: tools.results, userMessage, facts: answerFacts, history: memory?.recent_messages || history });
         if (validation.isValid && answerGate.ok) {
             finalReply = currentResponse;
             break;
@@ -3208,14 +3238,14 @@ async function* runPipelineCore(
 
     // Every route, including provider fallbacks, must pass the same context
     // contract before any text is sent to the user.
-    const preSendGate = runAnswerGate({ reply: fullResponse, plan, toolResults: tools.results, userMessage, facts: answerFacts });
+    const preSendGate = runAnswerGate({ reply: fullResponse, plan, toolResults: tools.results, userMessage, facts: answerFacts, history });
     if (!preSendGate.ok) {
         console.warn(`[ANSWER_GATE] Rejected final response: ${preSendGate.reasons.join("; ")}`);
         const portfolioSnapshot = tools.results.find(result => result.tool === "manage_portfolio"
             && !result.error && result.data?.ok === true && Array.isArray(result.data?.positions));
         fullResponse = plan.entities.portfolio_operation === "view" && portfolioSnapshot
             ? `${formatPortfolioSnapshotResponse(portfolioSnapshot.data)}\n\nتعذر إكمال التحليل الفني لكل المراكز بصورة موثوقة حالياً؛ أعد طلب التحليل بعد قليل.`
-            : "تعذر تكوين إجابة تطابق سؤالك والبيانات المتاحة بصورة موثوقة حالياً. أعد السؤال بعد قليل.";
+            : safeEvidenceResponse(userMessage, tools.results);
     }
 
     // 📢 Ensure the free Telegram channel footer is appended to every response

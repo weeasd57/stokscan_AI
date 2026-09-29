@@ -821,7 +821,8 @@ describe("Deterministic response fallback", () => {
         ]);
         expect(response).toContain("ABCD: السعر 10");
         expect(response).toContain("الدعم 8.00");
-        expect(response).toContain("الأخبار: لا توجد أخبار");
+        expect(response).toContain("الأخبار: لم أجد خبراً موثقاً");
+        expect(response).toContain("هذا لا يؤكد عدم صدور أخبار");
     });
 
     it("includes the broken-support action in a compound response", () => {

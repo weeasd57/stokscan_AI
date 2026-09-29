@@ -16,10 +16,10 @@ if (fs.existsSync(".env.local")) {
     }
 }
 
-import { runPipeline } from "../pipeline";
-import { getSupabaseClient } from "../../supabase/route-data";
-import { getNvidiaApiKeys, getDeepSeekApiKey } from "../server-secrets";
-import { loadSessionState, loadSessionSummary } from "../session";
+import { runPipeline } from "../src/lib/ai/pipeline";
+import { getSupabaseClient } from "../src/lib/supabase/route-data";
+import { getNvidiaApiKeys, getDeepSeekApiKey } from "../src/lib/ai/server-secrets";
+import { loadSessionState, loadSessionSummary } from "../src/lib/ai/session";
 
 async function main() {
     console.log("=================================================");

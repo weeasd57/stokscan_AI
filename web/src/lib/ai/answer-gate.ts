@@ -21,6 +21,7 @@ import { CoverageReport, checkCoverage } from "./coverage";
 import { FactRecord } from "./facts";
 import { isVerifiableDerivedMetric, splitSentences } from "./validator";
 import { isPortfolioAnalysisRequest, isConversationalChoiceOrFollowUp } from "./intent-policy";
+import { evidenceViolations } from "./response-evidence";
 
 export interface AnswerGateInput {
     reply: string;
@@ -151,8 +152,8 @@ function checkAttribution(reply: string, facts: FactRecord[]): string[] {
  * existing rewrite loop can correct the exact defect.
  */
 export function runAnswerGate(input: AnswerGateInput): AnswerGateResult {
-    const reasons: string[] = [];
     const { reply, plan, toolResults, userMessage, facts } = input;
+    const reasons: string[] = evidenceViolations(reply, userMessage, toolResults);
     const checked = { coverage: false, metric: false, attribution: false, context: false };
 
     // Ownership is a three-state fact: nonempty, verified empty, or unknown.
@@ -184,7 +185,7 @@ export function runAnswerGate(input: AnswerGateInput): AnswerGateResult {
         const wantsToday = /النهار[د]?ده|اليوم|today|آخر الأخبار|أحدث خبر/i.test(userMessage);
         const coverage = input.coverage ?? checkCoverage(["news"], toolResults, { newsMustBeToday: wantsToday });
         const newsEntry = coverage.facts.find(entry => entry.fact === "news");
-        if (wantsToday && newsEntry && (newsEntry.status === "stale" || newsEntry.status === "empty" || newsEntry.status === "failed") && mentionsTodayNews(reply)) {
+        if (wantsToday && newsEntry && (newsEntry.status === "stale" || newsEntry.status === "empty" || newsEntry.status === "failed") && mentionsTodayNews(reply) && !/(لم أجد|لم اجد|لا يوجد|لا توجد|لا تتوفر|مفيش)/.test(reply)) {
             reasons.push("الرد يقدم أخبارًا على أنها أخبار اليوم بينما لا يوجد خبر منشور اليوم من مصدر موثوق — أخبر المستخدم بعدم وجود خبر بتاريخ اليوم واقترب الأقدم صراحة بتاريخه.");
         }
     }

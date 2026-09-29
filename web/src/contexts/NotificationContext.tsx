@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { toast } from "sonner";
@@ -32,7 +32,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     const isAr = language === "ar";
     const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
-    const [loading, setLoading] = useState(true);
+    // Start as false — no spinner until we actually need to load
+    const [loading, setLoading] = useState(false);
     const [telegramLinked, setTelegramLinked] = useState(false);
     const [telegramChatId, setTelegramChatId] = useState<string | null>(null);
     const [notificationChannel, setNotificationChannel] = useState<"telegram" | null>(null);
@@ -40,9 +41,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     const [toggling, setToggling] = useState<Record<string, boolean>>({});
     const [botUsername, setBotUsername] = useState("egxbots_bot");
 
-    // Fetch bot username
+    // Track whether we've already fetched for this user — prevents re-fetch on tab switch
+    const hasFetchedRef = useRef<string | null>(null);
+
+    // Fetch bot username once per mount (not per page visit)
     useEffect(() => {
-        if (!needsNotificationData) return;
         fetch("/api/ai_bot/telegram/bot_username")
             .then((res) => res.json())
             .then((data) => {
@@ -51,16 +54,18 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                 }
             })
             .catch((err) => console.error("Error fetching bot username:", err));
-    }, [needsNotificationData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // intentionally empty — run once on app mount
 
-    // Load initial states
+    // Load all notification data (called on demand or explicitly via reloadAll)
     const reloadAll = useCallback(async () => {
-        if (!user || !needsNotificationData) {
+        if (!user) {
             setLoading(false);
             setTelegramLinked(false);
             setTelegramChatId(null);
             setNotificationChannel(null);
             setSubscriptions({});
+            hasFetchedRef.current = null;
             return;
         }
 
@@ -92,24 +97,35 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                 }
             }
             setSubscriptions(subMap);
+            hasFetchedRef.current = user.id;
         } catch (e) {
             console.error("Error reloading notifications data:", e);
         } finally {
             setLoading(false);
         }
-    }, [needsNotificationData, supabase, user]);
+    }, [supabase, user]);
 
-    // Initial load and Real-time listener
+    // KEY FIX: Fetch once per user session. Don't reset state on tab/page change.
+    // The provider lives in root layout — state persists across navigation.
     useEffect(() => {
-        if (!user || !needsNotificationData) {
+        if (!user) {
+            // User logged out — clear everything
             setLoading(false);
             setTelegramLinked(false);
             setTelegramChatId(null);
             setNotificationChannel(null);
             setSubscriptions({});
+            hasFetchedRef.current = null;
             return;
         }
 
+        // Already loaded for this user — keep existing state, skip re-fetch
+        if (hasFetchedRef.current === user.id) {
+            setLoading(false);
+            return;
+        }
+
+        // First load for this user — show spinner and fetch
         setLoading(true);
         void reloadAll();
 
@@ -164,7 +180,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [needsNotificationData, reloadAll, supabase, user]);
+    }, [reloadAll, supabase, user]);
 
     // Toggle service subscription
     const toggleSubscription = useCallback(async (serviceType: ServiceType, botId: string = "primary") => {

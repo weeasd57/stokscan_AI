@@ -1,3 +1,4 @@
+import { summarizeNewsEvidence } from "./news-evidence";
 import { IntentPlan, VisionContext, ToolResult, FactSnapshot, SessionState } from "./types";
 import { getSyncSymbolOfficialNameMap } from "./planner";
 import { AI_CONFIG } from "./config";
@@ -8,6 +9,7 @@ import { sanitizeReply } from "./sanitizer";
 import { executionFetch } from "./execution";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { buildComparisonMatrix } from "./comparison-matrix";
+import { evidencePolicyPrompt, volumeAssessment } from "./response-evidence";
 
 const MAX_CONTEXT_CHARS = 30000;
 
@@ -149,7 +151,10 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
         }
 
         lines.push(`AVAILABLE_EVIDENCE:`);
-        if (scanStock) {
+        const wyckoffEvidence = scanStock || (stockData?.wyckoff_status === "observed" || stockData?.wyckoff_phase != null || stockData?.acc_score != null || stockData?.dist_score != null ? stockData : null);
+        if (wyckoffEvidence) {
+            scanStock = wyckoffEvidence;
+            lines.push(`  - wyckoff_as_of: ${scanStock.scan_date || scanStock.wyckoff_as_of || "UNKNOWN"}`);
             lines.push(`  - wyckoff_phase: ${scanStock.wyckoff_phase ?? scanDirection ?? "NOT_PROVIDED"}`);
             lines.push(`  - accumulation_score (acc_score): ${scanStock.acc_score ?? "NOT_PROVIDED"} ← [هذا مؤشر تجميع 0-100 وليس سعر دعم أو مقاومة]`);
             lines.push(`  - distribution_score (dist_score): ${scanStock.dist_score ?? "NOT_PROVIDED"} ← [هذا مؤشر تصريف 0-100 وليس سعر]`);
@@ -206,7 +211,7 @@ export function buildV2FinalMessages(
     sessionState?: SessionState | null,
     correctionPrompt?: string
 ): { role: string; content: any }[] {
-    const sections: string[] = [];
+    const sections: string[] = [evidencePolicyPrompt(toolResults)];
     const guidanceIntent = plan.guidance_intent;
 
     if (sessionState && (sessionState.investment_budget || sessionState.investment_horizon || sessionState.risk_tolerance || sessionState.preferred_sectors?.length || sessionState.experience_level)) {
@@ -493,7 +498,7 @@ export function buildV2FinalMessages(
     sections.push("  • مؤشر التجميع (acc_score / Accumulation): يجب ترجمته بـ 'تجميع' أو 'درجة تجميع' ويُمنع تماماً استخدام كلمة 'توزيع' أو 'تصريف' لوصفه.");
     sections.push("  • مؤشر التصريف (dist_score / Distribution): يجب ترجمته بـ 'تصريف' أو 'درجة تصريف' ويُمنع تماماً استخدام كلمة 'توزيع' أو 'تجميع' لوصفه.");
     sections.push("  • 🚫 قاعدة صارمة لمنع خلط acc_score مع dist_score: عند ذكر درجة التجميع والتصريف، يجب دائماً ذكر القيمتين معاً بوضوح: 'درجة التجميع (acc_score): X' و'درجة التصريف (dist_score): Y'. يمنع تماماً كتابة 'تجميع بدرجة X' إذا كان X هو قيمة dist_score وليس acc_score. مثال: إذا كان acc_score=80.3 و dist_score=0، يجب الكتابة: 'درجة التجميع 80.3 ودرجة التصريف 0' وليس 'تجميع بدرجة 0'.");
-    sections.push("  • 🚫 قاعدة صارمة: يُمنع تماماً استخدام RSI لتحديد مرحلة التجميع أو التصريف (Wyckoff). RSI هو مؤشر زخم سعري فقط، وليس مقياساً للتجميع/التصريف المؤسسي. لا تقل أبداً 'السهم في مرحلة تصريف لأن RSI مرتفع' أو 'السهم في مرحلة تجميع لأن RSI منخفض'. مرحلة Wyckoff تُحدَّد حصرياً من حقل wyckoff_phase في بيانات get_accumulation_stocks/get_distribution_stocks.");
+    sections.push("مرحلة Wyckoff تؤخذ من الرصد الموثق في get_stock أو get_accumulation_stocks/get_distribution_stocks مع تاريخ الرصد؛ لا تستنتج التجميع أو التصريف من RSI أو حجم التداول وحدهما.");
     sections.push("  • 🚫 قاعدة عدم التناقض بين RSI وWyckoff: عندما تجد بيانات Wyckoff تُظهر مرحلة تجميع (accumulation/strong_accumulation) لسهم ما، وفي نفس الوقت RSI مرتفع (≥70)، هذا ليس تناقضاً — يمكن أن يكون السهم في مرحلة تجميع مع RSI مرتفع. اشرح كلا المؤشرين منفصلاً: 'مسح Wyckoff يُظهر مرحلة تجميع قوي بدرجة X (بتاريخ كذا)، بينما RSI اللحظي يبلغ Y مما يُشير إلى منطقة تشبع شرائي على المدى القصير.' لا تجعل أحدهما يلغي الآخر.");
     sections.push("  • مؤشر RSI: النسبة بين 50 و 69 (مثل 64) تعني 'منطقة إيجابية محايدة/صاعدة' وليست 'تشبع شرائي'؛ التشبع الشرائي (Overbought) يبدأ حصرياً من 70 فأعلى.");
     sections.push("  • تقريب الأرقام السعرية ومستويات الدعم والمقاومة إلى رقمين عشريين دائماً (مثال: 0.43 جنيه وليس 0.428684 جنيه).");
@@ -998,7 +1003,7 @@ export function buildDeterministicNewsResponse(
     // tool data — this news-only template would hide the price half of the question.
     const compoundSplit = userMessage
         .split(/\s+و?(?=(?:هات|جيب|اعرض|حلل|شوف|قارن|مين|ايه|إيه|اخبار|أخبار|سعر|ترتيب|قايمه|قائمة)(?:\s|$))/i)
-        .filter(Boolean);
+        .filter(part => part.trim() && !/^(?:هات|جيب|اعرض|شوف|اخبار|أخبار)$/i.test(part.trim()));
     if (compoundSplit.length > 1) return null;
     const asksForNews = /(?:اخبار|أخبار|خبر(?!ه)|عناوين|news)/i.test(normMsg);
     if (!asksForNews) return null;
@@ -1030,7 +1035,7 @@ export function buildDeterministicNewsResponse(
         ? `من ${plan.entities.requested_start_date} إلى ${plan.entities.requested_end_date}`
         : plan.entities.requested_date
             ? `بتاريخ ${plan.entities.requested_date}`
-            : /(?:اليوم|today)/i.test(normMsg)
+            : /(?:اليوم|النهارده|today)/i.test(normMsg)
                 ? `بتاريخ ${todayInCairo()}`
                 : "للفترة المطلوبة";
     const noVerifiedNews = `لم أجد خبراً موثّقاً في المصادر المتاحة ${rangeLabel}${plan.entities.symbols?.length ? ` للأسهم ${plan.entities.symbols.join("، ")}` : ""}. هذا لا يؤكد عدم صدور أخبار.`;
@@ -1042,26 +1047,18 @@ export function buildDeterministicNewsResponse(
         return noVerifiedNews;
     }
 
-    // Deduplicate by title (case-insensitive and trimmed)
-    const seenTitles = new Set();
-    const uniqueItems = [];
-    for (const item of items) {
-        const itemHeadlines = Array.isArray(item?.headlines) ? item.headlines : [];
-        const dateStr = item.date || item.published_at || "";
-        for (const hl of itemHeadlines) {
-            if (!hl) continue;
-            const normalizedTitle = hl.toLowerCase().trim().replace(/\s+/g, ' ');
-            if (!seenTitles.has(normalizedTitle)) {
-                seenTitles.add(normalizedTitle);
-                uniqueItems.push({
-                    symbol: item.symbol,
-                    title: hl.trim(),
-                    date: dateStr
-                });
-            }
-        }
-    }
-
+    const evidence = summarizeNewsEvidence(items);
+    const requestedDay = plan.entities.requested_date || (/(?:اليوم|النهارده|today)/i.test(normMsg) ? evidence.today : null);
+    const seenTitles = new Set<string>();
+    const uniqueItems = evidence.articles.filter(article => {
+        if (requestedDay && article.event_date !== requestedDay) return false;
+        if (plan.entities.requested_start_date && (!article.event_date || article.event_date < plan.entities.requested_start_date)) return false;
+        if (plan.entities.requested_end_date && (!article.event_date || article.event_date > plan.entities.requested_end_date)) return false;
+        const key = article.title.toLowerCase().replace(/\s+/g, " ").trim();
+        if (seenTitles.has(key)) return false;
+        seenTitles.add(key);
+        return true;
+    }).map(article => ({ ...article, date: article.event_date }));
     if (uniqueItems.length === 0) {
         if (caItems.length > 0) {
             return [`${noVerifiedNews} لكن توجد أحداث مالية مؤثرة:`, ...formatCaSection(caItems)].join("\n");
@@ -1570,13 +1567,7 @@ export function buildFastConversationalAdvisorResponse(
                 : Number(rawRatio);
             const ratio = rawRatio != null && Number.isFinite(parsedRatio) ? parsedRatio : null;
             const price = Number(data.price ?? data.close);
-            const liquidityLabel = ratio == null
-                ? "غير متاحة رقمياً"
-                : ratio < 0.8
-                    ? "ضعيفة وأقل من المعتاد"
-                    : ratio > 1.5
-                        ? "مرتفعة بوضوح عن المعتاد"
-                        : "قريبة من المستوى المعتاد";
+            const liquidityLabel = volumeAssessment(ratio);
             const dataLabel = isLiveStockResult(stockResult)
                 ? `وقت التحديث ${data.live_update_time || stockResult.data_time}`
                 : `إغلاق ${String(stockResult.data_time || "غير محدد").slice(0, 10)}`;
@@ -1592,11 +1583,11 @@ export function buildFastConversationalAdvisorResponse(
             if (Number.isFinite(volume)) lines.push(`- حجم التداول المسجل: **${Math.round(volume).toLocaleString("en-US")} سهم**.`);
             if (Number.isFinite(averageVolume)) lines.push(`- متوسط 20 جلسة: **${Math.round(averageVolume).toLocaleString("en-US")} سهم**.`);
             if (data.acc_score != null || data.dist_score != null || data.wyckoff_phase) {
-                lines.push(`- وايكوف: ${data.wyckoff_phase || "غير محدد"}، التجميع ${data.acc_score ?? "غير متاح"}/100، التصريف ${data.dist_score ?? "غير متاح"}/100.`);
+                lines.push(`- رصد وايكوف بتاريخ ${data.wyckoff_as_of || "غير محدد"}: ${data.wyckoff_phase || "غير محدد"}، التجميع ${data.acc_score ?? "غير متاح"}/100، التصريف ${data.dist_score ?? "غير متاح"}/100. الأصفار المسجلة لا تعني غياب بيانات الرصد.`);
             } else {
                 lines.push("- لا توجد بيانات Wyckoff موثقة لهذا السهم في النتيجة الحالية؛ لذلك لا أصف الحجم كتجميع أو تصريف.");
             }
-            lines.push("الحجم المرتفع يؤكد أهمية الحركة، لكنه لا يحدد اتجاهها وحده؛ يجب قراءته مع السعر وبيانات التجميع/التصريف إن توفرت.");
+            lines.push("حجم التداول وحده لا يثبت دخول أو خروج أموال، ولا يكفي للجزم بالتجميع أو التصريف.");
             return lines.join("\n");
         }
     }
@@ -2315,10 +2306,18 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             }
         }
         if (compoundNews) {
-            const newsItems = Array.isArray(compoundNews.data) ? compoundNews.data : [];
-            parts.push(newsItems.length
-                ? `الأخبار: تم العثور على ${newsItems.length} سجل للأسهم ${compoundNews.symbols.join("، ")}.`
-                : `الأخبار: لا توجد أخبار مسجلة حالياً للأسهم ${compoundNews.symbols.join("، ") || "المطلوبة"}.`);
+            // A web fallback and the other requested components need the
+            // normal responder to synthesize all sources together.
+            if (toolResults.some(result => result.tool === "search_web" && result.data?.results?.length)) return null;
+            const evidence = summarizeNewsEvidence(compoundNews.data);
+            const requestedDay = plan.entities.requested_date || (/(?:اليوم|النهارده|today)/i.test(normMsg) ? evidence.today : null);
+            const headlines = evidence.articles.filter(article =>
+                (!requestedDay || article.event_date === requestedDay)
+                && (!plan.entities.requested_start_date || !!article.event_date && article.event_date >= plan.entities.requested_start_date)
+                && (!plan.entities.requested_end_date || !!article.event_date && article.event_date <= plan.entities.requested_end_date));
+            parts.push(headlines.length
+                ? `الأخبار: ${headlines.length} عنوان للأسهم ${compoundNews.symbols.join("، ")}: ${headlines.slice(0, 3).map(article => `${article.title} (${article.event_date || "تاريخ النشر غير موثق"})`).join("؛ ")}.`
+                : `الأخبار: لم أجد خبراً موثقاً للفترة المطلوبة للأسهم ${compoundNews.symbols.join("، ") || "المطلوبة"}. هذا لا يؤكد عدم صدور أخبار.`);
         }
         const scan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
         if (scan?.data?.stocks?.length) {
@@ -2438,20 +2437,11 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
 
     const news = toolResults.find(result => result.tool === "get_news");
     if (news && stockResults.length === 0 && levelResults.length === 0) {
-        const items = Array.isArray(news.data) ? news.data : [];
-        const rangeLabel = plan.entities.requested_start_date && plan.entities.requested_end_date
-            ? ` من ${plan.entities.requested_start_date} إلى ${plan.entities.requested_end_date}`
-            : plan.entities.requested_date ? ` بتاريخ ${plan.entities.requested_date}` : " المطلوبة";
-        if (items.length === 0 && !(compoundMessage && (stockResults.length || levelResults.length))) {
-            return buildDeterministicNewsResponse(userMessage, plan, toolResults)
-                || `لم أجد خبراً موثّقاً في المصادر المتاحة للفترة${rangeLabel}${news.symbols.length ? ` للأسهم ${news.symbols.join("، ")}` : ""}. هذا لا يؤكد عدم صدور أخبار.`;
-        }
-        const headlines = items.filter((item: any) => item?.title).slice(0, 5);
-        const sentiment = items.filter((item: any) => item?.sentiment_score != null).slice(0, 3);
-        const lines = [`تم العثور على ${items.length} سجل أخبار ومعنويات من قاعدة البيانات خلال الفترة${rangeLabel}.`];
-        headlines.forEach((item: any) => lines.push(`- ${item.symbol || "السهم"}: ${item.title} (${String(item.published_at || item.date || "").slice(0, 10)})`));
-        sentiment.forEach((item: any) => lines.push(`- معنويات ${item.symbol}: ${Number(item.sentiment_score) > 0.15 ? "إيجابية" : Number(item.sentiment_score) < -0.15 ? "سلبية" : "محايدة"}، عدد الأخبار ${item.news_count || 0}.`));
-        return lines.join("\n");
+        const newsAnswer = buildDeterministicNewsResponse(userMessage, plan, toolResults);
+        if (newsAnswer) return newsAnswer;
+        // Compound requests and sourced web responses must keep every requested
+        // component available to the normal responder.
+        return null;
     }
 
     const recommendations = toolResults.find(result => result.tool === "get_recommendations" || result.tool === "get_signals");

@@ -73,6 +73,9 @@ export interface CoverageReport {
     checked_at: string;
 }
 
+import { summarizeNewsEvidence } from "./news-evidence";
+import { todayInCairo } from "./cairo-date";
+
 function availabilityOf(result: ToolResult): ToolAvailability {
     return result.availability || "available";
 }
@@ -96,7 +99,7 @@ export function checkCoverage(
     const checkedAt = new Date().toISOString();
     const results = Array.isArray(toolResults) ? toolResults : [];
     const wanted = Array.from(new Set((required || []).filter(fact => REQUIRED_FACTS.includes(fact))));
-    const today = options.today || new Date().toISOString().slice(0, 10);
+    const today = options.today || todayInCairo();
 
     const facts: FactCoverage[] = wanted.map(fact => {
         const acceptedTools = FACT_TOOLS[fact] || [];
@@ -127,21 +130,17 @@ export function checkCoverage(
             };
         }
 
-        if (fact === "news" && options.newsMustBeToday) {
-            const todayRows = usable.some(result => {
-                const rows = Array.isArray(result.data) ? result.data : result.data?.results || [];
-                return rows.some((row: any) => {
-                    const published = row?.published_at || row?.date || row?.created_at || null;
-                    return typeof published === "string" && published.slice(0, 10) === today;
-                });
-            });
-            if (!todayRows) {
+        if (fact === "news") {
+            const evidence = summarizeNewsEvidence(usable.flatMap(result => Array.isArray(result.data) ? result.data : result.data?.results || []), today);
+            if (!evidence.headline_count || (options.newsMustBeToday && !evidence.today_count)) {
                 return {
                     fact,
                     covered: false,
-                    status: "stale",
+                    status: evidence.headline_count ? "stale" : "empty",
                     tools_used: toolsUsed,
-                    note: `لا يوجد خبر منشور بتاريخ اليوم (${today}) — التغطية أقدم من المطلوب`,
+                    note: evidence.headline_count
+                        ? `لا يوجد خبر موثق بتاريخ اليوم (${today}) — تاريخ الأخبار المتاحة أقدم أو غير موثق`
+                        : "لا توجد عناوين أخبار فعلية في المصدر؛ سجلات المعنويات لا تثبت وجود خبر",
                 };
             }
         }
