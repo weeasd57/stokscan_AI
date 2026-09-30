@@ -1,3 +1,72 @@
+.panel {
+  border: 4px solid var(--brutal-border);
+  background: var(--brutal-bg-card);
+  box-shadow: 4px 4px 0 var(--brutal-border);
+}
+
+.root input:not([type="checkbox"]),
+.root select {
+  border: 2px solid var(--brutal-border);
+  background: var(--brutal-bg-card);
+  color: inherit;
+}
+
+.root :global([role="tablist"]) {
+  border: 4px solid var(--brutal-border);
+  background: var(--brutal-bg-card);
+  box-shadow: 4px 4px 0 var(--brutal-border);
+}
+
+.root :global([role="tab"]) {
+  border: 2px solid var(--brutal-border);
+  background: var(--brutal-bg-card);
+  color: inherit;
+  box-shadow: none;
+}
+
+.root :global([role="tab"][aria-selected="true"]) {
+  background: #fbbf24;
+  color: #000;
+}
+
+.stock {
+  border-width: 2px;
+  border-color: var(--brutal-border);
+}
+
+.metric {
+  border: 2px solid var(--brutal-border);
+}
+
+.action {
+  border: 3px solid var(--brutal-border);
+  box-shadow: 3px 3px 0 var(--brutal-border);
+}
+
+.action:hover {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--brutal-border);
+}
+
+.control,
+.period {
+  border: 2px solid var(--brutal-border);
+}
+
+.control {
+  background: var(--brutal-bg-card);
+  box-shadow: 2px 2px 0 var(--brutal-border);
+}
+
+.period[aria-pressed="true"] {
+  background: #fbbf24;
+  color: #000;
+}
+
+.root th {
+  border-bottom: 2px solid var(--brutal-border);
+}
+
 .root :global(.recharts-text) {
   fill: currentColor;
 }
