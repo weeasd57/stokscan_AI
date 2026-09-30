@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 import { getViewerContext } from "@/lib/supabase/viewer-context";
 import { filterByDelay, planLimits, paymentsEnabled } from "@/lib/ai/plan-gate";
+import { savedSignalReasons } from "@/lib/signal-explanation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -94,17 +95,22 @@ export async function GET(req: NextRequest) {
 
     const latestDate = dateRows && dateRows.length > 0 ? dateRows[0].date : null;
 
-    let pricesMap = new Map<string, number>();
+    const pricesMap = new Map<string, number>();
+    const priceDates = new Map<string, string>();
     if (latestDate) {
       const { data: priceRows } = await supabase
         .from("stock_technical_indicators")
         .select("symbol, close")
+        .eq("exchange", "EGX")
         .eq("date", latestDate)
         .in("symbol", symbols);
 
       if (priceRows) {
         for (const row of priceRows) {
-          pricesMap.set(row.symbol.toUpperCase(), Number(row.close || 0));
+          if (Number(row.close) > 0) {
+            pricesMap.set(row.symbol.toUpperCase(), Number(row.close));
+            priceDates.set(row.symbol.toUpperCase(), latestDate);
+          }
         }
       }
     }
@@ -117,6 +123,7 @@ export async function GET(req: NextRequest) {
       const { data: fallbackPrices } = await supabase
         .from("stock_prices")
         .select("symbol,close,date")
+        .eq("exchange", "EGX")
         .in("symbol", uniqueMissing)
         .order("date", { ascending: false })
         .limit(fallbackLimit);
@@ -124,8 +131,9 @@ export async function GET(req: NextRequest) {
       if (fallbackPrices) {
         for (const row of fallbackPrices) {
           const symbol = String(row.symbol || "").toUpperCase();
-          if (symbol && !pricesMap.has(symbol)) {
-            pricesMap.set(symbol, Number(row.close || 0));
+          if (symbol && !pricesMap.has(symbol) && Number(row.close) > 0) {
+            pricesMap.set(symbol, Number(row.close));
+            priceDates.set(symbol, row.date);
           }
         }
       }
@@ -153,19 +161,8 @@ export async function GET(req: NextRequest) {
           : ((entry - currentPrice) / entry) * 100;
       }
 
-      // Parse top reasons
-      let reasons: string[] = [];
-      if (rec.top_reasons) {
-        if (Array.isArray(rec.top_reasons)) {
-          reasons = rec.top_reasons;
-        } else if (typeof rec.top_reasons === "string") {
-          try {
-            reasons = JSON.parse(rec.top_reasons);
-          } catch {
-            reasons = [rec.top_reasons];
-          }
-        }
-      }
+      // Preserve rich JSON rationale as well as older arrays / serialized JSON.
+      const reasons = savedSignalReasons(rec.top_reasons);
 
       signals.push({
         symbol: rec.symbol,
@@ -173,6 +170,7 @@ export async function GET(req: NextRequest) {
         signal: isBuy ? "BUY" : "SELL",
         entry_price: entry,
         current_price: currentPrice,
+        price_date: priceDates.get(symbolUpper) || null,
         target_price: Number(rec.target_price || 0),
         stop_loss: Number(rec.stop_loss || 0),
         precision: Number(rec.precision || 0),

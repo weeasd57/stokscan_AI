@@ -232,6 +232,7 @@ describe("Portfolio tools (محفظتى)", () => {
         expect(sb._state.positions[0].quantity).toBe(60);
         expect(sb._state.positions[0].status).toBe("open");
         expect(sb._state.profile.cash_balance).toBe(40 * 90);
+        expect(sb._events.find(event => event.event_type === "portfolio_sell").payload.entry_price).toBe(80);
     });
 
     it("sets the cash balance", async () => {

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { usePortfolio, type PortfolioRow, type PortfolioSnapshot } from "@/contexts/PortfolioContext";
+import PortfolioPerformanceDashboard from "./PortfolioPerformanceDashboard";
 
 
 const money = (v: number | null | undefined, digits = 2) => {
@@ -286,6 +287,8 @@ export default function MyPortfolioSection({ onPortfolioUpdated }: { onPortfolio
                     <span className="text-[9px] text-zinc-500 font-bold block">{positions.length} {isAr ? "سهم" : "stocks"}</span>
                 </div>
             </div>
+
+            <PortfolioPerformanceDashboard userId={user?.id || null} snapshot={snapshot} isAr={isAr} />
 
             {/* Add form — Multi-stock bulk add */}
             {showAdd && (

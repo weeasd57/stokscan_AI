@@ -600,7 +600,11 @@ export async function sellPortfolioPosition(
 
     const cash = await fetchCashBalance(supabase, userId);
     await upsertCashBalance(supabase, userId, cash + proceeds);
-    await recordEvent(supabase, userId, existing.id, "portfolio_sell", { symbol: sym, quantity: qtyToSell, sell_price: price, proceeds });
+    await recordEvent(supabase, userId, existing.id, "portfolio_sell", {
+        symbol: sym, quantity: qtyToSell, sell_price: price, proceeds,
+        // Freeze sale-time basis: subsequent additions/edits must not rewrite realized P/L.
+        entry_price: existing.entry_price && existing.entry_price > 0 ? existing.entry_price : null,
+    });
 
     return {
         ok: true,

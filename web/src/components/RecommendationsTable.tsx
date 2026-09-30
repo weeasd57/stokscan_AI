@@ -9,6 +9,8 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useAIScanner } from "@/contexts/AIScannerContext";
 import { percentageChangeSinceEntry } from "@/lib/recommendationMetrics";
 import StockLogo from "./StockLogo";
+import SignalExplanation from "./SignalExplanation";
+import { explainSignal, finiteNumber } from "@/lib/signal-explanation";
 import { useTheme } from "@/contexts/ThemeContext";
 import TradingViewChart from "./TradingViewChartDynamic";
 import TelegramServiceToggle from "./TelegramServiceToggle";
@@ -1106,8 +1108,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         // stored target_2 stayed stale — always keep the second target above the first.
         const target2 = rawTarget2 > 0 ? Math.max(rawTarget2, Math.round(targetPrice * 1.1 * 100) / 100) : 0;
 
-        // Calculate ATR from Entry Price & Stop Loss (since SL = Entry - 1.0x ATR, ATR = Entry - SL)
-        const atrValue = entryPrice && stopLoss && entryPrice > stopLoss ? (entryPrice - stopLoss) : 0;
+        // Stop distance is not ATR: use only a saved measured value, never infer volatility.
+        const atrValue = finiteNumber(row.atr_14) || 0;
         const hasAtr = atrValue > 0;
 
         const normalizedStatus = (row.status || "").toLowerCase();
@@ -1136,14 +1138,10 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             }
         }
 
-        const isTrailingStop = Boolean(entryPrice && stopLoss && stopLoss >= entryPrice);
-        const risk = entryPrice && stopLoss 
-            ? (isTrailingStop ? Math.max(entryPrice * 0.08, 0.01) : Math.max(entryPrice - stopLoss, 0.01))
-            : (entryPrice ? entryPrice * 0.08 : 0);
-        const reward = entryPrice && targetPrice ? Math.abs(targetPrice - entryPrice) : 0;
-        const rawRr = risk > 0 ? (reward / risk) : 0;
-        const rrRatio = Math.min(rawRr, 8.5);
-        const potReturn = currentPrice && targetPrice ? ((targetPrice - currentPrice) / currentPrice) * 100 : 0;
+        const levelExplanation = explainSignal({ signal: row.signal, entry_price: row.entry_price, target_price: targetPrice, stop_loss: stopLoss, current_price: currentPrice });
+        const isTrailingStop = levelExplanation.protectedStop;
+        const rrRatio = levelExplanation.rewardRisk;
+        const potReturn = levelExplanation.remainingPct || 0;
         const changePct = row.change_pct ?? null;
         const lastUpdated = isAnonymousView ? row.created_at || null : (row.updated_at || row.created_at || null);
         const pctChangeSinceRec = isAnonymousView ? null : (isClosed
@@ -1355,7 +1353,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             {[
                                 { label: isAr ? "الفني" : "Technical", val: row.technical_score || 5, color: "sky" },
                                 { label: isAr ? "الأساسي" : "Fundamental", val: row.fundamental_score || 5, color: "violet" },
-                                { label: isAr ? "نسبة النجاح" : "Win Rate", val: richDetails?.expected_win_pct || Math.round(row.precision * 100), max: 100, suffix: "%", color: "emerald" },
+                                { label: isAr ? "تقييم النموذج المسجل" : "Recorded Model Metric", val: Math.round(row.precision * 100), max: 100, suffix: "%", color: "emerald" },
                             ].map((item, idx) => {
                                 const max = item.max || 10;
                                 const pct = Math.min(100, (item.val / max) * 100);
@@ -1373,6 +1371,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             })}
                         </div>
 
+                        <SignalExplanation isAr={isAr} showReasons={false} signal={{
+                            signal: row.signal, entry_price: row.entry_price, target_price: targetPrice,
+                            stop_loss: stopLoss, current_price: isAnonymousView ? null : row.last_close,
+                            precision: row.precision, created_at: row.created_at,
+                        }} />
+
                         {/* ── Rationale ── */}
                         {richDetails && (
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -1380,9 +1384,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     <div className={`lg:col-span-2 ${d("bg-indigo-500/[0.05]", "bg-indigo-50")} border-l-4 border-indigo-500 p-5`}>
                                         <h3 className={`text-xs font-black uppercase tracking-widest text-indigo-400 mb-3 flex items-center gap-2`}>
                                             <Info className="w-3.5 h-3.5" />
-                                            {isAr ? "لماذا هذا السهم؟" : "Why This Stock?"}
+                                            {isAr ? "تفسير النموذج وقت إصدار الإشارة" : "Model rationale at signal issuance"}
                                         </h3>
-                                        <p className="text-sm sm:text-base text-zinc-200 dark:text-zinc-800 leading-relaxed font-medium" dir={isAr ? "rtl" : "ltr"}>
+                                        <p className="text-sm sm:text-base text-zinc-800 dark:text-zinc-200 leading-relaxed font-medium" dir={isAr ? "rtl" : "ltr"}>
                                             {isAr ? richDetails.brief_rationale : translateRationaleText(richDetails.brief_rationale, "brief", row.symbol)}
                                         </p>
                                     </div>
@@ -1514,7 +1518,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     }] : []),
                                     { 
                                         label: isTrailingStop ? (isAr ? "وقف حماية الأرباح" : "Trailing Stop") : (isAr ? "وقف الخسارة" : "Stop Loss"), 
-                                        subLabel: isTrailingStop ? (isAr ? "أرباح مؤمنة أعلى من الدخول" : "Profits locked above entry") : (hasAtr ? (isAr ? "دخول - 1.0x ATR" : "Entry - 1.0x ATR") : undefined),
+                                        subLabel: isTrailingStop ? (isAr ? "مستوى لحماية الربح، التنفيذ غير مضمون" : "Profit protection level; fills are not guaranteed") : undefined,
                                         value: stopLoss ? `${stopLoss.toFixed(2)} EGP` : "—", 
                                         color: isTrailingStop ? "text-emerald-400" : "text-rose-400" 
                                     },
@@ -1524,7 +1528,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                          value: `${atrValue.toFixed(2)} EGP`,
                                          color: `${d("text-zinc-300", "text-zinc-600")} font-mono`
                                      }] : []),
-                                    { label: isAr ? "نسبة المخاطرة/العائد" : "Risk/Reward", value: rrRatio > 0 ? `1:${rrRatio.toFixed(1)}` : "—", color: "text-indigo-400" },
+                                    { label: isAr ? "نسبة المخاطرة/العائد" : "Risk/Reward", value: rrRatio !== null ? `1:${rrRatio.toFixed(2)}` : "—", color: "text-indigo-400" },
                                     {
                                         label: isAr ? "نسبة التغيّر منذ التوصية" : "Chg. Since Rec.",
                                         value: pctChangeSinceRec !== null ? `${pctChangeSinceRec >= 0 ? "+" : ""}${pctChangeSinceRec.toFixed(2)}%` : "—",

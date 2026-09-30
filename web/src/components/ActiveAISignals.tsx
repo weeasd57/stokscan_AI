@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import SignalExplanation from "./SignalExplanation";
 import { Cpu, ArrowUpRight, ArrowDownRight, Sparkles, Target, ShieldAlert, Activity } from "lucide-react";
 
 interface AISignal {
@@ -13,7 +14,8 @@ interface AISignal {
     stop_loss: number;
     precision: number;
     pnl_pct: number;
-    top_reasons: string[];
+    top_reasons: unknown;
+    price_date?: string | null;
     model_name: string;
     created_at: string;
     council_score: number;
@@ -52,7 +54,7 @@ export function ActiveAISignals({ signals, isAr }: { signals: AISignal[]; isAr: 
                     
                     // Calc slider percentage progress between entry, current, target
                     const range = Math.abs(sig.target_price - sig.entry_price) || 1;
-                    const currentOffset = Math.abs(sig.current_price - sig.entry_price);
+                    const currentOffset = (sig.current_price - sig.entry_price) * (isBuy ? 1 : -1);
                     let progressPct = (currentOffset / range) * 100;
                     progressPct = Math.max(2, Math.min(98, progressPct)); // cap visual representation
 
@@ -120,7 +122,7 @@ export function ActiveAISignals({ signals, isAr }: { signals: AISignal[]; isAr: 
                                 </div>
 
                                 {/* Arabic Rationale / Reasons */}
-                                {sig.top_reasons && sig.top_reasons.length > 0 && (
+                                {Array.isArray(sig.top_reasons) && sig.top_reasons.length > 0 && (
                                     <div className="mt-3 space-y-1.5">
                                         <span className="mb-1 block text-[10px] font-bold text-zinc-500">
                                             {isAr ? "أسباب التوصية:" : "Key Reasons:"}
@@ -137,6 +139,8 @@ export function ActiveAISignals({ signals, isAr }: { signals: AISignal[]; isAr: 
                                 )}
                             </div>
 
+                            <div className="mt-3"><SignalExplanation signal={{ ...sig, current_price: sig.price_date ? sig.current_price : null }} isAr={isAr} compact /></div>
+
                             {/* Card Footer Info */}
                             <div className={`mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 pt-3 text-[10px] text-zinc-500 dark:border-white/10 ${isAr ? "flex-row-reverse" : ""}`}>
                                 <div className="flex items-center gap-1">
@@ -144,7 +148,7 @@ export function ActiveAISignals({ signals, isAr }: { signals: AISignal[]; isAr: 
                                     <span className="text-zinc-950 dark:text-zinc-300 font-bold">{sig.model_name}</span>
                                 </div>
                                 <div className="flex items-center gap-1.5">
-                                    <span>{isAr ? "الثقة المسجلة:" : "Recorded confidence:"}</span>
+                                    <span>{isAr ? "تقييم النموذج:" : "Model metric:"}</span>
                                     <span className="text-emerald-600 dark:text-emerald-400 font-bold">{(sig.precision * 100).toFixed(0)}%</span>
                                 </div>
                             </div>

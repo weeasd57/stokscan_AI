@@ -1,5 +1,12 @@
 import type { PredictResponse } from "@/lib/types";
 import type { SimilarityReport } from "@/lib/historical-similarity";
+import type { PortfolioPerformance } from "@/lib/portfolio-performance";
+
+export async function fetchPortfolioPerformance(signal?: AbortSignal): Promise<PortfolioPerformance> {
+  const response = await fetch("/api/portfolio/performance", { cache: "no-store", signal });
+  if (!response.ok) throw new Error(`Portfolio performance unavailable (${response.status})`);
+  return response.json();
+}
 
 export async function fetchHistoricalSimilarity(symbol?: string, sameContext = false, signal?: AbortSignal): Promise<SimilarityReport> {
   const params = new URLSearchParams({ version: "2" });
