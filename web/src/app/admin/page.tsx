@@ -111,6 +111,17 @@ export default function AdminPage() {
         if (!authLoading && !user) router.replace("/login");
     }, [authLoading, user, router]);
 
+    // Log admin page view for analytics
+    useEffect(() => {
+        if (!authLoading && user) {
+            fetch("/api/admin-access-log", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ eventType: "page_view", userEmail: user.email, userId: user.id }),
+            }).catch(() => {});
+        }
+    }, [authLoading, user]);
+
     // Load countries
     useEffect(() => {
         if (!unlocked || !dataLoaded) return;
@@ -244,7 +255,7 @@ export default function AdminPage() {
             const res = await fetch("/api/admin-unlock", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ password: passwordInput }),
+                body: JSON.stringify({ password: passwordInput, userEmail: user?.email, userId: user?.id }),
             });
             if (res.ok) {
                 sessionStorage.setItem(SESSION_KEY, "1");
