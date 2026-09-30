@@ -1,3 +1,27 @@
+:global(html.dark body):has(.root) {
+  background: #000;
+}
+
+:global(html.dark body):has(.root)::before,
+:global(html.dark body):has(.root) :global(.app-page-shell)::before {
+  background: none;
+}
+
+:global(html.dark body):has(.root) :global(.backtests-hero) {
+  background: #000 !important;
+}
+
+:global(html.dark) .root {
+  --brutal-bg-card: #000;
+  --app-surface: #000;
+  --app-surface-strong: #000;
+}
+
+:global(html.dark) .root :global(.dark\:bg-slate-900),
+:global(html.dark) .root :global(.dark\:bg-sky-950\/30) {
+  background-color: #000;
+}
+
 .panel {
   border: 4px solid var(--brutal-border);
   background: var(--brutal-bg-card);
