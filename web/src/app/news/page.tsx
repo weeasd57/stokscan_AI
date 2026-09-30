@@ -43,6 +43,7 @@ export default function NewsPage() {
     const [news, setNews] = useState<NewsItem[]>([]);
     const [totalCount, setTotalCount] = useState(0);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState(false);
     const [search, setSearch] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState("");
     const [sentiment, setSentiment] = useState<string>("all"); // "all", "positive", "negative", "neutral"
@@ -55,8 +56,9 @@ export default function NewsPage() {
     const limit = 10;
 
     // Fetch news data
-    const fetchNews = useCallback(async () => {
+    const fetchNews = useCallback(async (signal: AbortSignal) => {
         setLoading(true);
+        setLoadError(false);
         try {
             const offset = (page - 1) * limit;
             let url = `/api/scan/news?limit=${limit}&offset=${offset}&sort=${sortBy}`;
@@ -79,16 +81,20 @@ export default function NewsPage() {
                 url += `&sector=${encodeURIComponent(selectedSector)}`;
             }
             
-            const res = await fetch(url);
+            const res = await fetch(url, { signal });
+            if (!res.ok) throw new Error("News request failed");
             const result = await res.json();
+            if (signal.aborted) return;
             
             // Server handles sorting; use data as-is
             setNews(result.data || []);
             setTotalCount(result.total || 0);
         } catch (err) {
+            if (signal.aborted) return;
             console.error("Error fetching news:", err);
+            setLoadError(true);
         } finally {
-            setLoading(false);
+            if (!signal.aborted) setLoading(false);
         }
     }, [page, debouncedSearch, sentiment, dateFilter, monthFilter, sortBy, selectedSector, period]);
 
@@ -108,7 +114,9 @@ export default function NewsPage() {
 
     // Trigger fetch when fetchNews callback changes
     useEffect(() => {
-        fetchNews();
+        const controller = new AbortController();
+        void fetchNews(controller.signal);
+        return () => controller.abort();
     }, [fetchNews]);
 
     const handleSentimentFilter = (val: string) => {
@@ -123,34 +131,11 @@ export default function NewsPage() {
 
     // Helper to get AI Opinion Text
     const getAiOpinion = (item: NewsItem) => {
-        if (item.news_count === 0) {
-            return isAr
-                ? "لا توجد تقارير إخبارية مسجلة لهذا السهم اليوم. الوضع العام مستقر."
-                : "No news reports recorded for this stock today. Overall status is stable.";
-        }
-        
-        const score = item.sentiment_score;
-        if (score > 0.4) {
-            return isAr
-                ? "رأي الذكاء الاصطناعي: إيجابي جداً 🚀. تعكس الأخبار نمواً تشغيلياً قوياً وتوسعات أو أرباحاً ممتازة للشركة، مما يعزز الثقة الشرائية للسهم."
-                : "AI Opinion: Strongly Positive 🚀. The news reflects robust operational growth, expansions, or excellent earnings, boosting buy confidence.";
-        } else if (score > 0.1) {
-            return isAr
-                ? "رأي الذكاء الاصطناعي: تفاؤلي معتدل 📈. تدفق إيجابي للأخبار والتقارير الفنية قد يدعم ارتداد السعر لأعلى على المدى القصير."
-                : "AI Opinion: Mildly Positive 📈. Positive news flow and technical reports that may support a short-term price rebound.";
-        } else if (score < -0.4) {
-            return isAr
-                ? "رأي الذكاء الاصطناعي: سلبي جداً ⚠️. تواجه الشركة ضغوطاً تشغيلية أو ديوناً أو أخباراً سلبية قد تؤدي لتراجع فوري في السعر. ينصح بالحذر."
-                : "AI Opinion: Strongly Negative ⚠️. The company faces operational pressure, debt, or negative news that could trigger a price drop. Caution advised.";
-        } else if (score < -0.1) {
-            return isAr
-                ? "رأي الذكاء الاصطناعي: تشاؤمي معتدل 📉. تراجع خفيف في المشاعر العامة للأخبار ينصح بمراقبته فنيّاً قبل اتخاذ أي قرار."
-                : "AI Opinion: Mildly Negative 📉. A slight dip in overall news sentiment; recommended to monitor technically before deciding.";
-        } else {
-            return isAr
-                ? "رأي الذكاء الاصطناعي: محايد ⚖️. الأخبار عادية أو عامة ولا تحمل تأثيراً مباشراً أو جوهرياً على الاتجاه القريب للسعر."
-                : "AI Opinion: Neutral ⚖️. The news is standard or general, with no direct or material impact on short-term price direction.";
-        }
+        const label = item.sentiment_score > 0.15 ? (isAr ? "إيجابي" : "positive")
+            : item.sentiment_score < -0.15 ? (isAr ? "سلبي" : "negative") : (isAr ? "محايد" : "neutral");
+        return isAr
+            ? `متوسط نبرة العناوين ${label}. الدرجة من −1 إلى +1 محسوبة بقاموس كلمات مالية؛ لا تقيس صحة الخبر أو احتمال حركة السعر. قد تشمل عناوين منشورة خلال الأيام الثلاثة السابقة، وقد يتكرر الخبر بين تواريخ الرصد.`
+            : `The average headline tone is ${label}. The −1 to +1 score uses a financial keyword lexicon; it does not measure factual accuracy or predict price moves. Headlines may come from the preceding three days and recur across snapshots.`;
     };
 
     // Helper to get Sentiment Badge Colors
@@ -362,11 +347,12 @@ export default function NewsPage() {
             </div>
 
             {/* Loading Indicator */}
+            {loadError && <p role="alert" className="mb-4 text-sm text-red-600 dark:text-red-400">{isAr ? "تعذر تحميل الأخبار. حاول مرة أخرى." : "Could not load news. Please try again."}</p>}
             {loading ? (
                 <div className="flex flex-col items-center justify-center py-20 gap-3 border-4 border-dashed border-black/20 dark:border-white/20 bg-zinc-50 dark:bg-zinc-900/20">
                     <Loader2 className="w-10 h-10 animate-spin text-yellow-500" />
                     <span className="text-sm font-black uppercase tracking-widest text-zinc-500">
-                        {isAr ? "جاري سحب وتصنيف الأخبار..." : "AI News analysis in progress..."}
+                        {isAr ? "جاري تحميل الأخبار المحفوظة..." : "Loading stored news..."}
                     </span>
                 </div>
             ) : news.length > 0 ? (
@@ -389,7 +375,7 @@ export default function NewsPage() {
                                         </Link>
                                         <span className="flex items-center gap-1 text-[10px] font-black text-zinc-500 dark:text-zinc-400">
                                             <Calendar className="w-3.5 h-3.5" />
-                                            {item.date}
+                                            {isAr ? "تاريخ الرصد: " : "Snapshot: "}{item.date}
                                         </span>
                                     </div>
                                 </div>
@@ -412,11 +398,6 @@ export default function NewsPage() {
                                                 className="text-sm font-black p-3 bg-zinc-50 dark:bg-zinc-950 border-2 border-black dark:border-zinc-800 text-black dark:text-white flex items-center justify-between gap-4"
                                             >
                                                 <span>{hl}</span>
-                                                {item.sources && item.sources[i] && (
-                                                    <span className="text-[9px] font-black uppercase bg-yellow-300 text-black px-2 py-0.5 border border-black shrink-0">
-                                                        {item.sources[i]}
-                                                    </span>
-                                                )}
                                             </li>
                                         ))}
                                     </ul>
@@ -427,13 +408,16 @@ export default function NewsPage() {
                                 )}
                             </div>
 
-                            {/* AI Opinion section */}
+                            {item.sources?.length > 0 && (
+                                <p className="text-xs mb-3 text-zinc-500">{isAr ? "المصادر المسجلة: " : "Recorded sources: "}{item.sources.join(" · ")}</p>
+                            )}
+                            {/* Stored sentiment assessment */}
                             <div className="p-4 bg-yellow-50 dark:bg-yellow-950/20 border-3 border-dashed border-yellow-500/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
                                 <div className="flex items-start gap-2.5">
                                     <Brain className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
                                     <div className="flex flex-col">
                                         <span className="text-[10px] font-black uppercase text-yellow-600 dark:text-yellow-400 tracking-wider">
-                                            {isAr ? "تحليل الذكاء الاصطناعي الفوري" : "AI Realtime Assessment"}
+                                            {isAr ? "تقييم نبرة العناوين المحفوظ" : "Stored Headline Sentiment"}
                                         </span>
                                         <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300 mt-1 leading-relaxed">
                                             {getAiOpinion(item)}
@@ -489,6 +473,9 @@ export default function NewsPage() {
                             setSentiment("all");
                             setSortBy("newest");
                             setDateFilter("");
+                            setMonthFilter("");
+                            setSelectedSector("");
+                            setPeriod("15d");
                             setPage(1);
                         }}
                         className="mt-2 px-4 py-2 text-xs font-black bg-black text-white dark:bg-white dark:text-black border-2 border-black dark:border-white hover:bg-[#FFE600] hover:text-black transition-none"

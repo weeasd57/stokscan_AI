@@ -15,6 +15,19 @@ _ENV_KEYS = ("REVALIDATE_URL", "WEB_ORIGIN", "REVALIDATE_SECRET", "ADMIN_SECRET_
 
 
 class SelectCacheTagsTests(unittest.TestCase):
+    def test_independent_news_invalidation_does_not_require_prices(self):
+        with mock.patch.dict(os.environ, {key: "" for key in _ENV_KEYS}):
+            with mock.patch("api.cache_invalidation._revalidate_endpoint", return_value=None) as endpoint:
+                result = ci.invalidate_cache_tags([ci.TAG_NEWS])
+        endpoint.assert_called_once()
+        self.assertTrue(result["skipped"])
+
+    def test_unknown_explicit_tag_never_calls_origin(self):
+        with mock.patch("urllib.request.urlopen") as origin:
+            result = ci.invalidate_cache_tags(["private-data"])
+        origin.assert_not_called()
+        self.assertTrue(result["skipped"])
+
     def test_no_tags_when_price_sync_failed(self):
         steps = [
             step("sync_prices", "failed"),

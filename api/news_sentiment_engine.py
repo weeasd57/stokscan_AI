@@ -36,6 +36,7 @@ FINANCIAL_LEXICON = {
         "خسائر": 2.5, "تراجع": 1.0, "انخفاض": 1.0, "هبوط": 1.0, "غرامة": 1.5, "قضية": 1.0,
         "ديون": 1.5, "أزمة": 1.5, "سلبي": 1.5, "تحذير": 1.5, "تباطؤ": 1.0, "عجز": 2.0,
         "خسارة": 2.0, "انكماش": 1.5, "تسييل": 1.5, "إفلاس": 3.0, "تصفية": 2.0,
+        "يتراجع": 1.0, "تراجعت": 1.0, "تتراجع": 1.0, "انخفض": 1.0, "انخفضت": 1.0,
         # English
         "loss": 2.5, "drop": 1.0, "fall": 1.0, "decline": 1.0, "fine": 1.5, "lawsuit": 1.5,
         "debt": 1.5, "crisis": 1.5, "negative": 1.5, "warning": 1.5, "slowdown": 1.0,
@@ -113,7 +114,7 @@ GENERIC_NAME_TOKENS = {
     "holding", "holdings", "group", "company", "co", "corp", "inc", "ltd", "plc",
     "sae", "egypt", "egyptian", "bank", "for", "and", "the", "general",
     "investment", "investments", "financial", "industrial", "industries",
-    "development", "international", "national", "egx", "stock",
+    "development", "international", "national", "egx", "stock", "arab",
 }
 
 
@@ -154,6 +155,8 @@ def is_relevant_news(title: str, symbol: str, company_name: str = "") -> bool:
     sym = symbol.split(".")[0].upper().strip()
 
     for term in get_symbol_search_terms(sym):
+        if term == "ARAB" and not re.search(r"(?<![A-Za-z0-9])ARAB(?![A-Za-z0-9])", title):
+            continue
         if len(term) >= 3 and re.search(
             rf"(?<![a-z0-9]){re.escape(term.lower())}(?![a-z0-9])", norm_title
         ):
@@ -163,12 +166,18 @@ def is_relevant_news(title: str, symbol: str, company_name: str = "") -> bool:
     if not norm_name:
         return False
 
+    # City/stock exchange headlines are not Abu Dhabi Islamic Bank news.
+    if sym == "ADIB" and not re.search(
+        r"ابو\s*ظبي\s+الاسلامي|abu\s+dhabi\s+islamic", norm_title
+    ):
+        return False
+
     # Consecutive-token phrases match space/squash variants: "ابو ظبي" must match
     # "أبوظبي" in the headline even when the name also has the Latin legal name.
     # Windows made only of generic words ("بنك مصر") are ignored on purpose.
     squashed_title = norm_title.replace(" ", "")
     name_words = [w for w in re.split(r"[\s,،|/()\[\]{}\-–—.:;!؟?'\"]+", norm_name) if w]
-    for size in (3, 2, 1):
+    for size in (3, 2):
         for start in range(0, max(0, len(name_words) - size + 1)):
             chunk = name_words[start:start + size]
             # A window made only of generic words ("المصرية", "بنك مصر") must
@@ -379,7 +388,7 @@ def fetch_google_news(
                     # with cutoff_date safely (a raw datetime raises TypeError,
                     # which used to be swallowed and silently produced zero news).
                     pub_date = parse_pub_date(pub_str)
-                    if pub_date is None or pub_date < cutoff_date:
+                    if pub_date is None or pub_date < cutoff_date or pub_date > dt.date.today():
                         continue
 
                     # Deduplicate by link
@@ -435,6 +444,16 @@ def analyze_sentiment(news_list: List[Dict[str, Any]]) -> Dict[str, Any]:
             continue
             
         negated_positions = _detect_negation_tokens(tokens)
+
+        # Scope negative financial direction to its noun, not the whole title.
+        weak_financial_spans = [m.span() for m in re.finditer(
+            r"\b(?:weak|lower|falling|declining|reduced)\s+(?:net\s+)?(?:profits?|earnings|revenue)\b"
+            r"|\b(?:decline|drop|fall)\s+in\s+(?:profits?|earnings|revenue)\b"
+            r"|\b(?:profits?|earnings|revenue)\s+(?:fall|falls|fell|drop|drops|decline|declines|declined)\b"
+            r"|(?:تراجع|انخفاض|هبوط)\s+(?:صافي\s+)?(?:الأرباح|أرباح|الارباح|ارباح|الإيرادات|إيرادات)"
+            r"|(?:الأرباح|أرباح|الارباح|ارباح|الإيرادات|إيرادات)\s+(?:تتراجع|تنخفض|تهبط)",
+            title, re.IGNORECASE,
+        )]
         
         pos_hits = 0.0
         neg_hits = 0.0
@@ -444,8 +463,8 @@ def analyze_sentiment(news_list: List[Dict[str, Any]]) -> Dict[str, Any]:
             for match in pattern.finditer(title):
                 match_start = match.start()
                 word_idx = get_token_index_for_char(tokens, match_start)
-                if word_idx in negated_positions:
-                    # Negated positive -> counts as negative
+                if word_idx in negated_positions or any(a <= match_start < b for a, b in weak_financial_spans):
+                    # Negated/weak positive -> counts as negative
                     neg_hits += weight
                 else:
                     pos_hits += weight

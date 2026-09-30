@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, toNumber } from "@/lib/supabase/route-data";
 import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
+import { getNewsRows } from "@/lib/news-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,8 +67,8 @@ function getNormalizedSector(sectorStr: string): SectorInfo {
   if (!sectorStr) return { ar: "أخرى", en: "Other" };
   const lower = sectorStr.toLowerCase();
   
-  for (const [key, value] of Object.entries(SECTOR_MAP)) {
-    if (lower.includes(key)) {
+  for (const [key, value] of Object.entries(SECTOR_MAP).sort(([a], [b]) => b.length - a.length)) {
+    if (lower === value.en.toLowerCase() || lower === value.ar || lower.includes(key)) {
       return value;
     }
   }
@@ -117,60 +118,7 @@ export async function GET(req: Request) {
       }
     }
 
-    // Determine query date range and limits based on period
-    let startDateStr = "";
-    let endDateStr = "";
-    let limit = 600;
-    if (monthFilter && /^\d{4}-\d{2}$/.test(monthFilter)) {
-      const [year, month] = monthFilter.split("-").map(Number);
-      const start = new Date(Date.UTC(year, month - 1, 1));
-      const end = new Date(Date.UTC(year, month, 1));
-      startDateStr = start.toISOString().split("T")[0];
-      // The query below uses an inclusive start and exclusive next-month end.
-      // Keep the end separately so month navigation cannot leak adjacent data.
-      endDateStr = end.toISOString().split("T")[0];
-      limit = 5000;
-    } else if (period === "1m") {
-      const d = new Date();
-      d.setMonth(d.getMonth() - 1);
-      startDateStr = d.toISOString().split("T")[0];
-      limit = 1200;
-    } else if (period === "3m") {
-      const d = new Date();
-      d.setMonth(d.getMonth() - 3);
-      startDateStr = d.toISOString().split("T")[0];
-      limit = 3000;
-    } else {
-      // 15 days or default
-      const d = new Date();
-      d.setDate(d.getDate() - 30); // 30 calendar days to guarantee 15 active sessions
-      startDateStr = d.toISOString().split("T")[0];
-      limit = 600;
-    }
-
-    // 2. Fetch stock news sentiments with filters applied
-    let query = supabase
-      .from("stock_news_sentiment")
-      .select("symbol, sentiment_score, news_count, date")
-      .gt("news_count", 0)
-      .order("date", { ascending: false });
-
-    if (search.trim()) {
-      query = query.ilike("symbol", `%${search}%`);
-    }
-    if (dateFilter) {
-      query = query.eq("date", dateFilter);
-    } else if (startDateStr) {
-      query = query.gte("date", startDateStr);
-    }
-    if (monthFilter && endDateStr) query = query.lt("date", endDateStr);
-
-    const { data: newsRows, error: newsError } = await query.limit(limit);
-
-    if (newsError) {
-      console.error("Error fetching news sentiments for stats:", newsError);
-      return NextResponse.json({ error: "Failed to fetch sentiments" }, { status: 500 });
-    }
+    const newsRows = await getNewsRows(url.searchParams);
 
     // 3. Initialize aggregation structures
     let positiveCount = 0;
@@ -251,7 +199,7 @@ export async function GET(req: Request) {
       nameEn: s.en,
       averageSentiment: s.count > 0 ? Number((s.totalScore / s.count).toFixed(2)) : 0,
       newsCount: s.newsCount,
-      stocksCount: s.count,
+      stocksCount: Object.keys(s.stocks).length,
       stocks: Object.entries(s.stocks).map(([sym, st]) => ({
         symbol: sym,
         averageSentiment: st.count > 0 ? Number((st.totalScore / st.count).toFixed(2)) : 0,
@@ -260,7 +208,7 @@ export async function GET(req: Request) {
     })).sort((a, b) => b.averageSentiment - a.averageSentiment);
 
     // 5. Format Timeline stats
-    const sliceCount = period === "3m" ? -90 : period === "1m" ? -30 : -15;
+    const sliceCount = dateFilter || monthFilter ? -Infinity : period === "3m" ? -90 : period === "1m" ? -30 : -15;
     const timelineStats = Object.entries(dateAgg).map(([date, d]) => ({
       date,
       averageSentiment: d.count > 0 ? Number((d.totalScore / d.count).toFixed(2)) : 0,

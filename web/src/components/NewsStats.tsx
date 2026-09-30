@@ -103,6 +103,7 @@ export default function NewsStats({
 
     // Fetch filtered stats
     useEffect(() => {
+        const controller = new AbortController();
         const fetchStats = async () => {
             setLoading(true);
             try {
@@ -116,19 +117,21 @@ export default function NewsStats({
                 const queryStr = params.toString();
                 if (queryStr) url += `?${queryStr}`;
 
-                const res = await fetch(url);
+                const res = await fetch(url, { signal: controller.signal });
                 if (res.ok) {
                     const data = await res.json();
-                    setStats(data);
+                    if (!controller.signal.aborted) setStats(data);
                 }
             } catch (err) {
+                if (controller.signal.aborted) return;
                 console.error("Error fetching news statistics:", err);
             } finally {
-                setLoading(false);
+                if (!controller.signal.aborted) setLoading(false);
             }
         };
 
         fetchStats();
+        return () => controller.abort();
     }, [search, dateFilter, monthFilter, period]);
 
     // Fetch the per-stock daily sentiment timeline for the clicked sector over
@@ -234,7 +237,7 @@ export default function NewsStats({
                 <div className="lg:col-span-4 p-5 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,0.45)]">
                     <h3 className="text-xs font-black uppercase tracking-wider text-black dark:text-white mb-4 flex items-center gap-1.5 border-b-2 border-black/10 dark:border-white/10 pb-2">
                         <PieIcon className="w-4 h-4 text-yellow-500" />
-                        {isAr ? "توزيع مشاعر الأخبار العامة (تفاعلي)" : "Overall Sentiment Distribution (Interactive)"}
+                        {isAr ? "توزيع تقييمات السهم اليومية (تفاعلي)" : "Daily Stock Assessment Distribution"}
                     </h3>
                     <div className="h-56 relative flex items-center justify-center">
                         <ResponsiveContainer width="100%" height="100%">
@@ -315,7 +318,7 @@ export default function NewsStats({
                         </h3>
                         <div className="flex items-center gap-1">
                             {[
-                                { val: "15d", labelEn: "15 Sessions", labelAr: "15 جلسة" },
+                                { val: "15d", labelEn: "15 Snapshot Days", labelAr: "15 يوم رصد" },
                                 { val: "1m", labelEn: "1 Month", labelAr: "شهر" },
                                 { val: "3m", labelEn: "3 Months", labelAr: "3 أشهر" }
                             ].map((p) => (

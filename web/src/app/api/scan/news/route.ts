@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, toNumber } from "@/lib/supabase/route-data";
 import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
+import { getNewsRows, newsLabel } from "@/lib/news-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,22 +14,13 @@ const PUBLIC_CACHE_HEADERS = dailyCacheHeaders(DAILY_CACHE_TAGS.news);
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const limit = Math.min(Number(url.searchParams.get("limit") || 20), 100);
-    const offset = Number(url.searchParams.get("offset") || 0);
-    const search = url.searchParams.get("search") || "";
+    const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit")) || 20, 100));
+    const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
     const sentiment = url.searchParams.get("sentiment") || "all";
-    const dateFilter = url.searchParams.get("date") || "";
-    const monthFilter = url.searchParams.get("month") || "";
     const sector = url.searchParams.get("sector") || "";
-    const period = url.searchParams.get("period") || "";
  
     const supabase = getSupabaseClient();
-    // stock_news_sentiment columns: id, symbol, exchange, date, sentiment_score,
-    // news_count, negative_flag, positive_flag, headlines (jsonb), sources (jsonb), created_at
-    let query = supabase
-      .from("stock_news_sentiment")
-      .select("*", { count: "exact" })
-      .order("date", { ascending: false });
+    let rows = await getNewsRows(url.searchParams);
 
     // Filter by sector
     if (sector) {
@@ -104,8 +96,8 @@ export async function GET(req: Request) {
             let matchedEn = "Other";
             let matchedAr = "أخرى";
             const lower = sectorStr.toLowerCase();
-            for (const [k, val] of Object.entries(SECTOR_MAP_LOCAL)) {
-              if (lower.includes(k)) {
+            for (const [k, val] of Object.entries(SECTOR_MAP_LOCAL).sort(([a], [b]) => b.length - a.length)) {
+              if (lower === val.en.toLowerCase() || lower === val.ar || lower.includes(k)) {
                 matchedEn = val.en;
                 matchedAr = val.ar;
                 break;
@@ -125,84 +117,23 @@ export async function GET(req: Request) {
         }
       }
 
-      if (symbolsInSector.length > 0) {
-        query = query.in("symbol", symbolsInSector);
-      } else {
-        query = query.eq("symbol", "NON_EXISTENT_SYMBOL");
-      }
+      const symbolSet = new Set(symbolsInSector);
+      rows = rows.filter(row => symbolSet.has(row.symbol.toUpperCase()));
     }
-
-    // Filter: only show stocks with actual news unless explicitly searched for
-    if (search.trim()) {
-      query = query.ilike("symbol", `%${search}%`);
-    } else {
-      query = query.gt("news_count", 0);
-    }
-
-    // Apply range pagination
-    query = query.range(offset, offset + limit - 1);
-
-    // Server-side sort: newest (default), oldest, highest_sent, lowest_sent
+    if (sentiment !== "all") rows = rows.filter(row => newsLabel(Number(row.sentiment_score)) === sentiment);
     const sort = url.searchParams.get("sort") || "newest";
-    if (sort === "oldest") {
-      query = query.order("date", { ascending: true });
-    } else if (sort === "highest_sent") {
-      query = query.order("sentiment_score", { ascending: false });
-    } else if (sort === "lowest_sent") {
-      query = query.order("sentiment_score", { ascending: true });
-    } else {
-      query = query.order("date", { ascending: false });
-    }
-
-    // Derive sentiment from score — no sentiment_label column
-    // Use 0.15 threshold to match UI badges and FastAPI /scan/news
-    const THRESH = 0.15;
-    if (sentiment === "positive") {
-      query = query.gt("sentiment_score", THRESH);
-    } else if (sentiment === "negative") {
-      query = query.lt("sentiment_score", -THRESH);
-    } else if (sentiment === "neutral") {
-      query = query.gte("sentiment_score", -THRESH).lte("sentiment_score", THRESH);
-    }
-
-    // Filter by period range (shared with the charts' period buttons); an
-    // explicit exact date always wins over the period range.
-    if (!dateFilter && monthFilter && /^\d{4}-\d{2}$/.test(monthFilter)) {
-      const [year, month] = monthFilter.split("-").map(Number);
-      const start = new Date(Date.UTC(year, month - 1, 1));
-      const end = new Date(Date.UTC(year, month, 1));
-      query = query.gte("date", start.toISOString().split("T")[0]).lt("date", end.toISOString().split("T")[0]);
-    } else if (!dateFilter && period) {
-      const d = new Date();
-      if (period === "1m") {
-        d.setMonth(d.getMonth() - 1);
-      } else if (period === "3m") {
-        d.setMonth(d.getMonth() - 3);
-      } else {
-        // 15 sessions: 30 calendar days guarantees ~15 active trading days
-        d.setDate(d.getDate() - 30);
-      }
-      query = query.gte("date", d.toISOString().split("T")[0]);
-    }
-
-    // Filter by date (column is 'date', not 'published_at')
-    if (dateFilter) {
-      query = query.eq("date", dateFilter);
-    }
-
-    const { data, error, count } = await query;
-
-    if (error) {
-      console.error("news fetch error:", error);
-      return NextResponse.json(
-        { data: [], total: 0 },
-        { headers: { "Cache-Control": "private, no-store" } },
-      );
-    }
+    rows.sort((a, b) => {
+      const primary = sort === "highest_sent" ? b.sentiment_score - a.sentiment_score
+        : sort === "lowest_sent" ? a.sentiment_score - b.sentiment_score
+        : sort === "oldest" ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date);
+      return primary || a.symbol.localeCompare(b.symbol) || a.id - b.id;
+    });
+    const count = rows.length;
+    const data = rows.slice(offset, offset + limit);
 
     const items = (data || []).map((row: Record<string, unknown>) => {
       const score = toNumber(row.sentiment_score);
-      const label = score > 0.1 ? "positive" : score < -0.1 ? "negative" : "neutral";
+      const label = newsLabel(score);
       const headlines = Array.isArray(row.headlines) ? row.headlines : [];
       return {
         id: row.id,
@@ -225,7 +156,7 @@ export async function GET(req: Request) {
     console.error("news route error:", error);
     return NextResponse.json(
       { data: [], total: 0 },
-      { headers: { "Cache-Control": "private, no-store" } },
+      { status: 503, headers: { "Cache-Control": "private, no-store" } },
     );
   }
 }

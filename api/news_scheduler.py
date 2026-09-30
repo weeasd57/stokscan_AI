@@ -109,6 +109,9 @@ def _run_news_job():
         # Filter to active symbols (basic check: non-empty list)
         print(f"[NEWS-SCHEDULER] Processing news for {len(symbols_raw)} EGX symbols...")
         ok, count = process_exchange_news("EGX", symbols_raw)
+        if ok:
+            from api.cache_invalidation import invalidate_cache_tags, TAG_NEWS
+            invalidate_cache_tags([TAG_NEWS])
         return ok, count
     except Exception as e:
         print(f"[NEWS-SCHEDULER] Job error: {e}")

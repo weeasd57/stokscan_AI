@@ -88,6 +88,14 @@ def invalidate_daily_cache(steps: List[Dict[str, Any]], timeout: float = 310.0) 
         print("[CACHE] No cache tags to invalidate (essential step not successful).")
         return {"invalidated": [], "skipped": True}
 
+    return invalidate_cache_tags(tags, timeout)
+
+
+def invalidate_cache_tags(tags: List[str], timeout: float = 310.0) -> Dict[str, Any]:
+    """Refresh explicit datasets after independent successful scheduled jobs."""
+    if not tags or any(tag not in TAG_STEP_REQUIREMENTS for tag in tags):
+        return {"invalidated": [], "skipped": True}
+
     endpoint = _revalidate_endpoint()
     secret = (os.getenv("REVALIDATE_SECRET") or os.getenv("ADMIN_SECRET_KEY") or "").strip()
     if not endpoint or not secret:

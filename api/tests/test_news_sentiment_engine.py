@@ -185,6 +185,13 @@ class TestArabicNegation:
 class TestAggregationAndFlags:
     """Multi-headline aggregation and extreme-sentiment flag thresholds."""
 
+    def test_weak_profit_is_negative(self):
+        result = _one("Alexandria Flour Mills stock falls 8.15 percent after weak profit")
+        assert result["sentiment_score"] < -0.15
+
+    def test_declining_arabic_profits_are_negative(self):
+        assert _one("تراجع أرباح الشركة بنسبة 18% الإسكندرية للمطاحن")["sentiment_score"] < -0.15
+
     def test_mixed_headlines_net_score(self):
         """One strong positive + one strong negative headline averages toward neutral-ish."""
         result = analyze_sentiment([
@@ -329,6 +336,12 @@ class TestRegexHelpers:
 
 class TestRelevanceMatching:
     """Headline relevance: ticker tokens, Arabic names, and generic-word guards."""
+
+    def test_abu_dhabi_exchange_is_not_adib(self):
+        assert not is_relevant_news("البورصة المصرية وسوق أبوظبي يوقعان مذكرة تفاهم", "ADIB", "Abu Dhabi Islamic Bank-Egypt ابو ظبي")
+
+    def test_ambiguous_arab_name_is_not_company_news(self):
+        assert not is_relevant_news("Egyptian Stock Exchange wins 2 Arab Federation awards", "ARAB", "Arab Developers Holding")
 
     def test_ticker_matches_as_whole_token(self):
         assert is_relevant_news("COMI reports record profit", "COMI") is True
