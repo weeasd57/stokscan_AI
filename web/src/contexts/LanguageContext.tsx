@@ -499,6 +499,7 @@ const translations: Record<string, Record<Language, string>> = {
     "auth.signin_btn": { en: "Sign in", ar: "تسجيل الدخول" },
     "auth.signingin_btn": { en: "Signing in...", ar: "جاري تسجيل الدخول..." },
     "auth.signin_google": { en: "Sign in with Google", ar: "تسجيل الدخول بواسطة جوجل" },
+    "auth.signup_google": { en: "Create account with Google", ar: "إنشاء حساب بواسطة جوجل" },
     "auth.or": { en: "Or", ar: "أو" },
     "auth.login.no_account": { en: "Don't have an account?", ar: "ليس لديك حساب؟" },
     "auth.login.create_one": { en: "Create one", ar: "أنشئ حساباً جديداً" },
