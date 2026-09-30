@@ -13,16 +13,10 @@ export default function NotFound() {
         </p>
         <div className="mt-8 flex items-center justify-center gap-3">
           <a
-            href="/scanner/ai"
+            href="/"
             className="px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-wider bg-white text-black hover:bg-zinc-200 transition-colors"
           >
             Home
-          </a>
-          <a
-            href="/admin"
-            className="px-5 py-3 rounded-2xl text-xs font-black uppercase tracking-wider bg-white/5 text-zinc-200 border border-white/10 hover:bg-white/10 transition-colors"
-          >
-            Admin
           </a>
         </div>
       </div>

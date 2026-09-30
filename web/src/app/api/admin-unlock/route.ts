@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { isAllowedAdminEmail } from "@/lib/admin-auth";
 
 const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,7 +9,7 @@ const supabaseAdmin = createClient(
 
 /** Log admin access events to the admin_access_logs table */
 async function logAdminAccess(
-    eventType: "page_view" | "unlock_success" | "unlock_failed",
+    eventType: "page_view" | "unlock_success" | "unlock_failed" | "unauthorized_attempt",
     req: NextRequest,
     userEmail?: string,
     userId?: string,
@@ -35,6 +36,15 @@ export async function POST(req: NextRequest) {
 
         if (!secret) {
             return NextResponse.json({ ok: false, error: "Not configured" }, { status: 500 });
+        }
+
+        // Validate caller identity: allowed only for localhost or authorized admin email
+        const host = req.headers.get("host") || "";
+        const isLocal = host.includes("localhost") || host.includes("127.0.0.1");
+
+        if (!isLocal && !isAllowedAdminEmail(userEmail)) {
+            await logAdminAccess("unauthorized_attempt", req, userEmail || "unauthorized_caller", userId);
+            return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 403 });
         }
 
         if (!password || typeof password !== "string") {

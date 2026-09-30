@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     try {
         const { eventType, userEmail, userId } = await req.json();
 
-        if (!eventType || !["page_view", "unlock_success", "unlock_failed"].includes(eventType)) {
+        if (!eventType || !["page_view", "unlock_success", "unlock_failed", "unauthorized_attempt"].includes(eventType)) {
             return NextResponse.json({ ok: false, error: "Invalid event type" }, { status: 400 });
         }
 
@@ -56,6 +56,8 @@ export async function GET() {
         const unlockSuccess = logs.filter((l) => l.event_type === "unlock_success");
         const unlockFailed = logs.filter((l) => l.event_type === "unlock_failed");
 
+        const unauthorizedAttempts = logs.filter((l) => l.event_type === "unauthorized_attempt");
+
         // Unique users
         const uniqueViewers = new Set(pageViews.map((l) => l.user_email).filter(Boolean));
         const uniqueUnlockers = new Set(unlockSuccess.map((l) => l.user_email).filter(Boolean));
@@ -68,6 +70,7 @@ export async function GET() {
                 totalUnlockSuccess: unlockSuccess.length,
                 uniqueUnlockers: uniqueUnlockers.size,
                 totalUnlockFailed: unlockFailed.length,
+                totalUnauthorizedAttempts: unauthorizedAttempts.length,
                 viewers: Array.from(uniqueViewers),
                 unlockers: Array.from(uniqueUnlockers),
             },
