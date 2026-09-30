@@ -1,4 +1,24 @@
 import type { PredictResponse } from "@/lib/types";
+import type { SimilarityReport } from "@/lib/historical-similarity";
+
+export async function fetchHistoricalSimilarity(symbol?: string, sameContext = false, signal?: AbortSignal): Promise<SimilarityReport> {
+  const params = new URLSearchParams({ version: "2" });
+  if (symbol) params.set("symbol", symbol);
+  else params.set("view", "summary");
+  if (sameContext) params.set("context", "matched");
+  const response = await fetch(`/api/scan/similarity/published?${params}`, { cache: "no-store", signal });
+  if (!response.ok) throw new Error(`Similarity report unavailable (${response.status})`);
+  return response.json();
+}
+
+export function recordFeatureUse(feature: string, metadata: Record<string, string | number | boolean> = {}): void {
+  let session_id: string | null = null;
+  try { session_id = sessionStorage.getItem("egxbots_activity_session_v1"); } catch { /* optional telemetry */ }
+  void fetch("/api/analytics/events", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ event_name: "feature_use", path: "/scanner/backtests?tab=similarity", session_id, metadata: { feature, ...metadata } }),
+    keepalive: true, cache: "no-store",
+  }).catch(() => undefined);
+}
 
 export interface UnusualActivityRow {
   symbol: string;

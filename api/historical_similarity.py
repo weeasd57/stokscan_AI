@@ -19,6 +19,7 @@ from api.stock_ai import add_technical_indicators, get_supabase_symbols
 import api.stock_ai as stock_ai
 
 _thread_local = threading.local()
+MIN_SIMILARITY_SCORE = max(0.0, min(1.0, float(os.getenv("SIMILARITY_MIN_SCORE", "0.8"))))
 
 def _get_thread_local_supabase():
     client = getattr(_thread_local, "client", None)
@@ -299,7 +300,8 @@ def run_historical_similarity(
     stop_loss: float = -0.03,
     features_to_use: Optional[List[str]] = None,
     exclusion_window: int = 20,
-    search_scope: str = "same_symbol"
+    search_scope: str = "same_symbol",
+    min_similarity: float = MIN_SIMILARITY_SCORE,
 ) -> Dict[str, Any]:
     """
     Main matching and evaluation pipeline.
@@ -475,6 +477,9 @@ def run_historical_similarity(
     
     # Sort and get top K, then apply exclusion window to prevent temporal clustering
     top_matches_df = filtered_index_df.sort_values(by="similarity", ascending=False)
+    # A requested K is a maximum, never a reason to include unrelated patterns.
+    top_matches_df = top_matches_df[top_matches_df["similarity"] >= min_similarity]
+    source_prices = {item[0]: item[1] for item in search_data_list}
     
     # Apply temporal exclusion: ensure matches are at least exclusion_window days apart
     final_matches = []
@@ -483,8 +488,13 @@ def run_historical_similarity(
     for match_ts_candidate, row in top_matches_df.iterrows():
         # Check if this date is too close to any already selected match
         is_excluded = False
-        for excluded_date in excluded_dates:
-            if abs((match_ts_candidate - excluded_date).days) <= exclusion_window:
+        for selected_ts, selected_row in final_matches:
+            if selected_row["symbol_source"] == row["symbol_source"]:
+                index = source_prices[row["symbol_source"]].index
+                gap = abs(index.get_loc(match_ts_candidate) - index.get_loc(selected_ts))
+            else:
+                gap = abs((match_ts_candidate - selected_ts).days)
+            if gap <= max(exclusion_window, forward_days):
                 is_excluded = True
                 break
         
@@ -555,6 +565,7 @@ def run_historical_similarity(
         final_ret = 0.0
         exit_date = None
         exit_day_index = None
+        exit_reason = "incomplete"
         
         if not match_before_df.empty and not match_after_df.empty:
             entry_price = float(match_before_df.iloc[-1]["close"])
@@ -584,17 +595,20 @@ def run_historical_similarity(
                         exit_date = dt_idx.strftime("%Y-%m-%d")
                         exit_day_index = idx_after + 1
                         final_ret = stop_loss
+                        exit_reason = "stop"
                     elif target_return is not None and ret_high >= target_return:
                         outcome = "win"
                         exit_date = dt_idx.strftime("%Y-%m-%d")
                         exit_day_index = idx_after + 1
                         final_ret = target_return
+                        exit_reason = "target"
                         
             if outcome == "open" and len(forward_path) >= forward_days:
                 final_ret = forward_path[forward_days - 1]["return"]
                 outcome = "win" if final_ret >= 0 else "loss"
                 exit_date = forward_path[forward_days - 1]["date"]
                 exit_day_index = forward_days
+                exit_reason = "horizon_positive" if final_ret > 0 else "horizon_negative" if final_ret < 0 else "horizon_flat"
 
         is_completed = outcome in {"win", "loss"}
         if is_completed:
@@ -621,6 +635,7 @@ def run_historical_similarity(
             "mae": float(mae),
             "exit_date": exit_date,
             "exit_day_index": exit_day_index,
+            "exit_reason": exit_reason,
             "before_path": match_before_path,
             "forward_path": forward_path
         })
@@ -664,6 +679,9 @@ def run_historical_similarity(
     res = {
         "symbol": symbol,
         "target_date": target_ts.strftime("%Y-%m-%d"),
+        "method_version": 2,
+        "minimum_similarity": min_similarity,
+        "features": features_to_use,
         "target_values": {
             "close": target_close,
             "rsi": target_rsi,
@@ -964,7 +982,7 @@ def get_published_similarity_report() -> Dict[str, Any]:
             pass
         return {"scans": [], "updated_at": None, "name": "Market Similarity Report"}
 
-def publish_similarity_report(report_data: Dict[str, Any]) -> Dict[str, Any]:
+def publish_similarity_report(report_data: Dict[str, Any], *, invalidate_web: bool = True) -> Dict[str, Any]:
     """Save/Publish a new similarity scan report to Supabase."""
     global _cached_similarity_report, _cached_report_timestamp
     # Invalidate cache
@@ -996,6 +1014,24 @@ def publish_similarity_report(report_data: Dict[str, Any]) -> Dict[str, Any]:
         if response.data:
             published_report = response.data[0]
             print(f"✅ Report published to Supabase (ID: {published_report.get('id')})")
+            if invalidate_web:
+                # Manual publication must also refresh the shared Vercel generation.
+                # The daily run handles its full invalidation once at completion.
+                def refresh_web():
+                    import urllib.request
+                    endpoint = os.getenv("REVALIDATE_URL") or (os.getenv("WEB_ORIGIN", "").rstrip("/") + "/api/revalidate")
+                    secret = os.getenv("REVALIDATE_SECRET") or os.getenv("ADMIN_SECRET_KEY")
+                    if not secret or not endpoint.startswith("https://"):
+                        return
+                    try:
+                        request = urllib.request.Request(endpoint, data=json.dumps({
+                            "tags": ["daily-market-data"], "event_id": datetime.utcnow().isoformat() + "Z"
+                        }).encode(), method="POST", headers={"Content-Type": "application/json", "Authorization": f"Bearer {secret}"})
+                        with urllib.request.urlopen(request, timeout=60) as response:
+                            print(f"[SIMILARITY] Web cache refreshed: HTTP {response.status}")
+                    except Exception as error:
+                        print(f"[SIMILARITY] Web cache refresh deferred: {type(error).__name__}")
+                threading.Thread(target=refresh_web, daemon=True).start()
             
             # Return the saved report
             return {

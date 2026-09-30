@@ -1,0 +1,7 @@
+.root :global(.recharts-text) {
+  fill: currentColor;
+}
+
+.root :global(.recharts-tooltip-label) {
+  color: var(--app-text);
+}

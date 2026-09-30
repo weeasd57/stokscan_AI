@@ -34,11 +34,18 @@ class HistoricalSimilarityHorizonTests(unittest.TestCase):
             "api.historical_similarity.add_technical_indicators", side_effect=indicators
         ), patch("api.historical_similarity.compute_similarity_features", side_effect=features):
             result = run_historical_similarity("TEST.EGX", target_date=as_of.strftime("%Y-%m-%d"), k=4, forward_days=20)
+            with patch("api.historical_similarity.np.dot", side_effect=lambda matrix, vector: -np.linalg.norm(matrix, axis=1) * np.linalg.norm(vector)):
+                unrelated = run_historical_similarity("TEST.EGX", target_date=as_of.strftime("%Y-%m-%d"), k=4, forward_days=20)
+
+        self.assertEqual(unrelated["matches"], [])
+        self.assertEqual(unrelated["stats"]["total_matches"], 0)
 
         self.assertEqual(result["target_date"], as_of.strftime("%Y-%m-%d"))
         self.assertTrue(result["matches"])
         self.assertEqual(set(result["stats"]["horizon_stats"]), {"5", "10", "20"})
         for match in result["matches"]:
+            self.assertGreaterEqual(match["similarity"], .8)
+            self.assertIn(match["exit_reason"], {"target", "stop", "horizon_positive", "horizon_negative", "horizon_flat", "incomplete"})
             self.assertLess(match["date"], result["target_date"])
             self.assertTrue(all(point["date"] <= result["target_date"] for point in match["forward_path"]))
         self.assertEqual(result["stats"]["wins"] + result["stats"]["losses"], result["stats"]["total_matches"])

@@ -3266,7 +3266,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                     "forward_days": 20,
                     "target_return": 0.05,
                     "stop_loss": -0.03
-                })
+                }, invalidate_web=False)
             _record_step("historical_similarity", True, f"{len(results)} symbols scanned", len(results))
         except Exception as e:
             _record_step("historical_similarity", False, str(e)[:200], 0)
