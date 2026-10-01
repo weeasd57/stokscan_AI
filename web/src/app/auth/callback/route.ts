@@ -1,3 +1,4 @@
+import { isAllowedAdminEmail } from "@/lib/admin-auth-client";
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
@@ -6,7 +7,7 @@ export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   // Default to recommendations redirect
-  const next = searchParams.get("next") ?? "/scanner/backtests?tab=bots";
+  const next = searchParams.get("next") ?? "/profile";
 
   if (code) {
     const cookieStore = await cookies();
@@ -45,7 +46,7 @@ export async function GET(request: Request) {
       const { data: { user } } = await supabase.auth.getUser();
       const isAdmin =
         user?.app_metadata?.role === "admin" ||
-        (user?.email && user.email.toLowerCase() === "weeeessd57@gmail.com");
+        isAllowedAdminEmail(user?.email);
       const finalDest = isAdmin ? "/admin" : next;
       return NextResponse.redirect(`${origin}${finalDest}`);
     }

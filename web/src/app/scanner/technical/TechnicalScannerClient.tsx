@@ -78,6 +78,13 @@ export default function TechnicalScannerPage() {
         setMounted(true);
     }, []);
 
+    // Trigger initial scan only when user actually visits the technical scanner page and has no results
+    useEffect(() => {
+        if (mounted && !hasScanned && !loading) {
+            void runTechScan();
+        }
+    }, [mounted, hasScanned, loading, runTechScan]);
+
     // Resizable Panels States
     const [sidebarWidth, setSidebarWidth] = useState<number>(320);
     const [isResizingHeight, setIsResizingHeight] = useState<boolean>(false);

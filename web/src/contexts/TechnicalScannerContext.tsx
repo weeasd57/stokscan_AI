@@ -216,7 +216,6 @@ export function TechnicalScannerProvider({ children }: { children: ReactNode }) 
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const stateRef = useRef(state);
-  const hasBootstrappedRef = useRef(false);
 
   // Load from session storage after mount to prevent SSR/hydration mismatch
   useEffect(() => {
@@ -432,16 +431,8 @@ export function TechnicalScannerProvider({ children }: { children: ReactNode }) 
 
     if (current.country !== "Egypt") {
       setTechScanner((prev) => ({ ...prev, country: "Egypt" }));
-      return;
     }
-
-    if (hasBootstrappedRef.current) return;
-    hasBootstrappedRef.current = true;
-
-    if (!current.hasScanned) {
-      void runTechScan();
-    }
-  }, [state.country, runTechScan, setTechScanner, isLoaded]);
+  }, [state.country, setTechScanner, isLoaded]);
 
   const value = useMemo<TechnicalScannerContextType>(
     () => ({

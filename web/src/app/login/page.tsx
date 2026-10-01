@@ -1,5 +1,7 @@
 "use client";
 
+import { isAllowedAdminEmail } from "@/lib/admin-auth-client";
+
 import { useMemo, useState, Suspense, type FormEvent } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -12,7 +14,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectUrl = searchParams.get("redirect") || searchParams.get("next");
-  const defaultTarget = "/scanner/backtests?tab=bots";
+  const defaultTarget = "/profile";
   const targetDestination = redirectUrl || defaultTarget;
 
   const { signIn, signInWithGoogle, user, loading } = useAuth();
@@ -39,7 +41,7 @@ function LoginForm() {
       }
       const isAdmin =
         res.user?.app_metadata?.role === "admin" ||
-        (res.user?.email && res.user.email.toLowerCase() === "weeeessd57@gmail.com");
+        isAllowedAdminEmail(res.user?.email);
       router.push(isAdmin ? "/admin" : targetDestination);
     } finally {
       setSubmitting(false);
@@ -64,7 +66,7 @@ function LoginForm() {
   if (!loading && user) {
     const isAdmin =
       user.app_metadata?.role === "admin" ||
-      (user.email && user.email.toLowerCase() === "weeeessd57@gmail.com");
+      isAllowedAdminEmail(user.email);
     router.replace(isAdmin ? "/admin" : targetDestination);
     return null;
   }
