@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get the auth token from the request
-    const authClient = createSupabaseServerClient(req);
+    const authClient = await createSupabaseServerClient(req);
     const { data: { user } } = await authClient.auth.getUser();
     if (!user || !(user.app_metadata?.role === 'admin' || isChatAdminEmail(user.email))) {
       return NextResponse.json(
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-      process.env.SUPABASE_SERVICE_ROLE_KEY || ''
+      process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || ''
     );
 
     // Count total unique symbols for symbol_count parameter

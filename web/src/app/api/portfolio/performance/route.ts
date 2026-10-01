@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   try {
     const { userId } = await getViewerContext(req);
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers });
-    const report = await loadPortfolioPerformance(createSupabaseServerClient(), getPublicMarketClient(), userId);
+    const report = await loadPortfolioPerformance(await createSupabaseServerClient(), getPublicMarketClient(), userId);
     return NextResponse.json(report, { headers });
   } catch (error) {
     console.error("[portfolio/performance] report unavailable", error);

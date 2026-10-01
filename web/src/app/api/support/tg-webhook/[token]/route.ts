@@ -3,9 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const token = process.env.SUPPORT_BOT_TOKEN?.trim();
-  if (!token || params.token !== token) {
+  if (!token || (await params).token !== token) {
     return NextResponse.json({ error: "Unauthorized token" }, { status: 403 });
   }
   const backend = process.env.PYTHON_BACKEND_URL || process.env.TRADING_SIGNALS_API_URL;

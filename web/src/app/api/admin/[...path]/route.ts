@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin-auth";
 import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
@@ -27,8 +28,10 @@ function parseFundamentalsPath(path: string) {
   };
 }
 
-async function proxyAdminRequest(req: Request, context: { params: { path?: string[] } }) {
-  const path = (context.params.path || []).join("/");
+async function proxyAdminRequest(req: Request, context: { params: Promise<{ path?: string[] }> }) {
+  const auth = await requireAdmin(req);
+  if (auth instanceof Response) return auth;
+  const path = ((await context.params).path || []).join("/");
   const fundamentalsRequest = req.method.toUpperCase() === "GET" ? parseFundamentalsPath(path) : null;
 
   if (fundamentalsRequest?.symbol) {

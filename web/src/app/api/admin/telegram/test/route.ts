@@ -1,6 +1,9 @@
+import { requireAdmin } from "@/lib/admin-auth";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAdmin(request);
+  if (auth instanceof Response) return auth;
   try {
     const body = await request.json();
     const { action } = body;
@@ -64,7 +67,9 @@ export async function POST(request: NextRequest) {
 }
 
 // GET method for testing basic connectivity
-export async function GET() {
+export async function GET(req: Request) {
+  const auth = await requireAdmin(req);
+  if (auth instanceof Response) return auth;
   return NextResponse.json({
     success: true,
     message: "Telegram test endpoint is available",

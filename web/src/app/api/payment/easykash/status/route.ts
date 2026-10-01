@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 const BACKEND_URL = (process.env.PYTHON_BACKEND_URL || process.env.TRADING_SIGNALS_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
 export async function GET(req: NextRequest) {
-  const auth = createSupabaseServerClient(req);
+  const auth = await createSupabaseServerClient(req);
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
   const { data: { session } } = await auth.auth.getSession();

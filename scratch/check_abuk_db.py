@@ -1,11 +1,16 @@
 import urllib.request
 import json
+import os
 import ssl
 
-ssl_context = ssl._create_unverified_context()
+from dotenv import load_dotenv
 
-supabase_url = "https://gfcmaxbtscmizsakarvc.supabase.co"
-service_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdmY21heGJ0c2NtaXpzYWthcnZjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzg5MDI2NCwiZXhwIjoyMDgzNDY2MjY0fQ.Q4ENAx_KPqinbm_XxpQGWdOGRwVKM-0BGTyw9qD2h4E"
+load_dotenv()
+
+ssl_context = ssl.create_default_context()
+
+supabase_url = os.environ["SUPABASE_URL"]
+service_key = os.getenv("SUPABASE_SECRET_KEY") or os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 def query_supabase(table, query_params):
     url = f"{supabase_url}/rest/v1/{table}?{query_params}"

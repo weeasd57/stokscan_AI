@@ -9,9 +9,9 @@ export async function GET(request: Request) {
   const next = searchParams.get("next") ?? "/scanner/backtests?tab=bots";
 
   if (code) {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
 
     if (!url || !anonKey) {
       return NextResponse.redirect(`${origin}/login?error=Supabase environment variables missing`);

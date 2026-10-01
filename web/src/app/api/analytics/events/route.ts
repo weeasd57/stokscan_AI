@@ -21,7 +21,7 @@ function cleanMetadata(value: unknown): Record<string, string | number | boolean
 
 export async function POST(request: NextRequest) {
   try {
-    const authClient = createSupabaseServerClient(request as any);
+    const authClient = await createSupabaseServerClient(request as any);
     const { data: { user }, error: authError } = await authClient.auth.getUser();
     if (authError || !user) return NextResponse.json({ ok: false }, { status: 401 });
     const body = await request.json().catch(() => ({}));

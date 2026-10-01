@@ -4,7 +4,7 @@ import { isAllowedAdminEmail } from "@/lib/admin-auth";
 
 const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
 /** Log admin access events to the admin_access_logs table */

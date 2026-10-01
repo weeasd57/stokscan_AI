@@ -1,9 +1,10 @@
+import { requireAdmin } from "@/lib/admin-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseAdmin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
 /**
@@ -39,7 +40,9 @@ export async function POST(req: NextRequest) {
  * GET /api/admin-access-log
  * Returns admin access analytics summary.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+    const auth = await requireAdmin(req);
+    if (auth instanceof Response) return auth;
     try {
         const { data, error } = await supabaseAdmin
             .from("admin_access_logs")

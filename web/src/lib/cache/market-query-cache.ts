@@ -175,7 +175,7 @@ export function marketCachedFetch(scope: Scope, fetcher: typeof fetch = fetch): 
 
 export async function refreshMarketQueries(tags: string[], eventId: string, fetcher: typeof fetch = fetch) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-  const keys = [...new Set([process.env.SUPABASE_SERVICE_ROLE_KEY, process.env.SUPABASE_SERVICE_KEY, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, process.env.SUPABASE_ANON_KEY, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY].filter(Boolean))] as string[];
+  const keys = [...new Set([process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY, process.env.SUPABASE_SERVICE_KEY, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, process.env.SUPABASE_ANON_KEY, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY].filter(Boolean))] as string[];
   if (!url || !keys.length) throw new Error("Missing market origin configuration");
   const summary = { queries: 0, bytes: 0, storedBytes: 0, unchanged: 0, coldSkipped: 0, completed: [] as string[] };
   for (const tag of tags) {

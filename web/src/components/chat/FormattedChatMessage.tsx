@@ -483,7 +483,7 @@ export function FormattedChatMessage({
                     ? "text-sm sm:text-base font-bold text-zinc-900 dark:text-zinc-100 my-2"
                     : "text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400 my-2";
                 
-                const HeadingTag = `h${headingLevel}` as keyof JSX.IntrinsicElements;
+                const HeadingTag = `h${headingLevel}` as "h1" | "h2" | "h3";
                 
                 return (
                     <HeadingTag key={idx} className={headingClass} dir="rtl">

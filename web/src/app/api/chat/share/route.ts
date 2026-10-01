@@ -12,7 +12,7 @@ function makeSlug(): string {
 
 export async function POST(request: NextRequest) {
     try {
-        const authClient = createSupabaseServerClient(request);
+        const authClient = await createSupabaseServerClient(request);
         const { data: { user } } = await authClient.auth.getUser();
         if (!isChatAdminEmail(user?.email)) {
             return NextResponse.json({ error: "غير مصرح" }, { status: 403 });

@@ -1565,6 +1565,12 @@ export async function getAdminConfig(): Promise<AdminConfig> {
 
 }
 
+export async function getPublicScanSettings(): Promise<{ scanDays: number }> {
+  const res = await fetch("/api/market/scan-settings");
+  if (!res.ok) throw new Error("Failed to fetch public scan settings");
+  return res.json();
+}
+
 
 
 export async function updateAdminConfig(config: Partial<AdminConfig>): Promise<AdminConfig> {
@@ -2102,7 +2108,7 @@ export async function getStockFundamentals(ticker: string): Promise<any> {
 
   try {
 
-    const res = await fetch(`/api/admin/fundamentals/${encodeURIComponent(ticker)}`, { cache: "no-store" });
+    const res = await fetch(`/api/market/fundamentals?ticker=${encodeURIComponent(ticker)}`, { cache: "no-store" });
 
     if (!res.ok) return null;
 

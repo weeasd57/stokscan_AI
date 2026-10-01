@@ -652,9 +652,9 @@ export default function AIScannerPage() {
         }
     };
 
-    const botsFetchedForUser = useRef<string | null>();
-    const modelsFetchedForUser = useRef<string | null>();
-    const backtestsFetchedForUser = useRef<string | null>();
+    const botsFetchedForUser = useRef<string | null | undefined>(undefined);
+    const modelsFetchedForUser = useRef<string | null | undefined>(undefined);
+    const backtestsFetchedForUser = useRef<string | null | undefined>(undefined);
 
     useEffect(() => {
         if (activeTab === "bots" && botsFetchedForUser.current !== (user?.id ?? null)) {

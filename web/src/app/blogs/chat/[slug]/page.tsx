@@ -3,8 +3,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({ params }: { params: { slug: string } }) {
-    const post = await loadPost(params.slug);
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
+    const post = await loadPost((await params).slug);
     const title = post?.title || "تحليل من EGX Bots";
     const description = post?.question || "تحليل سوق من EGX Bots";
     return {
@@ -14,14 +14,14 @@ export async function generateMetadata({ params }: { params: { slug: string } })
             title,
             description,
             type: "article",
-            url: `/blogs/chat/${params.slug}`,
+            url: `/blogs/chat/${(await params).slug}`,
         },
         twitter: { card: "summary", title, description },
     };
 }
 
 async function loadPost(slug: string) {
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const { data } = await supabase
         .from("shared_chat_posts")
         .select("slug, question, answer, title, created_at")
@@ -31,8 +31,8 @@ async function loadPost(slug: string) {
     return data;
 }
 
-export default async function SharedChatPage({ params }: { params: { slug: string } }) {
-    const post = await loadPost(params.slug);
+export default async function SharedChatPage({ params }: { params: Promise<{ slug: string }> }) {
+    const post = await loadPost((await params).slug);
     if (!post) notFound();
 
     return (
