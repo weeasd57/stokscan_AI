@@ -562,6 +562,21 @@ export function validateDeterministicRules(
         errors.push("وصف منتصف نطاق 60 جلسة بأنه قيمة عادلة مالية غير صحيح؛ استخدم «القيمة الوسطية الفنية للنطاق» واذكر أنه مقياس فني فقط.");
     }
 
+    // Corporate-action type is structured evidence. If the DB/search evidence
+    // explicitly says bonus_shares, the answer must not deny that fact or claim
+    // the available data cannot distinguish bonus shares from a rights issue.
+    const corporateActions = toolResults
+        .filter(r => r.tool === "get_corporate_actions" && Array.isArray(r.data?.corporate_actions))
+        .flatMap(r => r.data.corporate_actions);
+    const hasBonusShares = corporateActions.some((item: any) => item?.action_type === "bonus_shares");
+    if (hasBonusShares) {
+        const deniesBonusShares = /(?:مش|ليست|ليس|ماهيش|ما\s*هيش)\s+(?:توزيع\s+)?(?:ل)?أسهم\s+مجاني[ةه]/i.test(replyText);
+        const claimsTypeIsUndetermined = /(?:البيانات|المعلومات).{0,40}(?:لا|مش).{0,15}(?:تحدد|تحسم|توضح).{0,80}(?:أسهم\s+مجاني[ةه]|حقوق\s+اكتتاب|اكتتاب)/i.test(replyText);
+        if (deniesBonusShares || claimsTypeIsUndetermined) {
+            errors.push("تعارض مع الأحداث المالية المهيكلة: البيانات تحتوي bonus_shares، لذلك لا يجوز نفي الأسهم المجانية أو اعتبار نوع الحدث غير محسوم. يمكن فقط وصف النسبة/المواعيد بأنها غير متاحة إذا لم تكن موجودة.");
+        }
+    }
+
     // When the intent is a market-wide scan list (accumulation_distribution), symbols that appear
     // in the scan results are listed BECAUSE they belong to that direction — checking them again
     // for Wyckoff evidence is redundant and causes false positives (validator fires on valid data).
