@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     const {
       data: { user },
       error: authError,

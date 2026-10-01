@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import BacktestsClient from "./BacktestsClient";
 
 export const metadata = {
@@ -6,5 +7,5 @@ export const metadata = {
 };
 
 export default function BacktestsPage() {
-  return <BacktestsClient />;
+  return <Suspense fallback={null}><BacktestsClient /></Suspense>;
 }

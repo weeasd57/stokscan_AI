@@ -7,7 +7,7 @@ import { isAllowedAdminEmail } from "./admin-auth-client";
  * Server-side route handler guard to require admin privileges.
  */
 export async function requireAdmin(request: Request): Promise<{ user: any } | Response> {
-    const client = createSupabaseServerClient(request as any);
+    const client = await createSupabaseServerClient(request as any);
     const { data: { user }, error } = await client.auth.getUser();
     const isAdmin = !error && user && (
         user.app_metadata?.role === "admin" || isChatAdminEmail(user.email) || isAllowedAdminEmail(user.email)

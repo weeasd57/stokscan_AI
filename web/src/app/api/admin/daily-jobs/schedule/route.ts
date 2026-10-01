@@ -1,10 +1,13 @@
+import { requireAdmin } from "@/lib/admin-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const auth = await requireAdmin(req);
+  if (auth instanceof Response) return auth;
   try {
     const supabase = getSupabaseClient();
     
@@ -33,6 +36,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req);
+  if (auth instanceof Response) return auth;
   try {
     const body = await req.json();
     const supabase = getSupabaseClient();

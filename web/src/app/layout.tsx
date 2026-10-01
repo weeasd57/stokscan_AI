@@ -1,5 +1,6 @@
 import "./globals.css";
 import type { ReactNode } from "react";
+import { Suspense } from "react";
 import Providers from "@/app/providers";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -171,7 +172,7 @@ export default function RootLayout({
       </head>
       <body className="app-shell antialiased selection:dark:bg-blue-500/30 selection:light:bg-blue-300/30">
         <Providers>
-          <Header />
+          <Suspense fallback={null}><Header /></Suspense>
           <main id="main-content" className="app-content-shell w-full pt-[var(--header-offset,88px)] pb-12 px-3 sm:px-6 md:px-8 mx-auto max-w-[1800px]">
             {children}
           </main>

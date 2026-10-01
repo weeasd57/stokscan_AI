@@ -5,7 +5,7 @@ import type { NextRequest } from 'next/server'
 
 function getSupabaseUrlAndAnonKey() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
 
   if (!supabaseUrl || !anonKey) {
     throw new Error('Missing Supabase environment variables')
@@ -14,7 +14,7 @@ function getSupabaseUrlAndAnonKey() {
   return { supabaseUrl, anonKey }
 }
 
-export const createSupabaseServerClient = (request?: NextRequest) => {
+export const createSupabaseServerClient = async (request?: NextRequest) => {
   const { supabaseUrl, anonKey } = getSupabaseUrlAndAnonKey()
   const authHeader = request?.headers.get("authorization");
   if (authHeader && authHeader.startsWith("Bearer ")) {
@@ -24,7 +24,7 @@ export const createSupabaseServerClient = (request?: NextRequest) => {
     }) as any;
   }
 
-  const cookieStore = request?.cookies ?? cookies()
+  const cookieStore = request?.cookies ?? await cookies()
 
   return createServerClient(supabaseUrl, anonKey, {
     cookies: {

@@ -2,8 +2,6 @@
  * Client-safe admin authorization helpers (no server-only dependencies).
  */
 
-const ALLOWED_ADMIN_HANDLES = ["weeeessd57", "weeessd57", "weeasd57", "weeeenew"];
-
 export function isAllowedAdminEmail(email?: string | null): boolean {
     if (!email) return false;
     const clean = email.toLowerCase().trim();
@@ -25,8 +23,7 @@ export function isAllowedAdminEmail(email?: string | null): boolean {
     ];
     if (explicitAdmins.includes(clean)) return true;
 
-    // Check handle match
-    return ALLOWED_ADMIN_HANDLES.some((handle) => clean.includes(handle));
+    return false;
 }
 
 export function isLocalhost(): boolean {

@@ -49,7 +49,7 @@ function prune<T extends { exp: number }>(store: Map<string, T>) {
 async function readSessionTokens(req: NextRequest): Promise<string | null> {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
     if (!supabaseUrl || !anonKey) return null;
     const cookieStore = req.cookies;
     // The cookie adapter only reads request cookies; getSession() here just
@@ -83,7 +83,7 @@ async function resolveIdentity(req: NextRequest): Promise<string | null> {
 
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY || "";
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY || "";
     // A plain non-cookie client with the user's bearer token hits only the
     // Auth /user endpoint — the cheapest possible existence confirmation.
     const client = createClient(supabaseUrl, anonKey, {
@@ -108,7 +108,7 @@ async function resolvePro(userId: string | null): Promise<boolean> {
   const now = nowMs();
   if (cached && cached.exp > now) return cached.pro;
 
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+  const serviceKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   if (!serviceKey || !supabaseUrl) return false;
   try {

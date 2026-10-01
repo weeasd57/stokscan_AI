@@ -5,9 +5,9 @@ import { Metadata } from "next";
 import { cache } from "react";
 
 interface PageProps {
-  params: {
+  params: Promise<{
     symbol: string;
-  };
+  }>;
 }
 
 // Metadata and page rendering share the same request-scoped fundamentals read.
@@ -19,7 +19,7 @@ const getFundamentals = cache(async (symbol: string) => {
 
 // Generate dynamic metadata for SEO search indexers
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const symbol = params.symbol.toUpperCase();
+  const symbol = (await params).symbol.toUpperCase();
   const fundData = await getFundamentals(symbol);
 
   const fundRow = fundData?.find((r: any) => r.exchange === "EGX") || fundData?.[0] || null;
@@ -64,7 +64,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 }
 
 export default async function StockDetailPage({ params }: PageProps) {
-  const symbol = params.symbol.toUpperCase();
+  const symbol = (await params).symbol.toUpperCase();
   const supabase = getPublicMarketClient();
 
   // 1. Fetch Fundamentals

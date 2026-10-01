@@ -364,7 +364,7 @@ export async function POST(req: NextRequest) {
     let requestSessionId: string | null = null;
     let clientMessageId = "";
     try {
-        const authClient = createSupabaseServerClient(req);
+        const authClient = await createSupabaseServerClient(req);
         supabase = getSupabaseClient();
 
         const { data: { user }, error: authError } = await authClient.auth.getUser();
@@ -982,7 +982,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
     try {
-        const authClient = createSupabaseServerClient(req);
+        const authClient = await createSupabaseServerClient(req);
         const supabase = getSupabaseClient();
 
         const { data: { user }, error: authError } = await authClient.auth.getUser();
@@ -1093,7 +1093,7 @@ export async function GET(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
     try {
-        const authClient = createSupabaseServerClient(req);
+        const authClient = await createSupabaseServerClient(req);
         const supabase = getSupabaseClient();
 
         const { data: { user }, error: authError } = await authClient.auth.getUser();
@@ -1120,7 +1120,7 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
     try {
-        const authClient = createSupabaseServerClient(req);
+        const authClient = await createSupabaseServerClient(req);
         const supabase = getSupabaseClient();
 
         const { data: { user }, error: authError } = await authClient.auth.getUser();

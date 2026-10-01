@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(Math.max(Number.isFinite(requestedLimit) ? requestedLimit : 500, 1), 1000);
 
   try {
-    const auth = createSupabaseServerClient(request);
+    const auth = await createSupabaseServerClient(request);
     const { data: { user } } = await auth.auth.getUser();
     if (!user) return NextResponse.json({ detail: "Pro subscription required" }, { status: 401 });
     const { data: subs } = await auth.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", user.id);

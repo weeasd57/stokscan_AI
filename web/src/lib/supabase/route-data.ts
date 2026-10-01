@@ -4,9 +4,9 @@ import { marketCachedFetch } from "@/lib/cache/market-query-cache";
 export function getSupabaseClient(): any {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.SUPABASE_SERVICE_KEY ||
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
     process.env.SUPABASE_ANON_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
 
@@ -26,7 +26,7 @@ export function getSupabaseClient(): any {
 /** Server-only client for private tables. Never fall back to an anonymous key. */
 export function getSupabaseServiceClient(options: { cacheMarketData?: boolean } = {}): any {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+  const key = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
 
   if (!url || !key) {
     throw new Error("Missing server-side Supabase service credentials");
@@ -44,7 +44,7 @@ export function getSupabaseServiceClient(options: { cacheMarketData?: boolean } 
 /** Cookie-free public reads; preserves anonymous RLS (never escalates to service role). */
 export function getPublicMarketClient(): any {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
   if (!url || !key) throw new Error("Missing public Supabase configuration");
   return createClient(url, key, {
     global: { fetch: marketCachedFetch({ url, key }) },

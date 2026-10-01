@@ -8,7 +8,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const ADMIN_EMAILS = ["weeeessd57@gmail.com"];
 
-async function isAdminRequest(supabase: ReturnType<typeof createSupabaseServerClient>) {
+async function isAdminRequest(supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -175,11 +175,11 @@ function mapTradesLog(log: any): any[] {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createSupabaseServerClient();
-    const { id } = params;
+    const supabase = await createSupabaseServerClient();
+    const { id } = await params;
 
     if (!id) {
       return NextResponse.json({ error: "Missing backtest ID" }, { status: 400 });

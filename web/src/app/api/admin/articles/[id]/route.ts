@@ -1,17 +1,20 @@
+import { requireAdmin } from "@/lib/admin-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdmin(req);
+  if (auth instanceof Response) return auth;
   try {
     const supabase = getSupabaseClient();
     
     const { data, error } = await supabase
       .from("articles")
       .select("*")
-      .eq("id", params.id)
+      .eq("id", (await params).id)
       .single();
 
     if (error || !data) {
@@ -24,7 +27,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdmin(req);
+  if (auth instanceof Response) return auth;
   try {
     const body = await req.json();
     const supabase = getSupabaseClient();
@@ -32,7 +37,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const { data, error } = await supabase
       .from("articles")
       .update({ ...body, updated_at: new Date().toISOString() })
-      .eq("id", params.id)
+      .eq("id", (await params).id)
       .select()
       .single();
 
@@ -50,14 +55,16 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAdmin(req);
+  if (auth instanceof Response) return auth;
   try {
     const supabase = getSupabaseClient();
 
     const { error } = await supabase
       .from("articles")
       .delete()
-      .eq("id", params.id);
+      .eq("id", (await params).id);
 
     if (error) {
       return NextResponse.json({ detail: error.message }, { status: 400 });

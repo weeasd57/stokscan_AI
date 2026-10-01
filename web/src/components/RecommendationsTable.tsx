@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -254,7 +254,7 @@ function MarketOverviewSummary({ isAr, onOpen }: { isAr: boolean; onOpen: () => 
     );
 }
 
-export default function RecommendationsTable({ isLandingPage = false, limit = Infinity, hideTelegramToggle = false, analyticsOnly = false }: RecommendationsTableProps) {
+function RecommendationsTableContent({ isLandingPage = false, limit = Infinity, hideTelegramToggle = false, analyticsOnly = false }: RecommendationsTableProps) {
     const { user } = useAuth();
     const { language } = useLanguage();
     const { theme } = useTheme();
@@ -3585,4 +3585,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             )}
         </div>
     );
+}
+
+export default function RecommendationsTable(props: RecommendationsTableProps) {
+    return <Suspense fallback={null}><RecommendationsTableContent {...props} /></Suspense>;
 }

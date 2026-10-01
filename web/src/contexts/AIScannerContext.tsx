@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { scanAiFastWithParams, evaluateScan, getAdminConfig, type ScanAiParams, type ScanResult } from "@/lib/api";
+import { scanAiFastWithParams, evaluateScan, getPublicScanSettings, type ScanAiParams, type ScanResult } from "@/lib/api";
 import type { PredictResponse } from "@/lib/types";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useRefreshOnVisibility } from "@/hooks/useRealtimeRefresh";
@@ -631,10 +631,10 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         }
     }, []);
 
-    // Sync scanDays from AdminConfig on mount
+    // Read only the public setting; full operational config requires admin auth.
     useEffect(() => {
         if (!isAiScannerPage) return;
-        getAdminConfig().then(cfg => {
+        getPublicScanSettings().then(cfg => {
             if (cfg.scanDays) {
                 setAiScanner(prev => ({ ...prev, scanDays: cfg.scanDays! }));
             }

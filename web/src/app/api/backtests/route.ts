@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
   const adminRequested = searchParams.get("admin") === "true";
 
   try {
-    const supabase = createSupabaseServerClient();
+    const supabase = await createSupabaseServerClient();
     
     // Check if the user is authenticated and is an admin
     const { data: { user } } = await supabase.auth.getUser();

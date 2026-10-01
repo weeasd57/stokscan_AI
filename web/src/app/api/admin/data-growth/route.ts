@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
@@ -16,6 +17,8 @@ function getBackendBaseUrl() {
 }
 
 export async function GET(req: NextRequest) {
+  const auth = await requireAdmin(req);
+  if (auth instanceof Response) return auth;
   const url = new URL(req.url);
   const days = Math.min(Number(url.searchParams.get("days") || 14), 90);
 
