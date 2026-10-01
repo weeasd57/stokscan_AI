@@ -38,7 +38,7 @@ function fakeSupabase(options: { technicalError?: boolean } = {}) {
     };
 }
 
-describe("live quote precedence and Supabase persistence", () => {
+describe("live quote precedence without request-time persistence", () => {
     beforeEach(() => {
         jest.useFakeTimers({ now: new Date("2026-09-16T08:30:00.000Z") });
         jest.spyOn(global, "fetch").mockResolvedValue(tradingViewResponse() as Response);
@@ -56,38 +56,24 @@ describe("live quote precedence and Supabase persistence", () => {
         expect(isEgxSessionOpen(new Date("2026-09-18T08:30:00.000Z"))).toBe(false);
     });
 
-    it("writes the live quote to the deployed Supabase table shapes", async () => {
+    it("uses the live quote without mutating Supabase", async () => {
         const supabase = fakeSupabase();
         const result = await fetchLiveStockIndicators("TESTLVA", supabase);
 
         expect(result.success).toBe(true);
         expect(result.data?.close).toBe(123.45);
-        expect(result.persisted).toBe(true);
-        expect(result.daily_persisted).toBe(true);
-        expect(supabase.calls).toHaveLength(2);
-
-        const technical = supabase.calls.find(call => call.table === "stock_technical_indicators")!;
-        expect(technical.options).toEqual({ onConflict: "symbol,exchange,date" });
-        expect(technical.payload).toEqual(expect.objectContaining({ symbol: "TESTLVA", date: "2026-09-16", close: 123.45 }));
-        expect(technical.payload).not.toHaveProperty("updated_at");
-        expect(technical.payload).toHaveProperty("calculated_at");
-
-        const daily = supabase.calls.find(call => call.table === "stock_prices")!;
-        expect(daily.options).toEqual({ onConflict: "symbol,exchange,date" });
-        expect(daily.payload).toEqual(expect.objectContaining({ symbol: "TESTLVA", exchange: "EGX", date: "2026-09-16", close: 123.45 }));
-        expect(daily.payload).toHaveProperty("updated_at");
-        expect(daily.payload).not.toHaveProperty("source");
-        expect(daily.payload).not.toHaveProperty("stock_id");
+        expect(result).not.toHaveProperty("persisted");
+        expect(result).not.toHaveProperty("daily_persisted");
+        expect(result).not.toHaveProperty("persistence_error");
+        expect(supabase.calls).toHaveLength(0);
     });
 
-    it("keeps the live quote usable but reports a Supabase persistence failure", async () => {
+    it("does not attempt writes even when the supplied client would reject them", async () => {
         const supabase = fakeSupabase({ technicalError: true });
         const result = await fetchLiveStockIndicators("TESTLVB", supabase);
 
         expect(result.success).toBe(true);
         expect(result.data?.close).toBe(123.45);
-        expect(result.persisted).toBe(false);
-        expect(result.daily_persisted).toBe(false);
-        expect(result.persistence_error).toContain("technical write failed");
+        expect(supabase.calls).toHaveLength(0);
     });
 });
