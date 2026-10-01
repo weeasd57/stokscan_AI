@@ -1190,7 +1190,7 @@ export async function executeStructuredTools(
             // Always ask the live capability layer for a small symbol set. It
             // exits locally when the market is closed, and—critically—can mark
             // instruments whose live feed is unsupported even outside session.
-            const liveRefreshedMap = new Map<string, { data?: any; success: boolean; error?: string; from_cache?: boolean; unsupported?: boolean; persisted?: boolean; daily_persisted?: boolean; persistence_error?: string }>();
+            const liveRefreshedMap = new Map<string, { data?: any; success: boolean; error?: string; from_cache?: boolean; unsupported?: boolean }>();
             const sessionIsOpen = isEgxSessionOpen();
 
             if (!requestedDate && !requestedStartDate && symbols.length > 0 && symbols.length <= 5) {
@@ -1428,9 +1428,6 @@ export async function executeStructuredTools(
                                 live_refresh_failed: liveFailed,
                                 live_refresh_unsupported: Boolean(liveInfo?.unsupported),
                                 live_refresh_error: liveInfo?.error || null,
-                                live_persisted: liveInfo?.persisted ?? null,
-                                live_daily_persisted: liveInfo?.daily_persisted ?? null,
-                                live_persistence_error: liveInfo?.persistence_error || null,
                                 session_open: sessionIsOpen,
                                 king_ai_score: techData?.king_ai_score ?? null,
                                 egx_ai_score: techData?.egx_ai_score ?? null,
@@ -1468,9 +1465,11 @@ export async function executeStructuredTools(
         || plan.tools.includes("get_corporate_actions");
     if ((caMentioned || caToolsRelevant) && symbols.length > 0 && !requestedDate && !requestedStartDate) {
         try {
-            const analysisIntent = plan.intent === "stock_analysis" || plan.intent === "comparison" || plan.intent === "risk_analysis";
             const caResult = await getCorporateActionsForSymbols(supabase, symbols, {
-                enableWebSearch: caMentioned || analysisIntent,
+                // Routine stock analysis stays DB-first/read-only. Use the web
+                // fallback only when the user explicitly asks about a corporate
+                // action, which avoids unnecessary latency on normal stock chats.
+                enableWebSearch: caMentioned,
             });
             if (caResult.items.length > 0) {
                 textParts.push(formatCorporateActionsSummary(caResult));
