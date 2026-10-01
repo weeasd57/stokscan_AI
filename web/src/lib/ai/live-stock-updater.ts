@@ -6,10 +6,10 @@
  * - Fetches real-time price & pre-calculated indicators via TradingView scanner in <700ms
  * - Bounded 3-second timeout with 1 attempt only
  * - 5-minute in-memory cache to prevent redundant fetches
- * - Updates daily quote/indicator rows keyed by symbol, exchange and date
+ * - Read-only: live values are used for the current answer and never persisted
  */
 
-import { todayInCairo, isEgxSessionOpen as isCairoEgxSessionOpen } from "./cairo-date";
+import { isEgxSessionOpen as isCairoEgxSessionOpen } from "./cairo-date";
 import { executionFetch } from "./execution";
 import { isLiveUnsupportedSymbol, liveTickerCandidates, liveUnsupportedNotice } from "./live-coverage";
 import { isDailySyncComplete, shouldPreferLiveBeforeSync } from "./sync-gate";
@@ -42,9 +42,6 @@ interface LiveIndicatorsData {
 interface CacheEntry {
     data: LiveIndicatorsData;
     timestamp: number;
-    persisted?: boolean;
-    daily_persisted?: boolean;
-    persistence_error?: string;
 }
 
 // 5-minute in-memory cache per symbol
@@ -89,9 +86,6 @@ export async function fetchLiveStockIndicators(
     error?: string;
     from_cache?: boolean;
     unsupported?: boolean;
-    persisted?: boolean;
-    daily_persisted?: boolean;
-    persistence_error?: string;
 }> {
     const cleanSym = symbol.trim().toUpperCase().replace(/^(EGX:|CA:)/, "");
     if (!cleanSym) {
@@ -116,9 +110,7 @@ export async function fetchLiveStockIndicators(
     // 1. Check in-memory cache (5-minute TTL)
     const cached = LIVE_STOCK_CACHE.get(cleanSym);
     if (cached && (now - cached.timestamp < CACHE_TTL_MS)) {
-        return { success: true, data: cached.data, from_cache: true,
-            persisted: cached.persisted, daily_persisted: cached.daily_persisted,
-            persistence_error: cached.persistence_error };
+        return { success: true, data: cached.data, from_cache: true };
     }
 
     // 2. Check failure cooldown (don't retry failed ticker within 1 minute)
@@ -187,11 +179,6 @@ export async function fetchLiveStockIndicators(
         }
         const cairoTimeStr = getCairoTimeString();
         const isoNow = new Date().toISOString();
-        // The quote belongs to the Cairo trading session, not the UTC calendar
-        // day. Using ISO UTC here made late-evening Cairo requests write to the
-        // previous session date and appear stale in the admin/client tables.
-        const dateOnly = todayInCairo();
-
         const liveData: LiveIndicatorsData = {
             symbol: cleanSym,
             close: d[1] != null ? Number(d[1]) : 0,
@@ -219,88 +206,10 @@ export async function fetchLiveStockIndicators(
 
         FAILED_REFRESH_ATTEMPTS.delete(cleanSym);
 
-        // 4. Update Supabase asynchronously/safely if client provided.
-        // The deployed tables are not identical to the old local schema:
-        // stock_technical_indicators is keyed by symbol/exchange/date, while
-        // stock_prices is keyed by symbol/exchange/date and has no source/id
-        // columns. Track both writes explicitly so callers can observe a
-        // partial persistence failure without losing the usable live quote.
-        let technicalPersisted = false;
-        let dailyPersisted = false;
-        let persistenceError: string | undefined;
-        if (supabase && liveData.close > 0) {
-            try {
-                // Omit model scores: an intraday quote must not overwrite the
-                // daily job's scores or copy a score from a different date.
-                const { error: technicalError } = await supabase.from("stock_technical_indicators").upsert({
-                    symbol: cleanSym,
-                    exchange: "EGX",
-                    date: dateOnly,
-                    close: liveData.close,
-                    open: liveData.open,
-                    high: liveData.high,
-                    low: liveData.low,
-                    volume: liveData.volume,
-                    change_pct: liveData.change_pct,
-                    rsi_14: liveData.rsi_14,
-                    macd: liveData.macd,
-                    macd_signal: liveData.macd_signal,
-                    ema_50: liveData.ema_50,
-                    ema_200: liveData.ema_200,
-                    sma_50: liveData.sma_50,
-                    sma_200: liveData.sma_200,
-                    bb_upper: liveData.bb_upper,
-                    bb_lower: liveData.bb_lower,
-                    stoch_k: liveData.stoch_k,
-                    stoch_d: liveData.stoch_d,
-                    calculated_at: isoNow,
-                }, { onConflict: "symbol,exchange,date" });
-                technicalPersisted = !technicalError;
-                if (technicalError) persistenceError = technicalError.message || String(technicalError);
-
-                // Keep the daily quote table in sync with the intraday quote too.
-                // Portfolio valuation and several client endpoints read
-                // `stock_prices`, while the old updater only refreshed technical
-                // indicators, making the UI appear stale during an open session.
-                const quote = {
-                        symbol: cleanSym,
-                        exchange: "EGX",
-                        date: dateOnly,
-                        open: liveData.open,
-                        high: liveData.high,
-                        low: liveData.low,
-                        close: liveData.close,
-                        volume: liveData.volume,
-                        updated_at: isoNow,
-                };
-                const { error: quoteError } = await supabase.from("stock_prices").upsert(quote, { onConflict: "symbol,exchange,date" });
-                dailyPersisted = !quoteError;
-                if (quoteError) persistenceError = [persistenceError, quoteError.message || String(quoteError)].filter(Boolean).join("; ");
-            } catch (dbErr) {
-                const dbError = dbErr as any;
-                persistenceError = dbError?.message || String(dbError);
-                console.warn(`[LIVE_UPDATER] Supabase upsert failed for ${cleanSym}:`, dbErr);
-            }
-        }
-
-        const persisted = supabase ? technicalPersisted && dailyPersisted : undefined;
-        // A failed write must remain observable on a cache hit. Keep its cache
-        // window short so a later request retries instead of hiding the failure.
-        LIVE_STOCK_CACHE.set(cleanSym, {
-            data: liveData,
-            timestamp: persisted === false ? now - CACHE_TTL_MS + FAIL_COOLDOWN_MS : now,
-            persisted,
-            daily_persisted: supabase ? dailyPersisted : undefined,
-            persistence_error: persistenceError,
-        });
-        return {
-            success: true,
-            data: liveData,
-            from_cache: false,
-            persisted,
-            daily_persisted: supabase ? dailyPersisted : undefined,
-            persistence_error: persistenceError,
-        };
+        // Live chat data is intentionally ephemeral. Persistent market data is
+        // owned by the scheduled market-data pipeline, not by a user request.
+        LIVE_STOCK_CACHE.set(cleanSym, { data: liveData, timestamp: now });
+        return { success: true, data: liveData, from_cache: false };
     } catch (err: any) {
         FAILED_REFRESH_ATTEMPTS.set(cleanSym, now);
         const errMsg = err?.name === "AbortError" ? "انتهت مهلة جلب السعر المباشر (3 ثوانٍ)" : (err?.message || "فشل الاتصال");
