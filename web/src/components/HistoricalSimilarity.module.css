@@ -1,3 +1,45 @@
+.root {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* A scrollable table must not set the minimum width of its grid ancestors. */
+.panel,
+.metric {
+  min-width: 0;
+}
+
+.tableScroll {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.tableScroll:focus-visible {
+  outline: 2px solid #fbbf24;
+  outline-offset: 2px;
+}
+
+@media (max-width: 639px) {
+  .root .panel {
+    padding: 0.75rem;
+  }
+
+  .control,
+  .action,
+  .root select,
+  .stock {
+    min-height: 44px;
+  }
+
+  .root .metric {
+    padding: 0.5rem;
+  }
+}
+
 :global(html.dark body):has(.root) {
   background: #000;
 }
