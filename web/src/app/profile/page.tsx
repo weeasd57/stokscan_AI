@@ -11,6 +11,7 @@ import { Loader2, Send, Globe, Star, Trash2, Edit3, X, Check, ExternalLink, User
 import { toast } from "sonner";
 import MyPortfolioSection from "./components/MyPortfolioSection";
 import PlanQuotaCard from "./components/PlanQuotaCard";
+import FoundingMemberBanner from "./components/FoundingMemberBanner";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -23,6 +24,7 @@ export default function ProfilePage() {
 
   const [username, setUsername] = useState<string | null>(null);
   const [telegramLinked, setTelegramLinked] = useState(false);
+  const [quotaData, setQuotaData] = useState<any>(null);
   const proInviteUrl = proInvite.is_pro && proInvite.invite_link ? proInvite.invite_link : "";
   const freeTelegramUrl = "https://t.me/egxbots/153";
   const freeTelegramWebUrl = "https://web.telegram.org/a/#@egxbots";
@@ -53,6 +55,14 @@ export default function ProfilePage() {
       setUsername((profileRow as any).username || (profileRow as any).display_name || null);
       setTelegramLinked(Boolean((profileRow as any).telegram_chat_id));
     }
+
+    try {
+      const qRes = await fetch("/api/user/quota", { cache: "no-store" });
+      if (qRes.ok) {
+        const qJson = await qRes.json();
+        if (qJson.ok) setQuotaData(qJson);
+      }
+    } catch {}
   }, [supabase, user]);
 
   useEffect(() => {
@@ -110,9 +120,19 @@ export default function ProfilePage() {
   if (!user) return null;
 
   return (
-    <div dir={isAr ? "rtl" : "ltr"} className="profile-page-shell neobrutal-layout flex flex-col gap-10 pb-20 max-w-[1600px] mx-auto mt-2 px-4 neobrutal-grid-bg min-h-screen">
+    <div dir={isAr ? "rtl" : "ltr"} className="profile-page-shell neobrutal-layout flex flex-col gap-8 pb-20 max-w-[1600px] mx-auto mt-2 px-4 neobrutal-grid-bg min-h-screen">
+      {/* ── Founding Member Announcement Banner ── */}
+      {quotaData?.plan?.is_founding_member && (
+        <div className="w-full relative z-20">
+          <FoundingMemberBanner
+            memberNumber={quotaData.plan.founding_member_number}
+            language={language}
+          />
+        </div>
+      )}
+
       {/* ── Header ── */}
-      <header className="flex flex-col gap-3 relative z-10 pt-4">
+      <header className="flex flex-col gap-3 relative z-10 pt-2">
         <h1 className="text-4xl sm:text-5xl font-black tracking-tighter text-black dark:text-white uppercase italic drop-shadow-[3px_3px_0px_rgba(0,0,0,1)]">
           {t("nav.profile")}
         </h1>

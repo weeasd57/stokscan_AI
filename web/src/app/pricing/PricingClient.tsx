@@ -743,6 +743,37 @@ export default function PricingClient() {
               ? "تحليلات كمية، وتوصيات مبنية على الذكاء الاصطناعي، وقناة VIP حصرية لتداول البورصة المصرية بثقة."
               : "Quantitative analysis, AI-driven stock signals, and VIP channel access for the Egyptian Stock Exchange."}
           </p>
+
+          {/* Founding Members Hero Callout */}
+          <div className="max-w-2xl mx-auto border-3 border-black bg-gradient-to-r from-amber-300 via-[#FFE600] to-yellow-400 p-4 shadow-[4px_4px_0px_#000] text-black">
+            <div className="flex items-center justify-center gap-2 mb-1">
+              <span className="px-2 py-0.5 bg-black text-[#FFE600] text-[10px] font-black uppercase tracking-wider">
+                🔥 {isAr ? "عرض محدود جداً" : "LIMITED OFFER"}
+              </span>
+              <span className="font-black text-sm sm:text-base">
+                {isAr ? "عرض المؤسسين الأوائل (Founding Members)" : "Founding Members Offer"}
+              </span>
+            </div>
+            <p className="text-xs sm:text-sm font-bold text-zinc-900 leading-snug">
+              {isAr ? (
+                <>
+                  اشترك الآن في خطة <strong>Pro بـ 50 ج.م فقط شهرياً</strong> مدى الحياة (بدلاً من 200 ج.م). 
+                  <span className="inline-block bg-black text-white px-2 py-0.5 font-black text-xs ms-1.5 shadow-[1px_1px_0_0_#fff]">
+                    متبقي 93 مقعداً فقط
+                  </span>
+                  ، بعدها سيغلق العرض ويعود السعر الرسمي لـ 200 ج.م لجميع المشتركين الجدد.
+                </>
+              ) : (
+                <>
+                  Lock in <strong>Pro for just 50 EGP/mo for life</strong> (standard price 200 EGP). 
+                  <span className="inline-block bg-black text-white px-2 py-0.5 font-black text-xs ms-1.5 shadow-[1px_1px_0_0_#fff]">
+                    Only 93 spots remaining
+                  </span>
+                  . Price reverts to 200 EGP once filled.
+                </>
+              )}
+            </p>
+          </div>
         </div>
 
         {isPro && (

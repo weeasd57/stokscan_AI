@@ -27,6 +27,8 @@ interface QuotaData {
     status: string;
     current_period_end: string | null;
     created_at: string | null;
+    is_founding_member?: boolean;
+    founding_member_number?: number | null;
   };
   quota: {
     chat_messages: {
@@ -148,6 +150,11 @@ export default function PlanQuotaCard({ refreshTrigger = 0 }: Props) {
               >
                 {isPro ? "PRO" : isAr ? "مجاني" : "FREE"}
               </span>
+              {data?.plan?.is_founding_member && (
+                <span className="text-[10px] font-black uppercase px-2 py-0.5 border-2 border-black bg-gradient-to-r from-amber-400 to-[#FFE600] text-black shadow-[2px_2px_0px_rgba(0,0,0,1)] flex items-center gap-1">
+                  ⭐ {isAr ? `مؤسس #${data.plan.founding_member_number || ""}` : `FOUNDER #${data.plan.founding_member_number || ""}`}
+                </span>
+              )}
             </div>
             <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 mt-0.5">
               {isPro

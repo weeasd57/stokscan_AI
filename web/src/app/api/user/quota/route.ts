@@ -98,6 +98,29 @@ export async function GET() {
 
     const portfolioLimit = limits.portfolio_stocks;
 
+    // 4. Founding member detection (first 100 distinct Pro members)
+    let isFoundingMember = false;
+    let foundingMemberNumber: number | null = null;
+    if (pro) {
+      const { data: allActiveSubs } = await serviceClient
+        .from("subscriptions")
+        .select("user_id, created_at")
+        .eq("status", "active")
+        .eq("plan_id", "pro")
+        .order("created_at", { ascending: true })
+        .limit(200);
+      
+      const uniqueFounderUids = Array.from(
+        new Set((allActiveSubs || []).map((s: any) => s.user_id))
+      ).slice(0, 100);
+
+      const subIdx = uniqueFounderUids.indexOf(user.id);
+      if (subIdx !== -1) {
+        isFoundingMember = true;
+        foundingMemberNumber = subIdx + 1;
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       plan: {
@@ -107,6 +130,8 @@ export async function GET() {
         status: activeSub?.status || "active",
         current_period_end: activeSub?.current_period_end || null,
         created_at: activeSub?.created_at || null,
+        is_founding_member: isFoundingMember,
+        founding_member_number: foundingMemberNumber,
       },
       quota: {
         chat_messages: {

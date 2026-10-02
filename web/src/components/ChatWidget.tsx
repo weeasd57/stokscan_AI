@@ -935,8 +935,11 @@ export default function ChatWidget() {
                             <h3 className="text-xl sm:text-2xl font-black text-black dark:text-white leading-tight">
                                 لقد استهلكت رصيدك اليومي المجاني (5/5)
                             </h3>
-                            <p className="text-sm text-zinc-600 dark:text-zinc-300 font-medium leading-relaxed">
-                                تريد تحليلاً غير محدود لمحفظتك وتوصيات الأسهم لحظة بلحظة؟ اشترك الآن في Pro بـ 200 ج.م فقط شهرياً واشترك في قناة الـ VIP.
+                            <div className="p-3 bg-amber-300 border-2 border-black text-black text-xs font-bold shadow-[2px_2px_0_0_#000]">
+                                🔥 <strong>عرض المؤسسين الأوائل:</strong> احجز مقعدك الآن بـ <strong>50 ج.م فقط شهرياً</strong> مدى الحياة (بدلاً من 200 ج.م) لأول 100 مشترك فقط!
+                            </div>
+                            <p className="text-xs sm:text-sm text-zinc-600 dark:text-zinc-300 font-medium leading-relaxed">
+                                تريد تحليلاً غير محدود لمحفظتك وتوصيات الأسهم لحظة بلحظة؟ انضم الآن لقناة الـ VIP واحصل على جميع مميزات Pro بدون قيود.
                             </p>
                         </div>
 
@@ -970,7 +973,7 @@ export default function ChatWidget() {
                                 }}
                                 className="w-full py-3 px-4 bg-[#FFE600] hover:bg-yellow-300 text-black font-black text-sm border-3 border-black shadow-[4px_4px_0_0_#000] active:translate-x-0.5 active:translate-y-0.5 transition-all flex items-center justify-center gap-2 cursor-pointer"
                             >
-                                <span>اشترك الآن في Pro (200 ج.م / شهر)</span>
+                                <span>اشترك الآن في Pro بـ 50 ج.م فقط ⚡</span>
                                 <span>←</span>
                             </button>
                             <button

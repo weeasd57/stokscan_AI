@@ -508,7 +508,7 @@ export async function POST(req: NextRequest) {
                     error: "LIMIT_REACHED",
                     limit_type: "daily",
                     daily_limit: effectiveDailyLimit,
-                    detail: "لقد استهلكت رصيدك اليومي المجاني (5/5). تريد تحليلاً غير محدود لمحفظتك وتوصيات الأسهم لحظة بلحظة؟ اشترك الآن في Pro بـ 200 ج.م فقط شهرياً واشترك في قناة الـ VIP."
+                    detail: "لقد استهلكت رصيدك اليومي المجاني (5/5). 🔥 حصرياً: احجز مقعدك الآن ضمن أول 100 مؤسس بـ 50 ج.م فقط شهرياً (بدلاً من 200 ج.م) واحصل على تحليل غير محدود لمحفظتك وقناة توصيات VIP!"
                 }, { status: 429 });
             }
             limitData = { chat_count: Number(quota.chat_count || 0) };

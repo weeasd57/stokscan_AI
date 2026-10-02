@@ -526,7 +526,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             if (response.status === 429) {
                 setRemainingQuota(0);
                 setShowUpgradeModal(true);
-                let detail = "لقد استهلكت رصيدك اليومي المجاني (5/5). تريد تحليلاً غير محدود لمحفظتك وتوصيات الأسهم لحظة بلحظة؟ اشترك الآن في Pro بـ 200 ج.م فقط شهرياً واشترك في قناة الـ VIP.";
+                let detail = "لقد استهلكت رصيدك اليومي المجاني (5/5). 🔥 حصرياً: احجز مقعدك الآن ضمن أول 100 مؤسس بـ 50 ج.م فقط شهرياً (بدلاً من 200 ج.م) واحصل على تحليل غير محدود لمحفظتك وقناة توصيات VIP!";
                 try {
                     const data = await response.json();
                     if (data.detail && typeof data.detail === "string") {
