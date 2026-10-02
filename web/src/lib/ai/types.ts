@@ -137,6 +137,8 @@ export interface RequestContract {
     clarification_reason?: string | null;
 }
 
+import type { RecommendationCollection } from "./recommendation-evidence";
+
 export interface ToolResult {
     tool: string;
     source: string;
@@ -149,6 +151,7 @@ export interface ToolResult {
     evidence?: Evidence[];
     /** Whether the tool could actually cover this request. */
     availability?: ToolAvailability;
+    recommendation_collection?: RecommendationCollection;
 }
 
 /** Uniform coverage state every tool result exposes to the responder. */

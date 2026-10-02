@@ -1,5 +1,7 @@
 import { ToolResult, VisionContext } from "./types";
 
+import { recommendationPerformance } from "./recommendation-evidence";
+
 export interface ExcelTable {
     id: string;
     title: string;
@@ -171,12 +173,14 @@ function buildRecommendationsTable(tool: ToolResult): ExcelTable | null {
                     ? "ضربت الوقف (خاسرة)"
                     : (item.status_label || item.status || "مغلقة");
         const cleanDate = item.created_at ? String(item.created_at).slice(0, 10) : "-";
-        const returnText = item.return_pct == null ? "غير متاح" : `${item.return_pct >= 0 ? "+" : ""}${Number(item.return_pct).toFixed(2)}%`;
+        const performance = recommendationPerformance(item);
+        const returnText = performance.return_pct == null ? "غير متاح" : `${performance.return_pct >= 0 ? "+" : ""}${performance.return_pct.toFixed(2)}%`;
         return [
             cell(item.symbol), cell(item.name), cell(item.signal || "BUY"), cell(item.entry_price),
-            cell(item.target_price), cell(item.stop_loss), cell(item.current_price),
+            cell(item.target_price), cell(item.stop_loss), cell(performance.valuation_price),
             returnText,
-            cell(statusText), cell(cleanDate)
+            cell(statusText), cell(cleanDate), cell(performance.valuation_date),
+            performance.return_basis === "closed_realized" ? "محقق عند الإغلاق" : performance.return_basis === "open_mark_to_market" ? "غير محقق" : "غير متاح"
         ];
     });
     if (rows.length === 0) return null;
@@ -184,7 +188,7 @@ function buildRecommendationsTable(tool: ToolResult): ExcelTable | null {
     return {
         id: tool.tool,
         title: "الإشارات المسجلة",
-        headers: ["السهم", "الاسم", "الإشارة المسجلة", "سعر الدخول", "الهدف", "وقف الخسارة", "السعر الحالي", "العائد", "الحالة", "تاريخ الإشارة"],
+        headers: ["السهم", "الاسم", "الإشارة المسجلة", "سعر الدخول", "الهدف", "وقف الخسارة", "سعر التقييم", "العائد", "الحالة", "تاريخ الإشارة", "تاريخ التقييم", "نوع العائد"],
         rows,
         source: tool.source,
         data_time: tool.data_time

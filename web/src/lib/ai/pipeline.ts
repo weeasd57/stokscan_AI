@@ -21,8 +21,10 @@ import { attachEvidenceContract } from "./evidence";
 import { buildFactRecords } from "./facts";
 import { runAnswerGate, buildGateCorrectionBlock } from "./answer-gate";
 import { safeEvidenceResponse } from "./response-evidence";
+import { isUnspecifiedOpportunityRequest } from "./intent-policy";
 
 export interface PipelineResult {
+    publication_review?: { passed: boolean; repaired: boolean; final_passed: boolean; reasons: string[] };
     vision: VisionContext | null;
     memory: MemoryResult | null;
     plan: IntentPlan;
@@ -180,6 +182,7 @@ export function sanitizePlannerTools(message: string, tools: string[]): string[]
 
 /** Market ranking is a different question from ranking daily price movers. */
 export function getMarketRankingMode(message: string, requested?: PlannerResult["request"]): "price_change" | "liquidity_unavailable" | "accumulation" | null {
+    if (isUnspecifiedOpportunityRequest(message)) return null;
     const normalized = normalizeArabicIntent(message);
     if (/(?:وايكوف|wyckoff|مرحله\s+تجميع|اسهم\s+التجميع|سيوله\s+مؤسسيه|سيوله\s+ذكيه|تجميع\s+مؤسسي|التجميع\s+المؤسسي)/i.test(normalized)) return "accumulation";
     if (requested?.ranking_metric === "accumulation") return "accumulation";
@@ -1885,6 +1888,7 @@ export async function* runPipelineStream(
                         toolResults: publicationTools.results, userMessage, history,
                         facts: buildFactRecords(publicationTools.results) };
                     const gate = runAnswerGate(gateInput);
+                    let finalPassed = gate.ok;
                     if (!gate.ok) {
                         let repaired = safeEvidenceResponse(userMessage, publicationTools.results);
                         // Deterministic shortcuts also get a contextual LLM repair,
@@ -1900,10 +1904,11 @@ export async function* runPipelineStream(
                             } catch { /* A provider failure must not publish the rejected candidate. */ }
                         }
                         const repairedGate = runAnswerGate({ ...gateInput, reply: repaired });
+                        finalPassed = repairedGate.ok;
                         next.value.data.response = repairedGate.ok ? repaired : "تعذر التحقق من إجابة متسقة مع سؤالك والبيانات المتاحة. أعد المحاولة لاستكمال التحقق.";
                         next.value.data.degraded = true;
                     }
-                    next.value.data.publication_review = { passed: gate.ok, repaired: !gate.ok, reasons: gate.reasons };
+                    next.value.data.publication_review = { passed: gate.ok, repaired: !gate.ok, final_passed: finalPassed, reasons: gate.reasons };
                 }
                 yield { type: "token", data: next.value.data.response };
                 yield next.value;
@@ -2673,6 +2678,23 @@ async function* runPipelineCore(
         : enforced.replaceTools
         ? [...enforced.tools, ...requestedFactTools]
         : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools])));
+    // Reconcile the planner's interpretation with what the user actually asked.
+    // A broad opportunities request needs a criterion, not an invented scan.
+    const unspecifiedOpportunities = isUnspecifiedOpportunityRequest(userMessage)
+        && !isFairValueScanRequest(userMessage)
+        && explicitSymbols.length === 0 && groupReferenceSymbols.length === 0
+        && !plannerResult.entities.sector && !compoundRequest;
+    if (unspecifiedOpportunities) {
+        mergedSymbols = [];
+        plannedTools.splice(0, plannedTools.length);
+        effectiveIntent = "clarification";
+        plannerResult.clarification_needed = true;
+        plannerResult.clarification_options = ["توصيات المنصة المفتوحة", "أسهم التجميع المؤسسي", "أعلى الأسهم ارتفاعاً اليوم"];
+        plannerResult.request = {
+            goal: userMessage, reference: "market", ranking_metric: "unspecified", required_facts: [],
+            clarification_reason: "عشان أرتب الفرص حسب اللي يناسب طلبك: تقصد توصيات المنصة المفتوحة، ولا أسهم التجميع المؤسسي، ولا الأعلى ارتفاعاً؟ ولو تقصد استثمارًا طويل المدى قلّي المدة ومستوى المخاطرة اللي يناسبك.",
+        };
+    }
     const marketRankingMode = mergedSymbols.length === 0 ? getMarketRankingMode(userMessage, plannerResult.request) : null;
     if (marketRankingMode === "liquidity_unavailable") {
         plannedTools.splice(0, plannedTools.length);
@@ -2781,7 +2803,9 @@ async function* runPipelineCore(
 
     if (plan.clarification_needed) {
         const response = plan.request?.clarification_reason
-            ? `لا تتوفر لدي حالياً بيانات مسح موثقة لترتيب جميع أسهم السوق حسب السيولة وحجم التداول؛ لذلك لن أستبدل هذا الترتيب بقائمة الأسهم الأعلى ارتفاعاً أو بنتائج التجميع. أقدر أعرض أسهم التجميع المؤسسي (Wyckoff) أو أعلى الأسهم ارتفاعاً في السعر.`
+            ? plan.ranking_metric === "liquidity" || plan.ranking_metric === "liquidity_unavailable"
+                ? `لا تتوفر لدي حالياً بيانات مسح موثقة لترتيب جميع أسهم السوق حسب السيولة وحجم التداول؛ لذلك لن أستبدل هذا الترتيب بقائمة الأسهم الأعلى ارتفاعاً أو بنتائج التجميع. أقدر أعرض أسهم التجميع المؤسسي (Wyckoff) أو أعلى الأسهم ارتفاعاً في السعر.`
+                : plan.request.clarification_reason
             : buildDeterministicResponse(userMessage, plan, []);
         const safeResponse = response || "اختار المقصود من الخيارات عشان أستخدم الأداة المناسبة.";
         yield { type: "token", data: safeResponse };
@@ -3629,6 +3653,7 @@ export async function runPipeline(
         else if (event.type === "tools_data") result.tools = event.data;
         else if (event.type === "done") {
             result.response = event.data.response;
+            result.publication_review = event.data.publication_review;
             result.session_update = event.data.session_update ?? result.session_update;
             result.tables = event.data.tables ?? [];
         }

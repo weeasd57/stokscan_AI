@@ -704,6 +704,7 @@ export async function POST(req: NextRequest) {
                                      const responseMetadata = {
                                          ...extractProvenanceFromToolResults(toolsResults, streamTables),
                                          correlation_id: correlationId,
+                                         publication_review: event.data?.publication_review || null,
                                          vision_error: event.data?.vision_error || null,
                                          response_kind: event.data?.vision_error ? "vision_fallback" : "normal",
                                      };

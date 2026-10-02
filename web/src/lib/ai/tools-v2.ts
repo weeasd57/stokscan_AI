@@ -11,6 +11,7 @@ import {
 } from "./portfolio-tools";
 import { attachEvidenceContract } from "./evidence";
 import { todayInCairo } from "./cairo-date";
+import { fetchRecommendationPages, positiveRecommendationPrice, recommendationPerformance, summarizeRecommendationEvidence } from "./recommendation-evidence";
 
 function normalizeArabic(str: string): string {
     return str
@@ -1173,7 +1174,7 @@ export async function executeStructuredTools(
                     .or(symbols.map(s => `symbol.ilike.${s}`).join(","))
                     .order("scan_date", { ascending: false }),
                 supabase.from("scan_results")
-                    .select("symbol, name, signal, status, entry_price, target_price, stop_loss, exit_price, profit_loss_pct, created_at, updated_at")
+                    .select("id, symbol, name, signal, status, entry_price, target_price, stop_loss, exit_price, profit_loss_pct, created_at, updated_at", { count: "exact" })
                     .or(symbols.map(s => `symbol.ilike.${s}`).join(","))
                     .order("created_at", { ascending: false })
             ]);
@@ -1396,7 +1397,7 @@ export async function executeStructuredTools(
                             tool: "get_stock",
                             availability: liveInfo?.unsupported && (price || tech) ? "partial" : liveInfo?.unsupported ? "unsupported" : liveFailed ? "stale" : isLive ? "available" : price || tech ? "stale" : "empty",
                             source: isLive ? "live_session" : "database",
-                            data_time: isLive ? (techData?.live_updated_at || now) : (priceData?.date || techData?.date || now),
+                            data_time: isLive ? (techData?.live_updated_at || now) : (priceDate || now),
                             symbols: [upperSym],
                             data_type: isLive ? "live" : "historical",
                             data: {
@@ -1881,7 +1882,7 @@ export async function executeStructuredTools(
 
             const fetchRecommendationPage = (from: number, to: number) => {
                 let query = supabase.from("scan_results")
-                    .select("symbol, name, signal, status, entry_price, target_price, stop_loss, exit_price, profit_loss_pct, created_at, updated_at")
+                    .select("id, symbol, name, signal, status, entry_price, target_price, stop_loss, exit_price, profit_loss_pct, created_at, updated_at", { count: "exact" })
                     .eq("country", AI_CONFIG.tools.defaultCountry);
                 if (symbols.length > 0) query = query.or(symbols.map(s => `symbol.ilike.${s}`).join(","));
 
@@ -1895,70 +1896,84 @@ export async function executeStructuredTools(
                     query = query.gte("created_at", lastWeekStart).lte("created_at", lastWeekEnd);
                 }
 
-                return query.order("created_at", { ascending: oldestRequest }).range(from, to);
+                return query.order("created_at", { ascending: oldestRequest }).order("id", { ascending: oldestRequest }).range(from, to);
             };
-            const { data, error } = await fetchRecommendationPage(0, AI_CONFIG.tools.recommendationsLimit - 1);
-            if (error) throw error;
-            const recsData: any[] = data || [];
+            const page = await fetchRecommendationPages(fetchRecommendationPage);
+            if (page.error && !page.rows.length) throw page.error;
+            const recsData = page.rows;
 
             const scopedRecs = symbols.length > 0
                 ? (recsData || []).filter((row: any) => symbols.includes(String(row.symbol || "").toUpperCase()))
                 : (recsData || []);
             if (scopedRecs.length > 0) {
                 const recommendationSymbols = Array.from(new Set(scopedRecs.map((row: any) => String(row.symbol || "").toUpperCase()).filter(Boolean)));
-                const { data: latestPrices } = await supabase.from("stock_prices")
-                    .select("symbol, close, date").in("symbol", recommendationSymbols)
-                    .order("date", { ascending: false }).limit(recommendationSymbols.length * 2);
                 const latestBySymbol = new Map<string, any>();
-                (latestPrices || []).forEach((row: any) => {
-                    const key = String(row.symbol || "").toUpperCase();
-                    if (key && !latestBySymbol.has(key)) latestBySymbol.set(key, row);
-                });
+                const quoteFailures = new Set<string>();
+                // Per-symbol limit ensures actively traded names cannot crowd
+                // sparse symbols out of a global latest-prices window.
+                for (let offset = 0; offset < recommendationSymbols.length; offset += 8) {
+                    await Promise.all(recommendationSymbols.slice(offset, offset + 8).map(async symbol => {
+                        try {
+                            const { data: quotes, error: quoteError } = await supabase.from("stock_prices")
+                                .select("symbol, close, date").eq("exchange", AI_CONFIG.tools.defaultExchange)
+                                .eq("symbol", symbol).order("date", { ascending: false }).limit(1);
+                            if (quoteError) quoteFailures.add(symbol);
+                            else if (quotes?.[0]) latestBySymbol.set(symbol, quotes[0]);
+                        } catch { quoteFailures.add(symbol); }
+                    }));
+                }
                 const enrichedRecommendations = scopedRecs.map((row: any) => {
-                    const entry = Number(row.entry_price);
-                    const target = Number(row.target_price);
-                    const stop = Number(row.stop_loss);
+                    const entry = positiveRecommendationPrice(row.entry_price);
+                    const target = positiveRecommendationPrice(row.target_price);
+                    const stop = positiveRecommendationPrice(row.stop_loss);
                     const signal = String(row.signal || "").toUpperCase();
-                    const quality = oldestRequest ? { ok: Boolean(row.created_at), reason: row.created_at ? null : "missing_date" } : dataDateQuality(row.created_at, 365);
+                    // An open record does not cease to exist after 365 days.
+                    // Preserve its actual date instead of silently discarding it.
+                    const validDate = !!row.created_at && Number.isFinite(Date.parse(row.created_at));
+                    const quality = { ok: validDate, reason: validDate ? null : "missing_date" };
                     const levelsValid = signal === "BUY"
-                        ? Number.isFinite(entry) && Number.isFinite(target) && Number.isFinite(stop) && target > entry
+                        ? entry != null && target != null && stop != null && target > entry
                         : signal === "SELL"
-                            ? Number.isFinite(entry) && Number.isFinite(target) && Number.isFinite(stop) && target < entry
+                            ? entry != null && target != null && stop != null && target < entry
                             : false;
                     const current = latestBySymbol.get(String(row.symbol || "").toUpperCase());
-                    const currentPrice = Number(current?.close);
-                    const returnPct = row.profit_loss_pct != null
-                        ? Number(row.profit_loss_pct)
-                        : (Number.isFinite(entry) && entry > 0 && Number.isFinite(currentPrice) ? ((currentPrice - entry) / entry) * 100 : null);
+                    const currentPrice = positiveRecommendationPrice(current?.close);
+                    const performance = recommendationPerformance({ ...row, current_price: currentPrice, current_date: current?.date || null });
                     return {
                         ...row,
-                        current_price: Number.isFinite(currentPrice) ? currentPrice : null,
+                        current_price: currentPrice,
                         current_date: current?.date || null,
-                        return_pct: returnPct,
+                        // Keep the archived value explicitly separate from the
+                        // computed display contract so consumers cannot mix it.
+                        stored_profit_loss_pct: row.profit_loss_pct,
+                        profit_loss_pct: performance.return_pct,
+                        ...performance,
+                        quote_status: quoteFailures.has(String(row.symbol || "").toUpperCase()) ? "failed" : currentPrice == null ? "missing" : "available",
                         status_label: row.status === "open" ? "نشطة (مفتوحة)" : row.status === "win" ? "حققت الهدف (رابحة)" : row.status === "loss" ? "ضربت الوقف (خاسرة)" : (row.status || "مغلقة"),
                         validation: { ok: quality.ok && levelsValid, date: quality, levels: levelsValid ? null : "invalid_trade_levels" }
                     };
-                }).filter((row: any) => row.validation.ok).slice(0, AI_CONFIG.tools.recommendationsLimit);
+                }).filter((row: any) => row.validation.ok);
+                const collection = {
+                    ...page.collection, returned_count: enrichedRecommendations.length,
+                    excluded_count: page.rows.length - enrichedRecommendations.length,
+                    complete: page.collection.complete && page.rows.length === enrichedRecommendations.length,
+                };
 
                 if (enrichedRecommendations.length === 0) {
-                    const noRecMsg = recFilter === "open"
-                        ? "لا توجد توصيات مفتوحة حالياً في النظام."
-                        : recFilter === "this_week"
-                            ? "لم تصدر توصيات خلال هذا الأسبوع حتى الآن."
-                            : recFilter === "last_week"
-                                ? "لم يتم العثور على توصيات مسجلة للأسبوع الماضي."
-                                : "لا توجد توصيات مطابقة للشروط حالياً.";
-                    results.push({ tool: "get_recommendations", source: "validation", data_time: now, symbols: [], data_type: "historical", data: [], error: noRecMsg });
+                    const noRecMsg = `وُجدت ${page.rows.length} توصية مطابقة، لكن بياناتها لا تجتاز التحقق من التاريخ ومستويات الدخول والهدف والوقف. تعذر عرض قائمة موثقة.`;
+                    results.push({ tool: "get_recommendations", source: "validation", data_time: now, symbols: [], data_type: "historical", data: [], error: noRecMsg, availability: "partial", recommendation_collection: collection });
                     textParts.push(`[توصيات المنصة]: ${noRecMsg}`);
                     return finalize(textParts.join("\n"));
                 }
 
                 const filterTitle = recFilter === "open" ? "التوصيات المفتوحة الحالية" : recFilter === "this_week" ? "توصيات الأسبوع الحالي" : recFilter === "last_week" ? "توصيات الأسبوع الماضي" : "إشارات وتوصيات التداول";
-                textParts.push(`\n [${filterTitle} من منصة EGX Bots (${enrichedRecommendations.length} توصية - الجدول الكامل التفاعلي معروض للمستخدم أعلى الشاشة)]:`);
+                const summary = summarizeRecommendationEvidence(enrichedRecommendations, collection);
+                textParts.push(`\n [${filterTitle} من منصة EGX Bots]: المعروض ${summary.count} من ${collection.matched_total ?? "إجمالي غير مؤكد"} توصية مطابقة. ${collection.complete ? "القائمة كاملة." : `القائمة غير مكتملة؛ المستبعد للتحقق ${collection.excluded_count}${collection.capped ? "؛ بلغ الجلب الحد الأقصى" : ""}${collection.fetch_failed ? "؛ تعذر استكمال الجلب" : ""}.`}`);
+                textParts.push(`التقييم: ${summary.profit} رابحة، ${summary.loss} خاسرة، ${summary.flat} متعادلة، ${summary.unknown} غير قابلة للحساب. عوائد المفتوح غير محققة؛ المغلق محسوب من سعر الخروج.`);
                 enrichedRecommendations.forEach((r: any, idx: number) => {
                     const retSign = r.return_pct != null ? `${r.return_pct >= 0 ? "+" : ""}${Number(r.return_pct).toFixed(2)}%` : "-";
                     const dur = formatRecDuration(r.created_at);
-                    textParts.push(`• ${idx + 1}. ${r.symbol} (${r.name || r.symbol}): إشارة ${r.signal || "BUY"} | حالة ${r.status_label} | دخول ${r.entry_price} ج.م | مستهدف ${r.target_price} ج.م | وقف ${r.stop_loss} ج.م | عائد ${retSign} | ${dur}`);
+                    textParts.push(`• ${idx + 1}. ${r.symbol} (${r.name || r.symbol}): إشارة ${r.signal || "BUY"} | حالة ${r.status_label} | دخول ${r.entry_price} ج.م | مستهدف ${r.target_price} ج.م | وقف ${r.stop_loss} ج.م | عائد ${retSign} (${r.return_basis}) | سعر التقييم ${r.valuation_price ?? "غير متاح"} بتاريخ ${r.valuation_date || "غير موثق"} | تاريخ الإشارة ${r.signal_date} | ${dur}`);
                 });
 
                 results.push({
@@ -1967,7 +1982,13 @@ export async function executeStructuredTools(
                     data_time: enrichedRecommendations.map((r: any) => String(r.created_at || "").slice(0, 10)).filter(Boolean).sort().pop() || now,
                     symbols: enrichedRecommendations.map((r: any) => r.symbol),
                     data_type: "historical",
-                    data: enrichedRecommendations
+                    data: enrichedRecommendations,
+                    recommendation_collection: collection,
+                    availability: collection.complete && !quoteFailures.size && !summary.unknown ? "available" : "partial",
+                    evidence: enrichedRecommendations.flatMap((r: any) => [
+                        { source: "scan_results", as_of: r.signal_date, fetched_at: now, claim: `${r.symbol}: entry ${r.entry_price}, exit ${r.exit_price ?? "unknown"}`, freshness: "unknown" as const, confidence: null },
+                        { source: "stock_prices", as_of: r.quote_date, fetched_at: now, claim: `${r.symbol}: close ${r.current_price ?? "unknown"}`, freshness: "unknown" as const, confidence: null },
+                    ]),
                 });
             } else {
                 const targetSymbol = symbols.length > 0 ? symbols.join(", ") : "";
@@ -1987,12 +2008,18 @@ export async function executeStructuredTools(
                     symbols,
                     data_type: "historical",
                     data: [],
-                    error: noRecMsg
+                    error: noRecMsg,
+                    availability: "empty",
+                    recommendation_collection: page.collection,
                 });
                 textParts.push(`[توصيات المنصة]: ${noRecMsg}`);
             }
         } catch (e) {
             console.warn("Error fetching recommendations:", e);
+            const error = "تعذر جلب التوصيات من المصدر حالياً؛ لا يمكن تأكيد عددها أو أدائها.";
+            results.push({ tool: "get_recommendations", source: "scan_results", data_time: now, symbols, data_type: "historical", data: [], error, availability: "failed",
+                recommendation_collection: { matched_total: null, fetched_count: 0, returned_count: 0, excluded_count: 0, complete: false, capped: false, fetch_failed: true } });
+            textParts.push(error);
         }
     }
 

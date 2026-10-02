@@ -1,5 +1,6 @@
 import { ToolResult } from "./types";
 import { summarizeNewsEvidence } from "./news-evidence";
+import { renderRecommendationEvidence } from "./recommendation-presentation";
 
 export function volumeRatio(value: unknown): number | null {
     if (value == null || value === "") return null;
@@ -50,6 +51,25 @@ export function evidenceViolations(reply: string, message: string, results: Tool
     }
     const stocks = results.filter(r => r.tool === "get_stock" && !r.error);
     for (const stock of stocks) {
+        const symbol = String(stock.data?.symbol || stock.symbols[0] || "");
+        const otherSymbols = stocks.map(r => String(r.data?.symbol || r.symbols[0] || "")).filter(Boolean);
+        const quoteClauses = reply.split("\n").flatMap(line => {
+            const lineSymbols = [...new Set((line.match(new RegExp(`\\b(?:${otherSymbols.join("|")})\\b`, "gi")) || []).map(value => value.toUpperCase()))];
+            if (lineSymbols.length <= 1 && lineSymbols[0] === symbol.toUpperCase()) return [line];
+            const named = [...line.matchAll(new RegExp(`\\b(?:${otherSymbols.join("|")})\\b`, "gi"))];
+            return named.filter(match => match[0].toUpperCase() === symbol.toUpperCase()).map(match => {
+                const next = named.find(candidate => (candidate.index ?? 0) > (match.index ?? 0));
+                return line.slice(match.index, next?.index ?? line.length);
+            });
+        }).filter(clause => /سعر|إغلاق|اغلاق|يتداول/.test(clause));
+        if (quoteClauses.length && !stock.data?.is_live_intraday) {
+            const date = String(stock.data_time || "").slice(0, 10);
+            if (date && quoteClauses.some(clause => !clause.includes(date))) reasons.push(`${symbol}: اذكر تاريخ آخر إغلاق ${date} مع سعره صراحة في الرد.`);
+            if (quoteClauses.some(clause => !/إغلاق|اغلاق|سعر مسجل|بيانات مسجلة|بيانات مسجله/.test(clause))) reasons.push(`${symbol}: السعر المسجل إغلاق يومي؛ وضّح نوعه بجانب السعر.`);
+            const affirmativeLive = quoteClauses.map(clause => clause.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه")).some(line => /بيانات تداول مباشره|(?:السعر|سعر|يتداول).{0,18}(?:لحظي|مباشر)/.test(line)
+                && !/ليس|ليست|غير|لا يتوفر|لا تتوفر|مش/.test(line));
+            if (affirmativeLive) reasons.push(`${symbol}: لا تصف بيانات الإغلاق اليومية بأنها تداول مباشر أو سعر لحظي.`);
+        }
         const clauses = stocks.length === 1 ? normalized.split(/\n|[؛。]/) : normalized.split("\n").filter(line => line.includes(String(stock.data?.symbol || stock.symbols[0])));
         const ratio = volumeRatio(stock.data?.vol_ratio_num ?? stock.data?.vol_ratio);
         if (ratio != null && ratio < 1 && clauses.some(line => /(?:الحجم|حجم التداول)\s+(?:المرتفع|مرتفع)|حجم\s+(?:عال|عالي|كبير)/.test(line) && !/اذا|لو|ليس|مش|غير/.test(line))) reasons.push("نسبة الحجم أقل من المتوسط؛ لا تصف الحجم بأنه مرتفع.");
@@ -59,6 +79,25 @@ export function evidenceViolations(reply: string, message: string, results: Tool
 
 export function safeEvidenceResponse(message: string, results: ToolResult[]): string {
     const sections: string[] = [];
+    for (const actionResult of results.filter(r => r.tool === "get_corporate_actions" && !r.error)) {
+        const actions = Array.isArray(actionResult.data?.corporate_actions) ? actionResult.data.corporate_actions : [];
+        if (actions.length) sections.push(["أحداث الشركات الموثقة:", ...actions.slice(0, 20).map((action: any) => {
+            const kind = action.action_type === "bonus_shares" ? "أسهم مجانية" : action.action_type || "نوع الحدث غير محدد";
+            return `- ${action.symbol || "الشركة"}: ${kind}؛ ${action.title || action.headline || "التفاصيل التنفيذية غير متاحة"}؛ تاريخ ${action.event_date || action.date || actionResult.data_time || "غير محدد"}.`;
+        })].join("\n"));
+    }
+    const recommendations = results.find(r => r.tool === "get_recommendations" || r.tool === "get_signals");
+    if (recommendations) sections.push(renderRecommendationEvidence(recommendations));
+    for (const scan of results.filter(r => r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks")) {
+        const metric = scan.tool === "get_distribution_stocks" ? "التصريف" : "التجميع";
+        const field = scan.tool === "get_distribution_stocks" ? "dist_score" : "acc_score";
+        const rows = Array.isArray(scan.data?.stocks) ? scan.data.stocks : [];
+        const date = String(scan.data?.date || scan.data_time || "تاريخ غير محدد").slice(0, 10);
+        sections.push(rows.length
+            ? [`أحدث مسح ${metric} متاح بتاريخ ${date}:`, ...rows.slice(0, 15).map((row: any) =>
+                `- ${row.symbol}: درجة ${metric} ${row[field] ?? "غير متاحة"}/100؛ مرحلة وايكوف ${row.wyckoff_phase || "غير متاحة"}.`)].join("\n")
+            : `لم تظهر أسهم موثقة في مسح ${metric} المتاح بتاريخ ${date}.`);
+    }
     const market = results.find(r => r.tool === "get_market" && !r.error);
     if (market) {
         const d = market.data || {};
@@ -81,6 +120,7 @@ export function safeEvidenceResponse(message: string, results: ToolResult[]): st
         sections.push(selected.length ? selected.slice(0, 5).map(a => `- ${a.title} (${a.event_date || "تاريخ النشر غير موثق"})`).join("\n") : "لم أجد خبراً موثقاً اليوم في المصادر المتاحة؛ هذا لا يؤكد عدم صدور أخبار.");
     }
     for (const r of results.filter(r => r.tool === "get_stock" && !r.error)) {
+        if (r.data?.price != null) sections.push(`${r.data?.symbol || r.symbols[0]}: السعر ${r.data?.is_live_intraday ? "اللحظي" : "آخر إغلاق مسجل"} ${r.data.price} جنيه بتاريخ ${r.data_time || "غير محدد"}.`);
         sections.push(`${r.data?.symbol || r.symbols[0]} — نسبة حجم التداول ${r.data?.vol_ratio ?? "غير متاحة"}: ${volumeAssessment(r.data?.vol_ratio)}. حجم التداول وحده لا يثبت التجميع أو التصريف.`);
     }
     return sections.join("\n\n") || "تعذر التحقق من إجابة متسقة مع سؤالك والبيانات المتاحة. أعد المحاولة لاستكمال التحقق.";

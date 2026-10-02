@@ -22,6 +22,7 @@ import { FactRecord } from "./facts";
 import { isVerifiableDerivedMetric, splitSentences } from "./validator";
 import { isPortfolioAnalysisRequest, isConversationalChoiceOrFollowUp } from "./intent-policy";
 import { evidenceViolations } from "./response-evidence";
+import { checkStructuredClaims } from "./claim-evidence";
 
 export interface AnswerGateInput {
     reply: string;
@@ -133,6 +134,10 @@ function checkAttribution(reply: string, facts: FactRecord[]): string[] {
                 const anyFieldOk = matchesAny(value, specific || percentFields)
                     || (!specific && symbolFacts.some(record => record.field === "rsi" && Math.abs(value - record.value) <= 0.6))
                     || (!specific && symbolFacts.some(record => (record.field === "acc_score" || record.field === "dist_score") && Math.abs(value - record.value) <= 0.6));
+                // Percentages used as explanatory strengths (for example a
+                // divergence confidence) are not stock returns or price
+                // changes unless the sentence labels their metric.
+                if (!specific && !symbolFacts.some(record => ["rsi", "acc_score", "dist_score"].includes(record.field) && Math.abs(value - record.value) <= 0.6)) continue;
                 if (!anyFieldOk) {
                     reasons.push(`نسبة ${value}% منسوبة للسهم ${symbol} لكنها لا تطابق أي حقيقة مسجلة لهذا السهم — استعمل قيم ${symbol} من البيانات فقط أو احذف الرقم.`);
                 }
@@ -153,7 +158,7 @@ function checkAttribution(reply: string, facts: FactRecord[]): string[] {
  */
 export function runAnswerGate(input: AnswerGateInput): AnswerGateResult {
     const { reply, plan, toolResults, userMessage, facts } = input;
-    const reasons: string[] = evidenceViolations(reply, userMessage, toolResults);
+    const reasons: string[] = [...evidenceViolations(reply, userMessage, toolResults), ...checkStructuredClaims(reply, toolResults)];
     const checked = { coverage: false, metric: false, attribution: false, context: false };
 
     // Ownership is a three-state fact: nonempty, verified empty, or unknown.

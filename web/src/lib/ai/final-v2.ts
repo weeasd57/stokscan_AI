@@ -10,6 +10,8 @@ import { executionFetch } from "./execution";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { buildComparisonMatrix } from "./comparison-matrix";
 import { evidencePolicyPrompt, volumeAssessment } from "./response-evidence";
+import { recommendationPerformance } from "./recommendation-evidence";
+import { recommendationSummaryText, renderRecommendationEvidence } from "./recommendation-presentation";
 
 const MAX_CONTEXT_CHARS = 30000;
 
@@ -413,9 +415,13 @@ export function buildV2FinalMessages(
             historicalResults.forEach(r => {
                 sections.push(`الأداة: ${r.tool} | المصدر: ${r.source} | الوقت: ${r.data_time} | نوع: ${r.data_type}`);
                 if (r.tool === "get_recommendations" && Array.isArray(r.data)) {
+                    sections.push(recommendationSummaryText(r));
+                    sections.push("انقل أعداد الحالات من الملخص الموثق. العائد المفقود ليس تعادلاً. ميّز تاريخ صدور الإشارة عن تاريخ تقييم أدائها، ولا تصف البيانات الناقصة بالقائمة الكاملة.");
                     sections.push("  recommendations_data (Use this strictly for qualitative performance analysis; DO NOT output raw table rows into the text response as the interactive Excel table is already rendered above your answer):");
                     r.data.forEach((rec: any, idx: number) => {
-                        const retSign = rec.return_pct != null ? `${rec.return_pct >= 0 ? "+" : ""}${Number(rec.return_pct).toFixed(2)}%` : "-";
+                        const performance = recommendationPerformance(rec);
+                        const retSign = performance.return_pct != null ? `${performance.return_pct >= 0 ? "+" : ""}${performance.return_pct.toFixed(2)}%` : "غير متاح";
+                        sections.push(`  تقييم ${rec.symbol}: السعر=${performance.valuation_price ?? "غير متاح"} بتاريخ=${performance.valuation_date || "غير متاح"}، نوع العائد=${performance.return_basis}`);
                         sections.push(`  - [${rec.symbol} - ${rec.name || rec.symbol}]: إشارة=${rec.signal || "BUY"} | حالة=${rec.status_label || rec.status} | دخول=${rec.entry_price} ج.م | هدف=${rec.target_price} ج.م | وقف=${rec.stop_loss} ج.م | عائد=${retSign} | مدة=${rec.duration || rec.created_at}`);
                     });
                 } else if (typeof r.data === "object" && r.data !== null) {
@@ -2316,10 +2322,10 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             const egx = data.egx_ai_score != null ? `${(Number(data.egx_ai_score) * 100).toFixed(1)}%` : null;
             const levelsStr = level?.support != null && level?.resistance != null ? `الدعم ${Number(level.support).toFixed(2)} | المقاومة ${Number(level.resistance).toFixed(2)}` : "المستويات غير متاحة";
             const mlStr = (king || egx) ? ` | الذكاء الاصطناعي: KING ${king || "—"} / EGX ${egx || "—"}` : "";
-            return `• **${data.symbol}** (${data.name || data.symbol}): السعر ${data.price ?? "—"} ج.م (${data.change_pct ?? "—"}) | RSI: ${data.rsi_14 ?? "—"} (${momentum}) | حجم: ${data.vol_ratio ?? "—"} | ${levelsStr}${mlStr}`;
+            return `• ${data.symbol}: **${data.symbol}** (${data.name || data.symbol}): السعر ${data.price ?? "—"} ج.م (${data.change_pct ?? "—"}) | RSI: ${data.rsi_14 ?? "—"} (${momentum}) | حجم: ${data.vol_ratio ?? "—"} | ${levelsStr}${mlStr}`;
         });
         return [
-            "📊 **تقرير التحليل الفني الشامل للأسهم المطلوبة:**",
+            "📊 **تقرير التحليل الفني الشامل للأسهم المطلوبة — ملخص فني مختصر:**",
             ...items,
             "\n💡 **إدارة المخاطر:** يُنصح بمتابعة حركة كل سهم بالنسبة لمستويات دعمه ومقاومته لتحديد فرص الارتداد وتخفيف المخاطر عند كسر الدعوم. الأرقام وصفية استرشادية وليست توصية شراء أو بيع مباشرة."
         ].join("\n");
@@ -2590,16 +2596,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         if (rows.length === 0) return recommendations.error
             ? `${recommendations.error} لا أعرض إشارة قديمة أو متناقضة على أنها توصية حالية.`
             : "لا توجد إشارات تاريخية مسجلة يمكن تقييمها حالياً.";
-        const evaluated = rows.filter((row: any) => row.return_pct != null);
-        const profitable = evaluated.filter((row: any) => Number(row.return_pct) > 0).length;
-        const average = evaluated.length ? evaluated.reduce((sum: number, row: any) => sum + Number(row.return_pct), 0) / evaluated.length : null;
-        return [
-            "هذه إشارات فنية تاريخية مسجلة بالنظام وليست توصيات جديدة.",
-            `تم تقييم ${evaluated.length} من ${rows.length} إشارة مقابل آخر سعر متاح: ${profitable} رابحة غير محققة و${evaluated.length - profitable} خاسرة غير محققة.`,
-            average == null ? "لا يتوفر سعر حالي كافٍ لحساب العائد." : `متوسط العائد الحسابي غير الموزون: ${average >= 0 ? "+" : ""}${average.toFixed(2)}%. لا يشمل عمولات أو أوزان المحفظة.`,
-            ...rows.slice(0, 10).map((row: any) => row.return_pct == null ? `- ${row.symbol}: آخر سعر متاح غير موجود.` : `- ${row.symbol}: الدخول ${row.entry_price}، آخر سعر متاح ${row.current_price}، العائد ${row.return_pct >= 0 ? "+" : ""}${Number(row.return_pct).toFixed(2)}%، ${row.status}.`),
-            "بلوغ الهدف أو وقف الخسارة يحتاج بيانات أسعار تغطي الفترة كاملة؛ العائد هنا مقارنة بآخر سعر متاح فقط."
-        ].join("\n");
+        return renderRecommendationEvidence(recommendations);
     }
 
     const historical = toolResults.find(result => result.tool === "get_historical_facts");
@@ -2981,7 +2978,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         const lines = stocks.slice(0, 10).map(result => {
             const data = result.data;
             const facts = [
-                data.price != null ? `السعر ${data.price} جنيه` : null,
+                data.price != null ? stockPriceLabel(result) : null,
                 data.change_pct != null ? `تغير الجلسة ${data.change_pct}` : null,
                 data.rsi_14 != null ? `RSI ${data.rsi_14}` : null,
                 data.vol_ratio != null ? `الحجم ${data.vol_ratio} من متوسط 20 جلسة` : null
@@ -3005,7 +3002,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
 
         const omitted = stocks.length > 10 ? `تم عرض ملخص أول 10 أسهم فقط؛ الجدول المنظم يحتوي على جميع الأسهم المتاحة (${stocks.length}).` : null;
         const opinionLines = stocks.length <= 3 ? stocks.map(result => buildStockOpinion(result, levelResults)) : [];
-        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), ...lines, ...levelLines, levelFallback, ...opinionLines, ...(fairValueRequest ? buildTechnicalValuationLines(stocks, levelResults) : []), omitted, "هذه أرقام بيانات تداول مباشرة استرشادية من قاعدة البيانات، وليست توصية مباشرة بالشراء أو البيع."].filter(Boolean).join("\n");
+        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), ...lines, ...levelLines, levelFallback, ...opinionLines, ...(fairValueRequest ? buildTechnicalValuationLines(stocks, levelResults) : []), omitted, "هذه قراءة استرشادية للبيانات المؤرخة أعلاه، والقرار الاستثماري يعود لك."].filter(Boolean).join("\n");
 
     }
 

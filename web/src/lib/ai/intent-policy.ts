@@ -214,6 +214,14 @@ export function isBestBuyStockQuestion(message: string): boolean {
         || /^(?:ايه\s+افضل\s+سهم\s+للشراء|افضل\s+سهم\s+للشراء|أفضل\s+سهم\s+للشراء|اشتري\s+ايه\s+بكره|أشتري\s+إيه\s+بكرة|مين\s+ادخله\s+بكره|مين\s+أدخله\s+بكرة|نجم\s+الاسبوع|نجم\s+الأسبوع|القطاع\s+اللي\s+هيطلع|القطاع\s+اللي\s+يرتفع|السهم\s+اللي\s+هيرتفع|افضل\s+الفرص\s+المتاحة\s+حالياً|أفضل\s+الفرص\s+المتاحة\s+حالياً|رشحلى|رشحلي|رشح)/i.test(value);
 }
 
+/** A superlative does not authorize inventing a ranking metric. */
+export function isUnspecifiedOpportunityRequest(message: string): boolean {
+    const value = normalizeArabicIntent(message);
+    return isBestBuyStockQuestion(message)
+        && /افضل|احسن|فرص|رشح|ترشح/.test(value)
+        && !/توصي|تجميع|تصريف|وايكوف|wyckoff|سيوله|حجم|دعم|مقاوم|زخم|rsi|macd|ربحيه|توزيعات|عائد|قيمه|ارخص|اعلي ارتفاع|اعلي صعود|اكثر ارتفاع/.test(value);
+}
+
 export function isFairValueScanRequest(message: string): boolean {
     if (isTermsDefinitionRequest(message)) return false;
     const normalized = normalizeArabicIntent(message).replace(/[؟?]/g, " ");

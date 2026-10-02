@@ -1,4 +1,5 @@
 import { evidenceViolations, safeEvidenceResponse, volumeAssessment } from "../response-evidence";
+import { checkStructuredClaims } from "../claim-evidence";
 import { runPipelineStream } from "../pipeline";
 
 const market: any = { tool: "get_market", source: "database", data_type: "historical", data_time: "2026-09-28", symbols: [], data: {
@@ -30,6 +31,23 @@ test("below-average volume contradicts elevated-volume interpretation", () => {
     expect(volumeAssessment(null)).toBe("غير متاح");
     expect(evidenceViolations("الحجم المرتفع يؤكد أهمية الحركة", "تحليل السيولة", [stock])).not.toEqual([]);
     expect(evidenceViolations("لو الحجم مرتفع يمكن متابعة الحركة", "تحليل السيولة", [stock])).toEqual([]);
+});
+
+test("stock quote dates are bound to each symbol clause", () => {
+    const stocks: any[] = [
+        { tool: "get_stock", symbols: ["SAUD"], data_time: "2026-10-01", data: { symbol: "SAUD", price: 23.11 } },
+        { tool: "get_stock", symbols: ["GTHE"], data_time: "2026-09-30", data: { symbol: "GTHE", price: 4.25 } },
+    ];
+    const swapped = "SAUD: آخر إغلاق مسجل 23.11 بتاريخ 2026-09-30\nGTHE: آخر إغلاق مسجل 4.25 بتاريخ 2026-10-01";
+    expect(evidenceViolations(swapped, "أسعار السهمين", stocks)).toHaveLength(2);
+});
+
+test("bonus-share denial is rejected and fallback preserves the corporate action", () => {
+    const action: any = { tool: "get_corporate_actions", data_time: "2026-10-01", data: { corporate_actions: [
+        { symbol: "ORHD", action_type: "bonus_shares", title: "توزيع أسهم مجانية", event_date: "2026-10-15" },
+    ] } };
+    expect(checkStructuredClaims("لا توجد أسهم مجانية لـ ORHD", [action])).not.toEqual([]);
+    expect(safeEvidenceResponse("حدث ORHD", [action])).toContain("أسهم مجانية");
 });
 
 test("stream publication reviews deterministic market responses before first token", async () => {
