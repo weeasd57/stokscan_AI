@@ -22,6 +22,7 @@ import { buildFactRecords } from "./facts";
 import { runAnswerGate, buildGateCorrectionBlock } from "./answer-gate";
 import { safeEvidenceResponse } from "./response-evidence";
 import { isUnspecifiedOpportunityRequest } from "./intent-policy";
+import { completeToolsByFacets } from "./tool-completion";
 import { explicitBollingerPreset } from "./scan-request";
 
 export interface PipelineResult {
@@ -2736,6 +2737,16 @@ async function* runPipelineCore(
         if (marketRankingMode === "accumulation") plannerResult.entities.scan_direction = "accumulation";
     }
     if (marketRankingMode === "price_change" && !plannerResult.clarification_needed && !plannedTools.includes("get_market")) plannedTools.push("get_market");
+    if (!plannerResult.clarification_needed && !isTermsDefinitionRequest(userMessage) && plannedTools.length > 0) {
+        const completion = completeToolsByFacets({
+            message: userMessage,
+            symbols: explicitSymbols,
+            tools: plannedTools,
+            sector: enforced.sector || plannerResult.entities.sector || null,
+        });
+        for (const tool of completion.added) plannedTools.push(tool);
+        if (completion.stockFacetAdded && effectiveIntent === "market_summary") effectiveIntent = "stock_analysis";
+    }
     // Day-by-day change questions need the daily price rows; the compound-command
     // path above can bypass enforceIntentFromMessage and the planner sometimes
     // omits get_price_history, so re-add it here.
@@ -3297,8 +3308,7 @@ async function* runPipelineCore(
     // 🛡️ Final safety net: if the reply is not an Arabic answer (e.g. leaked
     // English chain-of-thought survived all attempts), use the safe Arabic fallback.
     const finalArabicChars = (fullResponse.match(/[\u0600-\u06FF]/g) || []).length;
-    const finalAsciiChars = (fullResponse.match(/[A-Za-z]/g) || []).length;
-    if (finalArabicChars < 40 || finalAsciiChars > finalArabicChars) {
+    if (finalArabicChars < 30) {
         console.warn("[VALIDATOR] Final reply lacks Arabic content — using safe fallback");
         fullResponse = sanitizeReply(
             buildDeterministicResponse(userMessage, plan, tools.results, sessionState)

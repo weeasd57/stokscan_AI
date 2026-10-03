@@ -436,6 +436,33 @@ export function isVerifiableCrossSymbolMetric(val: number, factsBySymbol: Record
 }
 
 /**
+ * True when `val` equals |a - b| for two numeric values that belong to the same
+ * tool result (numeric strings such as "17.52" included). Bounded to keep it cheap.
+ */
+export function isDifferenceOfSameResultValues(val: number, toolResults: any[], tolerance = 0.015): boolean {
+    for (const result of toolResults || []) {
+        const data = result?.data;
+        if (!data || typeof data !== "object") continue;
+        const rows: any[] = Array.isArray(data) ? data.slice(0, 40) : [data];
+        for (const row of rows) {
+            if (!row || typeof row !== "object") continue;
+            const values: number[] = [];
+            for (const raw of Object.values(row)) {
+                const n = typeof raw === "number" ? raw : typeof raw === "string" && /^-?\d+(?:\.\d+)?$/.test(raw.trim()) ? Number(raw) : NaN;
+                if (Number.isFinite(n)) values.push(n);
+                if (values.length >= 80) break;
+            }
+            for (let i = 0; i < values.length; i++) {
+                for (let j = i + 1; j < values.length; j++) {
+                    if (Math.abs(val - Math.abs(values[i] - values[j])) <= tolerance) return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/**
  * Extracts typed semantic claims from a sentence for a target symbol.
  */
 export function extractSentenceClaims(sentence: string, activeSymbol: string, facts: Record<string, any>): SemanticClaim[] {
@@ -469,7 +496,8 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
         const isStandardRsiThreshold = [30, 40, 50, 60, 70, 80].includes(num)
             && /(?:فوق|تحت|مستوى|حد|عتبة|منطقة)\s*$/i.test(numberPrefix);
         const isRsiSpecific = new RegExp(`(?:rsi|قوة نسبية|قوه نسبيه)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
-        if (isRsiSpecific && !isStandardRsiThreshold && num <= 100 && !isPercent) {
+        const isRsiPeriodToken = num === 14 && /(?:rsi|قوة نسبية|قوه نسبيه)\s*[(\-–]?\s*14\b/i.test(sentence);
+        if (isRsiSpecific && !isRsiPeriodToken && !isStandardRsiThreshold && num <= 100 && !isPercent) {
             claims.push({ type: "rsi", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
         }
@@ -987,6 +1015,12 @@ export function validateResponse(
                 }
             }
 
+            // Gap/spread between two values reported by the same tool result
+            // (price vs band, level vs level, ...). Pure arithmetic on evidence.
+            if (!isMatched && isDifferenceOfSameResultValues(num, toolResults)) {
+                isMatched = true;
+            }
+
             // Check if level falls inside known support..resistance analyst band
             if (!isMatched) {
                 for (const sym of Object.keys(factsBySymbol)) {
@@ -1016,8 +1050,8 @@ export function validateResponse(
     const asciiLetters = (replyText.match(/[A-Za-z]/g) || []).length;
     const hasCotMarkers = /The user is asking|Technical analysis perspective|Historical Data \(Sector|Analysis for|Gainers list matches|Let me (think|analyze|check|look|review)|I need to (check|analyze|look|find|compare)|thinking process|The question (is|asks)/i.test(replyText);
     
-    // Only flag as English thinking if there's genuinely no Arabic at all, or it's overwhelmingly English with CoT markers
-    const englishThinking = (arabicChars < 10 && asciiLetters > 20) || (asciiLetters > arabicChars * 2) || (hasCotMarkers && asciiLetters > arabicChars);
+    // Only flag as English thinking if there is virtually no Arabic content at all, or if CoT markers are leaked in English.
+    const englishThinking = (arabicChars < 15 && asciiLetters > 50) || (hasCotMarkers && asciiLetters > 200);
 
     return {
         isValid: suspiciousSymbols.length === 0 && suspiciousNumbers.length === 0 && !hasRepetitions && deterministicErrors.length === 0 && !englishThinking,
@@ -1041,9 +1075,12 @@ export function hasExcessiveRepetitions(text: string): boolean {
     const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 10);
     const counts = new Map<string, number>();
     for (const line of lines) {
+        // Skip common repetitive UI elements, disclaimers, telegram links, and table borders
+        if (/egx bots|تليجرام|تنبيهات|نصيحة استثمار|القرار ليك|جدول تحليلي|تصدير لإكسيل|---|===|http/i.test(line)) continue;
         const normalized = line.replace(/[^\w\s\u0621-\u064a]/g, "").replace(/\s+/g, " ");
+        if (!normalized || normalized.length < 15) continue;
         counts.set(normalized, (counts.get(normalized) || 0) + 1);
-        if ((counts.get(normalized) || 0) > 2) {
+        if ((counts.get(normalized) || 0) > 3) {
             return true;
         }
     }
