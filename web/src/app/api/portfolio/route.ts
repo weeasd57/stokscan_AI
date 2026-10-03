@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getSupabaseServiceClient } from "@/lib/supabase/route-data";
-import { getViewerContext } from "@/lib/supabase/viewer-context";
+import { getViewerIdentity } from "@/lib/supabase/viewer-context";
 
 // GET /api/portfolio — current user's holdings + cash + live valuation + market symbols list
 export async function GET(req: NextRequest) {
@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
         // Portfolio hydration runs on every profile visit. Resolve identity
         // through the refresh-free viewer context so parallel GETs cannot race
         // the same refresh token on the server.
-        const { userId } = await getViewerContext(req);
+        const { userId } = await getViewerIdentity(req);
         if (!userId) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
