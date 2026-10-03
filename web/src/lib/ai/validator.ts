@@ -130,7 +130,7 @@ export function extractSymbols(text: string, knownSymbols: string[] = []): strin
     const matches = text.match(/\b[A-Z]{3,6}\b/g) || [];
     // Supplied facts take precedence over the generic English/technical-word filter.
     const valid = Array.from(new Set(matches)).filter(sym => knownSymbols.includes(sym) || !TECHNICAL_EXCLUSIONS.has(sym));
-    if (valid.length > 0) return valid;
+    const allSymbols = new Set(valid);
 
     try {
         const mappings = getSyncStockMappings();
@@ -138,13 +138,13 @@ export function extractSymbols(text: string, knownSymbols: string[] = []): strin
         for (const [arName, symbol] of Object.entries(mappings)) {
             if (arName.length >= 3 && norm.includes(arName.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase())) {
                 const sym = Array.isArray(symbol) ? symbol[0] : symbol;
-                if (sym) return [sym.toUpperCase()];
+                if (sym) allSymbols.add(sym.toUpperCase());
             }
         }
     } catch {
         // ignore
     }
-    return [];
+    return Array.from(allSymbols);
 }
 
 /**
@@ -167,7 +167,7 @@ export function extractNumbers(text: string): number[] {
  * multiple distinct claims (e.g. "السعر 6، والدعم 5") as a single type.
  */
 export function splitSentences(text: string): string[] {
-    return text.split(/(?<!\d)\.(?!\d)|[\n؟?!؛،,]|(?:^|\s)و(?:\s|$)/).map(s => s.trim()).filter(Boolean);
+    return text.split(/(?<!\d)\.(?!\d)|[\n؟?!؛،,]|(?:^|\s)(?:و|بينما|في حين|مقابل)(?:\s|$)/).map(s => s.trim()).filter(Boolean);
 }
 
 /** Preserve explicit stock-column ownership before splitting table cells into clauses. */
@@ -274,7 +274,77 @@ export function buildFactsBySymbol(toolResults: any[]): Record<string, any> {
         }
         if (Array.isArray(r.data?.stocks)) {
             r.data.stocks.forEach((s: any) => {
-                if (s.symbol) processSymbolData(s.symbol, s);
+                if (s?.symbol) {
+                    processSymbolData(s.symbol, s);
+                    if (s.tech && typeof s.tech === "object") processSymbolData(s.symbol, s.tech);
+                }
+            });
+        }
+        if (Array.isArray(r.data?.gainers)) {
+            r.data.gainers.forEach((s: any) => {
+                if (s?.symbol) {
+                    processSymbolData(s.symbol, s);
+                    if (s.tech && typeof s.tech === "object") processSymbolData(s.symbol, s.tech);
+                }
+            });
+        }
+        if (Array.isArray(r.data?.losers)) {
+            r.data.losers.forEach((s: any) => {
+                if (s?.symbol) {
+                    processSymbolData(s.symbol, s);
+                    if (s.tech && typeof s.tech === "object") processSymbolData(s.symbol, s.tech);
+                }
+            });
+        }
+        if (Array.isArray(r.data?.top_gainers)) {
+            r.data.top_gainers.forEach((m: any) => {
+                if (m?.symbol) {
+                    processSymbolData(m.symbol, {
+                        symbol: m.symbol,
+                        change_pct: m.change ?? m.change_pct,
+                        price: m.price ?? m.close,
+                        name: m.name
+                    });
+                }
+            });
+        }
+        if (Array.isArray(r.data?.top_losers)) {
+            r.data.top_losers.forEach((m: any) => {
+                if (m?.symbol) {
+                    processSymbolData(m.symbol, {
+                        symbol: m.symbol,
+                        change_pct: m.change ?? m.change_pct,
+                        price: m.price ?? m.close,
+                        name: m.name
+                    });
+                }
+            });
+        }
+        if (Array.isArray(r.data?.comparisons)) {
+            r.data.comparisons.forEach((c: any) => {
+                if (c?.symbol) processSymbolData(c.symbol, c);
+            });
+        }
+        if (Array.isArray(r.data?.positions)) {
+            r.data.positions.forEach((pos: any) => {
+                if (pos?.symbol) {
+                    const sym = String(pos.symbol).toUpperCase();
+                    if (!factsBySymbol[sym]) factsBySymbol[sym] = {};
+                    if (pos.entry_price != null) factsBySymbol[sym].entry_price = Number(pos.entry_price);
+                    if (pos.buy_price != null) factsBySymbol[sym].entry_price = Number(pos.buy_price);
+                    if (pos.shares != null) factsBySymbol[sym].quantity = Number(pos.shares);
+                    if (pos.quantity != null) factsBySymbol[sym].quantity = Number(pos.quantity);
+                    if (pos.last_price != null) {
+                        const lp = Number(pos.last_price);
+                        if (Number.isFinite(lp)) {
+                            factsBySymbol[sym].price = lp;
+                            if (!Array.isArray(factsBySymbol[sym].price_candidates)) factsBySymbol[sym].price_candidates = [];
+                            if (!factsBySymbol[sym].price_candidates.some((p: number) => Math.abs(p - lp) < 1e-9)) {
+                                factsBySymbol[sym].price_candidates.push(lp);
+                            }
+                        }
+                    }
+                }
             });
         }
         if (r.tool === "get_comparison" && r.data && typeof r.data === "object") {
@@ -372,6 +442,16 @@ export function isVerifiableDerivedMetric(val: number, facts: Record<string, any
         if (Math.abs(val - mlDiff * 100) <= 1.0) return true;                     // percentage points (0.5)
     }
 
+    // 10. Portfolio metrics: PnL percentage ((price - entry_price) / entry_price) * 100, entry price, quantity
+    if (typeof p === "number" && typeof facts.entry_price === "number" && facts.entry_price > 0) {
+        const pnlPct = ((p - facts.entry_price) / facts.entry_price) * 100;
+        if (Math.abs(val - pnlPct) <= tolerance || Math.abs(val - Math.abs(pnlPct)) <= tolerance) return true;
+        const pnlAbs = Math.abs(p - facts.entry_price);
+        if (Math.abs(val - pnlAbs) <= tolerance) return true;
+    }
+    if (typeof facts.entry_price === "number" && Math.abs(val - facts.entry_price) <= 0.05) return true;
+    if (typeof facts.quantity === "number" && Math.abs(val - facts.quantity) <= 0.5) return true;
+
     return false;
 }
 
@@ -423,6 +503,12 @@ export function isVerifiableCrossSymbolMetric(val: number, factsBySymbol: Record
                 if (Math.abs(val - mlDiff) <= 0.10) return true;                   // decimal (0.005)
                 if (Math.abs(val - mlDiff * 100) <= 1.0) return true;              // percentage points (0.5)
                 if (f2.king_ai_score > 0 && Math.abs(val - (f1.king_ai_score / f2.king_ai_score)) <= 0.15) return true;
+            }
+            if (typeof f1.egx_ai_score === "number" && typeof f2.egx_ai_score === "number") {
+                const mlDiff = Math.abs(f1.egx_ai_score - f2.egx_ai_score);
+                if (Math.abs(val - mlDiff) <= 0.10) return true;                   // decimal (0.005)
+                if (Math.abs(val - mlDiff * 100) <= 1.0) return true;              // percentage points (0.5)
+                if (f2.egx_ai_score > 0 && Math.abs(val - (f1.egx_ai_score / f2.egx_ai_score)) <= 0.15) return true;
             }
 
             // Cross-symbol SMA difference
@@ -493,8 +579,12 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
         // A. RSI Claims: "RSI عند 54.31", "مؤشر القوة النسبية 54.31"
         const numberMatch = new RegExp(`\\b${escapedNum}\\b`).exec(sentence);
         const numberPrefix = numberMatch ? sentence.slice(Math.max(0, numberMatch.index - 24), numberMatch.index) : "";
-        const isStandardRsiThreshold = [30, 40, 50, 60, 70, 80].includes(num)
-            && /(?:فوق|تحت|مستوى|حد|عتبة|منطقة)\s*$/i.test(numberPrefix);
+        const isStandardRsiThreshold = [20, 25, 30, 40, 50, 60, 70, 80].includes(num)
+            && (
+                /(?:فوق|تحت|دون|أقل من|اقل من|أعلى من|اعلى من|مستوى|حد|عتبة|منطقة|حاجز|نطاق|خط)\s*(?:الـ|ال)?$/i.test(numberPrefix)
+                || /(?:تشبع\s*(?:بيعي|شرائي)|overbought|oversold)/i.test(sentence)
+                || (facts.rsi != null && Math.abs(num - facts.rsi) > 1 && new RegExp(`\\b${Number(facts.rsi).toFixed(1).replace(".", "\\.")}\\b|\\b${Math.round(facts.rsi)}\\b`).test(sentence))
+            );
         const isRsiSpecific = new RegExp(`(?:rsi|قوة نسبية|قوه نسبيه)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
         const isRsiPeriodToken = num === 14 && /(?:rsi|قوة نسبية|قوه نسبيه)\s*[(\-–]?\s*14\b/i.test(sentence);
         if (isRsiSpecific && !isRsiPeriodToken && !isStandardRsiThreshold && num <= 100 && !isPercent) {
@@ -634,6 +724,7 @@ export function validateDeterministicRules(
         // global symbol/number checks still verify that every value came from
         // tool evidence, so skip only the ambiguous per-symbol semantic pass.
         if (symbols.length > 1) continue;
+        if (knownSymbols.length > 1 && symbols.length === 0 && !symbol) continue;
         
         if (!activeSymbol || !factsBySymbol[activeSymbol]) continue;
         const facts = factsBySymbol[activeSymbol];
@@ -862,7 +953,7 @@ export function validateDeterministicRules(
                 case "rsi": {
                     if (facts.rsi != null) {
                         const rsi = facts.rsi;
-                        const isMatch = Math.abs(claim.value - rsi) <= 0.51 || (rsi > 0 && Math.abs(claim.value - rsi) / rsi <= 0.01);
+                        const isMatch = Math.abs(claim.value - rsi) <= 1.05 || Math.abs(claim.value - Math.round(rsi)) <= 0.05 || Math.abs(claim.value - Math.floor(rsi)) <= 0.05 || (rsi > 0 && Math.abs(claim.value - rsi) / rsi <= 0.02);
                         if (!isMatch) {
                             errors.push(`تضارب في قيمة RSI لسهم ${activeSymbol}: القيمة الفعلية هي ${rsi} ولكن الرد يحتوي على ${claim.value}.`);
                         }

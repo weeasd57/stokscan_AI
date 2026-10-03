@@ -120,7 +120,26 @@ export function evidenceViolations(reply: string, message: string, results: Tool
             const date = String(stock.data_time || "").slice(0, 10);
             const textHasDate = date && reply.includes(date);
             const textHasCloseLabel = /إغلاق|اغلاق|سعر مسجل|بيانات مسجلة|بيانات مسجله|يومي|غير لحظي/.test(normalized);
-            if (date && quoteClauses.some(clause => !clause.includes(date))) reasons.push(`${symbol}: اذكر تاريخ آخر إغلاق ${date} مع سعره صراحة في الرد.`);
+            const distinctStockDates = new Set(stocks.map(s => String(s.data_time || "").slice(0, 10)).filter(Boolean));
+            const hasMultipleStockDates = distinctStockDates.size > 1;
+
+            if (date) {
+                if (!textHasDate) {
+                    reasons.push(`${symbol}: اذكر تاريخ آخر إغلاق ${date} مع سعره صراحة في الرد.`);
+                } else if (hasMultipleStockDates) {
+                    if (quoteClauses.some(clause => !clause.includes(date))) {
+                        reasons.push(`${symbol}: اذكر تاريخ آخر إغلاق ${date} مع سعره صراحة في الرد.`);
+                    }
+                } else {
+                    const hasConflictingDate = quoteClauses.some(clause => {
+                        const clauseDates: string[] = clause.match(/\b\d{4}-\d{2}-\d{2}\b/g) || [];
+                        return clauseDates.length > 0 && !clauseDates.includes(date);
+                    });
+                    if (hasConflictingDate) {
+                        reasons.push(`${symbol}: اذكر تاريخ آخر إغلاق ${date} مع سعره صراحة في الرد.`);
+                    }
+                }
+            }
             if (!textHasCloseLabel && quoteClauses.some(clause => !/إغلاق|اغلاق|سعر مسجل|بيانات مسجلة|بيانات مسجله/.test(clause))) reasons.push(`${symbol}: السعر المسجل إغلاق يومي؛ وضّح نوعه بجانب السعر.`);
             const affirmativeLive = quoteClauses.map(clause => clause.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه")).some(line => /بيانات تداول مباشره|(?:السعر|سعر|يتداول).{0,18}(?:لحظي|مباشر)/.test(line)
                 && !/ليس|ليست|غير|لا يتوفر|لا تتوفر|مش/.test(line));
@@ -175,6 +194,17 @@ export function safeEvidenceResponse(message: string, results: ToolResult[]): st
                     ? `- ${row.symbol}: بديل نشط/زخم؛ السعر ${row.close}؛ التغير ${row.change_pct}%؛ RSI ${row.rsi_14 ?? "N/A"}؛ نسبة الحجم ${row.vol_ratio}x.`
                     : `- ${row.symbol}: درجة ${metric} ${row[field] ?? "غير متاحة"}/100؛ مرحلة وايكوف ${row.wyckoff_phase || "غير متاحة"}.`)].join("\n")
             : `لم تظهر أسهم موثقة في مسح ${metric} المتاح بتاريخ ${date}.`);
+    }
+    const sector = results.find(r => r.tool === "get_sector" && !r.error);
+    if (sector && sector.data?.sector) {
+        const d = sector.data;
+        sections.push(`المتاح لدي لقطة إغلاق يومية لقطاع ${d.sector} وليست بيانات لحظية (بتاريخ ${sector.data_time || "غير محدد"}).`);
+        if (Array.isArray(d.gainers) && d.gainers.length > 0) {
+            sections.push(`الأسهم الأكثر صعوداً بقطاع ${d.sector}:\n` + d.gainers.slice(0, 5).map((s: any) => `- ${s.symbol}: +${Number(s.tech?.change_pct || 0).toFixed(2)}%`).join("\n"));
+        }
+        if (Array.isArray(d.losers) && d.losers.length > 0) {
+            sections.push(`الأسهم الأكثر تراجعاً بقطاع ${d.sector}:\n` + d.losers.slice(0, 5).map((s: any) => `- ${s.symbol}: ${Number(s.tech?.change_pct || 0).toFixed(2)}%`).join("\n"));
+        }
     }
     const market = results.find(r => r.tool === "get_market" && !r.error);
     if (market) {

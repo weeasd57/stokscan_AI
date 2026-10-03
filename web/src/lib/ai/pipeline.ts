@@ -2469,6 +2469,21 @@ async function* runPipelineCore(
             request: { goal: userMessage, reference: "explicit", ranking_metric: "unspecified", required_facts: ["stock_quote", "technical_indicators"] } };
         isSemanticPlanAuthoritative = false;
     }
+    const asksSectorLiquidity = !hasImages && (
+        /(?:سيول|السيول).{0,30}(?:قطاع|القطاع|في\s+قطاع|في\s+القطاع|قطاعات|القطاعات)/i.test(normalizeArabicIntent(userMessage)) ||
+        /(?:انشط|أنشط|اقوى|أقوى|اعلى|أعلى|ترتيب|رتب)\s+(?:القطاعات|قطاعات)/i.test(normalizeArabicIntent(userMessage))
+    );
+    if (asksSectorLiquidity) {
+        plannerResult = {
+            ...plannerResult,
+            intent: "market_summary",
+            tools: ["get_sector_liquidity"],
+            clarification_needed: false,
+            entities: { ...plannerResult.entities, symbols: [] },
+            request: { goal: userMessage, reference: "market", ranking_metric: "liquidity", required_facts: ["liquidity"] }
+        };
+        isSemanticPlanAuthoritative = false;
+    }
 
     const imageSymbols = (hasImages && vision?.symbols?.length)
         ? vision.symbols.map(s => s.symbol).filter(Boolean)
@@ -3331,7 +3346,7 @@ async function* runPipelineCore(
         } else {
             const portfolioSnapshot = tools.results.find(result => result.tool === "manage_portfolio"
                 && !result.error && result.data?.ok === true && Array.isArray(result.data?.positions));
-            fullResponse = plan.entities.portfolio_operation === "view" && portfolioSnapshot
+            fullResponse = (plan.entities.portfolio_operation === "view" || isPortfolioAnalysisRequest(userMessage)) && portfolioSnapshot
                 ? (deterministicAlt || `${formatPortfolioSnapshotResponse(portfolioSnapshot.data)}\n\nتعذر إكمال التحليل الفني لكل المراكز بصورة موثوقة حالياً؛ أعد طلب التحليل بعد قليل.`)
                 : safeEvidenceResponse(userMessage, tools.results);
         }

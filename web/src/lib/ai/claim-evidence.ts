@@ -38,6 +38,9 @@ function recommendationClaimViolations(text: string, results: ToolResult[], user
     const reasons: string[] = [];
     const recommendations = recommendationRows(results);
     const allSymbols = Array.from(new Set(recommendations.map(item => item.symbol)));
+    const portfolioSnapshot = results.find(r => r.tool === "manage_portfolio" && !r.error && r.data?.ok === true && Array.isArray(r.data?.positions));
+    const portfolioPositions: any[] = portfolioSnapshot?.data?.positions || [];
+    const portfolioSymbols = new Set(portfolioPositions.map(p => String(p.symbol || "").toUpperCase()));
     // Carry a named symbol across comma continuations. Otherwise an answer
     // could put the false performance claim after "،" and bypass the gate.
     const clauses: Array<{ symbol: string; text: string }> = [];
@@ -51,6 +54,7 @@ function recommendationClaimViolations(text: string, results: ToolResult[], user
         }
     }
     for (const { row, symbol } of recommendations) {
+        const isPortfolioHolding = portfolioSymbols.has(symbol);
         const performance = recommendationPerformance(row);
         const related = clauses.filter(clause => clause.symbol === symbol).map(clause => clause.text);
         for (const clause of related) {
@@ -63,12 +67,15 @@ function recommendationClaimViolations(text: string, results: ToolResult[], user
             }
             const executionClaim = /(?:انت|إنت|أنت|حضرتك|عندك|معاك|مركزك|صفقتك).{0,35}(?:اشتريت|شريت|دخلت|نفذت|بعت|ربحت|خسرت|حققت)|(?:اشتريت|شريت|دخلت|نفذت|بعت|ربحت|خسرت|حققت).{0,35}(?:انت|إنت|أنت|حضرتك|عندك|معاك|مركزك|صفقتك)/.test(clause);
             const claimsRealizedExecution = /(?:بعت|ربحت|خسرت|حققت)/.test(clause);
-            const personalEvidence = executionClaim && userDisclosedExecution(userMessage, symbol, allSymbols, claimsRealizedExecution);
+            const personalEvidence = isPortfolioHolding || (executionClaim && userDisclosedExecution(userMessage, symbol, allSymbols, claimsRealizedExecution));
             if (executionClaim && !personalEvidence)
                 reasons.push(`${symbol}: توصية المنصة لا تثبت أن المستخدم نفّذها؛ لا تنسب له شراءً أو بيعاً أو ربحاً شخصياً دون إفادة صريحة منه.`);
-            // A user-disclosed trade has its own execution and exit price. It
+            // A user-disclosed trade or documented portfolio holding has its own execution and exit price. It
             // must not be compared with the platform signal's open return.
-            if (personalEvidence && !/توصي|اشار/.test(clause)) continue;
+            if ((personalEvidence || isPortfolioHolding) && !/(?:توصي|اشار|منصة|المنصة)/.test(clause)) continue;
+            // Corporate dividend/earnings reporting is independent of platform signals
+            if (/(?:توزيع|كوبون|صافي|تشغيلي|نمو|ايرادات|إيرادات).{0,25}أ?رباح|أ?رباح.{0,25}(?:توزيع|كوبون|صافي|تشغيلي|سنوي|فصلي|ربع سنوي)/.test(clause)) continue;
+
             if (performance.return_pct == null && /متعادل|لم تتحرك|عائد(?:ها)?\s*(?:صفر|0)/.test(clause))
                 reasons.push(`${symbol}: العائد غير متاح؛ لا تصفه بالتعادل أو عدم الحركة.`);
 
@@ -84,7 +91,7 @@ function recommendationClaimViolations(text: string, results: ToolResult[], user
                     continue;
                 }
                 const claimed = lossWord ? -amount : profitWord ? amount : Number(raw);
-                const isPlatformRecSentence = /توصي|إشار|اشار|منصة|المنصة|عائد|ربح|مكسب|أرباح|ارباح/.test(clause);
+                const isPlatformRecSentence = /(?:توصي|إشار|اشار|منصة|المنصة)/.test(clause) || (!isPortfolioHolding && /(?:عائد|ربح|مكسب|أرباح|ارباح)/.test(clause));
                 if (isPlatformRecSentence && (performance.return_pct == null || Math.abs(claimed - performance.return_pct) > .015))
                     reasons.push(`${symbol}: العائد المذكور لا يطابق العائد الموقّع المحسوب من سعر الدخول وسعر التقييم الموثقين.`);
             }

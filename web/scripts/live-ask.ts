@@ -31,20 +31,21 @@ async function main() {
     const state: any = { current_symbol: null, last_symbols: [], summary: null };
     const summary: any = { current_symbols: [], last_image_symbols: [], last_topic: null, open_references: [], last_data_date: null, last_vision_context: null, updated_at: new Date().toISOString() };
     const history: Array<{ role: string; content: string }> = [];
-    const userId = "00000000-0000-0000-0000-0000000000aa";
+    const userId = process.argv[4] || "00000000-0000-0000-0000-0000000000aa";
     const sessionId = crypto.randomUUID();
     const out: any[] = [];
 
     for (let n = 0; n < questions.length; n++) {
         const q = questions[n];
         const t0 = Date.now();
-        let plan: any = null, tools: any[] = [], reply = "";
+        let plan: any = null, tools: any[] = [], reply = "", review: any = null;
         try {
             for await (const ev of runPipelineStream(q, [], state, summary, history, supabase, apiKeys, userId, sessionId, `live_${Date.now()}_${n}`)) {
                 if (ev.type === "plan") plan = ev.data;
-                else if (ev.type === "tools") tools = Array.isArray(ev.data) ? ev.data : (ev.data?.results || ev.data?.tools || []);
+                else if (ev.type === "tools" || ev.type === "tools_data") tools = Array.isArray(ev.data) ? ev.data : (ev.data?.results || ev.data?.tools || []);
                 else if (ev.type === "token") reply += ev.data;
                 else if (ev.type === "done") {
+                    review = ev.data?.publication_review || null;
                     if (ev.data?.response) reply = ev.data.response;
                     if (ev.data?.session_update) Object.assign(state, ev.data.session_update);
                 }
@@ -59,9 +60,9 @@ async function main() {
         out.push({
             n: n + 1, q, ms: Date.now() - t0, intent: plan?.intent, symbols: plan?.entities?.symbols, plan_tools: plan?.tools,
             tools: tools.map(t => ({ tool: t.tool, source: t.source, symbols: t.symbols, avail: t.availability, rows: Array.isArray(t.data?.stocks) ? t.data.stocks.length : undefined })),
-            reply,
+            reply, review,
         });
-        console.log(`[${n + 1}] ${Date.now() - t0}ms intent=${plan?.intent} symbols=${JSON.stringify(plan?.entities?.symbols)} tools=${tools.map(t => t.tool).join(",")}`);
+        console.log(`[${n + 1}] ${Date.now() - t0}ms intent=${plan?.intent} symbols=${JSON.stringify(plan?.entities?.symbols)} plan_tools=${(plan?.tools || []).join(",")} tools=${tools.map(t => t.tool).join(",")} gate=${review ? JSON.stringify(review) : "n/a"}`);
     }
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
     fs.writeFileSync(outFile, JSON.stringify(out, null, 2), "utf-8");
