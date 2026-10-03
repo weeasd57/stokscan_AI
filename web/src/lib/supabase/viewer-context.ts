@@ -108,8 +108,7 @@ function readSessionAccessToken(req: NextRequest): string | null {
 }
 
 /** Verify the cookie session belongs to a real user — at most once per TTL. */
-async function resolveIdentity(req: NextRequest): Promise<string | null> {
-  const token = readSessionAccessToken(req);
+async function resolveIdentityToken(token: string | null): Promise<string | null> {
   if (!token) return null;
 
   const key = tokenFingerprint(token);
@@ -173,8 +172,23 @@ export interface ViewerIdentity {
   userId: string | null;
 }
 
+export interface ViewerAuth extends ViewerIdentity {
+  accessToken: string | null;
+}
+
 export interface ViewerContext extends ViewerIdentity {
   pro: boolean;
+}
+
+/**
+ * Verified identity plus the request's access JWT for server-to-server calls
+ * that must forward the user's credential. The token is never refreshed here.
+ */
+export async function getViewerAuth(req: NextRequest): Promise<ViewerAuth> {
+  const accessToken = readSessionAccessToken(req);
+  const userId = await resolveIdentityToken(accessToken);
+  if (!userId) return { authenticated: false, userId: null, accessToken: null };
+  return { authenticated: true, userId, accessToken };
 }
 
 /**
@@ -182,9 +196,8 @@ export interface ViewerContext extends ViewerIdentity {
  * reads that already load their own user-scoped entitlement data.
  */
 export async function getViewerIdentity(req: NextRequest): Promise<ViewerIdentity> {
-  const userId = await resolveIdentity(req);
-  if (!userId) return { authenticated: false, userId: null };
-  return { authenticated: true, userId };
+  const { authenticated, userId } = await getViewerAuth(req);
+  return { authenticated, userId };
 }
 
 /**
