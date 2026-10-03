@@ -1,5 +1,7 @@
 import json
+from datetime import datetime
 from unittest.mock import patch
+import pytest
 
 from api.daily_social_reports import generate_daily_social_reports, REPORT_KINDS
 
@@ -12,6 +14,13 @@ class Response:
 
 STEPS = [{'step': s, 'status': 'success'} for s in
          ('sync_prices', 'calculate_indicators', 'accumulation_scan', 'refresh_market_status')]
+
+
+@pytest.fixture(autouse=True)
+def trading_day():
+    with patch('api.daily_social_reports.datetime') as clock:
+        clock.now.return_value = datetime(2026, 10, 4, 18, 0)
+        yield
 
 
 def test_scheduled_run_generates_each_kind_once():
