@@ -1,28 +1,28 @@
-import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { NextRequest, NextResponse } from "next/server";
+import { getViewerIdentity } from "@/lib/supabase/viewer-context";
 import { getSupabaseServiceClient } from "@/lib/supabase/route-data";
 import { hasActiveProSubscription, planLimits } from "@/lib/ai/plan-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const supabase = await createSupabaseServerClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    // This is a high-traffic read route. Verify the access token without
+    // allowing a server-side refresh race, then scope every service query to
+    // the verified user id.
+    const { userId } = await getViewerIdentity(request);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const supabase = getSupabaseServiceClient();
+    const serviceClient = supabase;
 
     // 1. Fetch user active subscriptions
     const { data: subRows, error: subErr } = await supabase
       .from("subscriptions")
       .select("id, plan_id, status, current_period_end, created_at")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("status", "active")
       .order("current_period_end", { ascending: false })
       .limit(5);
@@ -46,18 +46,11 @@ export async function GET() {
     monthStart.setHours(0, 0, 0, 0);
     const monthStartStr = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, "0")}-01`;
 
-    let serviceClient: any = null;
-    try {
-      serviceClient = getSupabaseServiceClient();
-    } catch (e) {
-      serviceClient = supabase;
-    }
-
     // Fetch ai_chatbot_limits rows — MUST include "date" so we can find today's row.
     const limitRowsRes = await serviceClient
       .from("ai_chatbot_limits")
       .select("date, chat_count")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .gte("date", monthStartStr);
 
     if (limitRowsRes.error) {
@@ -84,7 +77,7 @@ export async function GET() {
     const { data: positionRows, error: posErr } = await supabase
       .from("positions")
       .select("symbol")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .eq("status", "open");
 
     if (posErr) {
@@ -114,7 +107,7 @@ export async function GET() {
         new Set((allActiveSubs || []).map((s: any) => s.user_id))
       ).slice(0, 100);
 
-      const subIdx = uniqueFounderUids.indexOf(user.id);
+      const subIdx = uniqueFounderUids.indexOf(userId);
       if (subIdx !== -1) {
         isFoundingMember = true;
         foundingMemberNumber = subIdx + 1;

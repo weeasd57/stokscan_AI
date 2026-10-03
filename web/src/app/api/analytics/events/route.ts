@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getSupabaseServiceClient } from "@/lib/supabase/route-data";
+import { getViewerIdentity } from "@/lib/supabase/viewer-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,9 +21,11 @@ function cleanMetadata(value: unknown): Record<string, string | number | boolean
 
 export async function POST(request: NextRequest) {
   try {
-    const authClient = await createSupabaseServerClient(request as any);
-    const { data: { user }, error: authError } = await authClient.auth.getUser();
-    if (authError || !user) return NextResponse.json({ ok: false }, { status: 401 });
+    // Telemetry can fire on every navigation/feature action. Verify the
+    // cookie access JWT without touching the refresh token so telemetry can
+    // never participate in an auth-refresh fan-out.
+    const { userId } = await getViewerIdentity(request);
+    if (!userId) return NextResponse.json({ ok: false }, { status: 401 });
     const body = await request.json().catch(() => ({}));
     const eventName = String(body?.event_name || "");
     if (!ALLOWED_EVENTS.has(eventName)) return NextResponse.json({ ok: false }, { status: 400 });
@@ -31,7 +33,7 @@ export async function POST(request: NextRequest) {
     if (!path.startsWith("/")) return NextResponse.json({ ok: false }, { status: 400 });
     const service = getSupabaseServiceClient();
     const { error } = await service.from("user_activity_events").insert({
-      user_id: user.id,
+      user_id: userId,
       session_id: String(body?.session_id || "").slice(0, 100) || null,
       event_name: eventName,
       path,
