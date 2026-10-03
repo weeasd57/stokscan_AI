@@ -16,23 +16,31 @@ beforeEach(() => {
 });
 afterAll(() => { process.env = savedEnv; });
 
-it("awaits Next 15 cookies and preserves cookie reads/writes", async () => {
-  const store = { get: jest.fn(() => ({ value: "session" })), set: jest.fn(), delete: jest.fn() };
+it("awaits Next 15 cookies and uses the current getAll/setAll SSR adapter", async () => {
+  const cookieRows = [{ name: "session-cookie", value: "session" }];
+  const store = { getAll: jest.fn(() => cookieRows), set: jest.fn() };
   (cookies as jest.Mock).mockResolvedValue(store);
+
   await createSupabaseServerClient();
+
   const adapter = (createServerClient as jest.Mock).mock.calls[0][2].cookies;
-  expect(adapter.get("session-cookie")).toBe("session");
-  adapter.set("session-cookie", "refreshed", { httpOnly: true });
-  expect(store.set).toHaveBeenCalledWith({ name: "session-cookie", value: "refreshed", httpOnly: true });
-  adapter.remove("session-cookie", {});
-  expect(store.delete).toHaveBeenCalledWith({ name: "session-cookie" });
+  expect(adapter.getAll()).toBe(cookieRows);
+  adapter.setAll([{ name: "session-cookie", value: "refreshed", options: { httpOnly: true } }]);
+  expect(store.set).toHaveBeenCalledWith("session-cookie", "refreshed", { httpOnly: true });
 });
 
 it("uses request cookies without accessing the ambient cookie store", async () => {
   const request = new NextRequest("https://egxbots.example/api/user/quota", { headers: { cookie: "session-cookie=request-session" } });
   await createSupabaseServerClient(request);
+
   expect(cookies).not.toHaveBeenCalled();
-  expect((createServerClient as jest.Mock).mock.calls[0][2].cookies.get("session-cookie")).toBe("request-session");
+  const adapter = (createServerClient as jest.Mock).mock.calls[0][2].cookies;
+  expect(adapter.getAll()).toEqual(expect.arrayContaining([
+    expect.objectContaining({ name: "session-cookie", value: "request-session" }),
+  ]));
+
+  adapter.setAll([{ name: "session-cookie", value: "rotated", options: {} }]);
+  expect(request.cookies.get("session-cookie")?.value).toBe("rotated");
 });
 
 it("uses the user's bearer token and public key, never a privileged credential", async () => {
