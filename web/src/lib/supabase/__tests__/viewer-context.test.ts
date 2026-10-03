@@ -1,17 +1,15 @@
 let mockSubscriptionRows: Array<{ plan_id: string; status: string; current_period_end: string }> = [];
 let mockSubscriptionError: unknown = null;
 let mockSubscriptionLookups = 0;
-
-jest.mock("@supabase/ssr", () => ({
-  createServerClient: () => ({
-    auth: { getSession: async () => ({ data: { session: { access_token: "test-token" } } }) },
-  }),
-}));
+let mockAuthJwt: string | undefined;
 
 jest.mock("@supabase/supabase-js", () => ({
   createClient: (_url: string, _key: string, options: any) => {
     if (options?.global?.headers?.Authorization) {
-      return { auth: { getUser: async () => ({ data: { user: { id: "test-user" } }, error: null }) } };
+      return { auth: { getUser: async (jwt?: string) => {
+        mockAuthJwt = jwt;
+        return { data: { user: { id: "test-user" } }, error: null };
+      } } };
     }
     return {
       from: () => ({
@@ -26,7 +24,14 @@ jest.mock("@supabase/supabase-js", () => ({
   },
 }));
 
-const request = { cookies: { getAll: () => [], get: () => undefined } } as any;
+const sessionCookie = "base64-" + Buffer.from(
+  JSON.stringify({ access_token: "test-token", refresh_token: "refresh-token" }),
+).toString("base64url");
+const request = {
+  cookies: {
+    getAll: () => [{ name: "sb-example-auth-token", value: sessionCookie }],
+  },
+} as any;
 
 describe("viewer plan freshness", () => {
   const oldEnv = { ...process.env };
@@ -41,11 +46,28 @@ describe("viewer plan freshness", () => {
     mockSubscriptionRows = [];
     mockSubscriptionError = null;
     mockSubscriptionLookups = 0;
+    mockAuthJwt = undefined;
   });
 
   afterEach(() => {
     jest.useRealTimers();
     process.env = { ...oldEnv };
+  });
+
+  it("reads chunked SSR cookies and verifies the access JWT explicitly", async () => {
+    const midpoint = Math.ceil(sessionCookie.length / 2);
+    const chunkedRequest = {
+      cookies: {
+        getAll: () => [
+          { name: "sb-example-auth-token.0", value: sessionCookie.slice(0, midpoint) },
+          { name: "sb-example-auth-token.1", value: sessionCookie.slice(midpoint) },
+        ],
+      },
+    } as any;
+
+    const { getViewerIdentity } = await import("../viewer-context");
+    expect(await getViewerIdentity(chunkedRequest)).toEqual({ authenticated: true, userId: "test-user" });
+    expect(mockAuthJwt).toBe("test-token");
   });
 
   it("refreshes a previously Free user within one minute after activation", async () => {

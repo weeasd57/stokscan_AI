@@ -1,14 +1,15 @@
-jest.mock("../supabase/server", () => ({ createSupabaseServerClient: jest.fn() }));
 jest.mock("../supabase/route-data", () => ({ getSupabaseServiceClient: jest.fn() }));
+jest.mock("../supabase/viewer-context", () => ({ getViewerAuth: jest.fn() }));
 jest.mock("../telegramProInvite", () => ({ createProTelegramInvite: jest.fn() }));
 
-import { createSupabaseServerClient } from "../supabase/server";
+import { NextRequest } from "next/server";
 import { getSupabaseServiceClient } from "../supabase/route-data";
+import { getViewerAuth } from "../supabase/viewer-context";
 import { createProTelegramInvite } from "../telegramProInvite";
 import { GET } from "../../app/api/profile/telegram-pro/route";
 
-const auth = createSupabaseServerClient as jest.Mock;
 const serviceClient = getSupabaseServiceClient as jest.Mock;
+const viewerAuth = getViewerAuth as jest.Mock;
 const createInvite = createProTelegramInvite as jest.Mock;
 const userId = "b79005b6-c266-41f1-af8f-e3902e63e574";
 const subscriptionEnd = "2030-09-22T00:00:00Z";
@@ -33,10 +34,7 @@ describe("VIP Telegram invitation route", () => {
     process.env.PYTHON_BACKEND_URL = "https://backend.example.test";
     delete process.env.TRADING_SIGNALS_API_URL;
     delete process.env.NEXT_PUBLIC_API_BASE_URL;
-    auth.mockReturnValue({ auth: {
-      getUser: jest.fn(async () => ({ data: { user: { id: userId } } })),
-      getSession: jest.fn(async () => ({ data: { session: { access_token: "test-user-token" } } })),
-    } });
+    viewerAuth.mockResolvedValue({ authenticated: true, userId, accessToken: "test-user-token" });
   });
 
   afterAll(() => {
@@ -64,7 +62,7 @@ describe("VIP Telegram invitation route", () => {
     const fetchMock = jest.fn(async () => ({ ok: true, json: async () => ({ telegram_pro_url: "https://t.me/+private-test-invite" }) }));
     global.fetch = fetchMock as any;
 
-    const response = await GET();
+    const response = await GET(new NextRequest("https://egxbots.example/api/profile/telegram-pro"));
     const body = await response.json();
 
     expect(body.is_pro).toBe(true);
@@ -85,7 +83,7 @@ describe("VIP Telegram invitation route", () => {
         : table === "pro_telegram_invites" ? query(null) : query([])),
     });
     createInvite.mockResolvedValue("");
-    const response = await GET();
+    const response = await GET(new NextRequest("https://egxbots.example/api/profile/telegram-pro"));
     const body = await response.json();
 
     expect(body).toMatchObject({ is_pro: true, invite_link: "", invite_status: "unavailable" });
@@ -108,7 +106,7 @@ describe("VIP Telegram invitation route", () => {
     const fetchMock = jest.fn(async () => ({ ok: true, json: async () => ({ telegram_pro_url: "https://t.me/+private-test-invite" }) }));
     global.fetch = fetchMock as any;
 
-    await GET();
+    await GET(new NextRequest("https://egxbots.example/api/profile/telegram-pro"));
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("https://public-backend.example.test/payment/easykash/status"), expect.any(Object));
   });
 
@@ -123,7 +121,7 @@ describe("VIP Telegram invitation route", () => {
     });
     createInvite.mockResolvedValue("");
 
-    const response = await GET();
+    const response = await GET(new NextRequest("https://egxbots.example/api/profile/telegram-pro"));
     expect(await response.json()).toMatchObject({ invite_link: "", invite_status: "unavailable" });
   });
 
@@ -132,16 +130,16 @@ describe("VIP Telegram invitation route", () => {
       from: jest.fn(() => query(null, { code: "PGRST205" })),
     });
 
-    const response = await GET();
+    const response = await GET(new NextRequest("https://egxbots.example/api/profile/telegram-pro"));
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "subscription_unavailable" });
     expect(createInvite).not.toHaveBeenCalled();
   });
 
   it("does not disclose VIP invitations to an unauthenticated request", async () => {
-    auth.mockReturnValue({ auth: { getUser: jest.fn(async () => ({ data: { user: null } })) } });
+    viewerAuth.mockResolvedValue({ authenticated: false, userId: null, accessToken: null });
 
-    const response = await GET();
+    const response = await GET(new NextRequest("https://egxbots.example/api/profile/telegram-pro"));
     expect(response.status).toBe(401);
     expect(serviceClient).not.toHaveBeenCalled();
   });
