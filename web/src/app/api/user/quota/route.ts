@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getViewerContext } from "@/lib/supabase/viewer-context";
+import { getViewerIdentity } from "@/lib/supabase/viewer-context";
 import { getSupabaseServiceClient } from "@/lib/supabase/route-data";
 import { hasActiveProSubscription, planLimits } from "@/lib/ai/plan-gate";
 
@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     // This is a high-traffic read route. Verify the access token without
     // allowing a server-side refresh race, then scope every service query to
     // the verified user id.
-    const { userId } = await getViewerContext(request);
+    const { userId } = await getViewerIdentity(request);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
