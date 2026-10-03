@@ -1,4 +1,4 @@
-﻿import { SessionState, SessionSummary, VisionContext } from "./types";
+import { SessionState, SessionSummary, VisionContext } from "./types";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function isUuid(id: unknown): boolean {
@@ -22,7 +22,10 @@ export async function loadSessionState(supabase: any, sessionId: string, userId:
             console.warn("Failed to load session state from Supabase:", error);
             return { current_symbol: null, last_symbols: [], summary: null, current_sector: null, persisted: false };
         }
-        if (sessionData?.state) {
+        if (!sessionData) {
+            return { current_symbol: null, last_symbols: [], summary: null, current_sector: null, persisted: false };
+        }
+        if (sessionData.state) {
             const state = sessionData.state as any;
             return {
                 current_symbol: state.current_symbol || null,
@@ -42,7 +45,7 @@ export async function loadSessionState(supabase: any, sessionId: string, userId:
         return {
             current_symbol: null,
             last_symbols: [],
-            summary: sessionData?.title || null,
+            summary: sessionData.title || null,
             current_sector: null,
             persisted: true
         };
@@ -107,8 +110,8 @@ export async function updateSessionSummary(
             .eq("id", sessionId)
             .eq("user_id", userId)
             .maybeSingle();
-        if (error) return false;
-        current = data?.summary_state || null;
+        if (error || !data) return false;
+        current = data.summary_state || null;
     } catch (e) {
         console.warn("Failed to read session summary before update:", e);
         return false;
@@ -140,7 +143,7 @@ export async function updateSessionSummary(
             .select("id")
             .maybeSingle();
         if (error || !data?.id) {
-            console.warn("Failed to update session summary:", error);
+            console.warn("Failed to update session summary:", error || "session not found");
             return false;
         }
         return true;

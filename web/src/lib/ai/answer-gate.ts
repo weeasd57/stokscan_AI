@@ -23,6 +23,7 @@ import { isVerifiableDerivedMetric, splitSentences } from "./validator";
 import { isPortfolioAnalysisRequest, isConversationalChoiceOrFollowUp } from "./intent-policy";
 import { evidenceViolations } from "./response-evidence";
 import { checkStructuredClaims } from "./claim-evidence";
+import { isTodayNewsRequest } from "./news-evidence";
 
 export interface AnswerGateInput {
     reply: string;
@@ -158,7 +159,7 @@ function checkAttribution(reply: string, facts: FactRecord[]): string[] {
  */
 export function runAnswerGate(input: AnswerGateInput): AnswerGateResult {
     const { reply, plan, toolResults, userMessage, facts } = input;
-    const reasons: string[] = [...evidenceViolations(reply, userMessage, toolResults), ...checkStructuredClaims(reply, toolResults)];
+    const reasons: string[] = [...evidenceViolations(reply, userMessage, toolResults), ...checkStructuredClaims(reply, toolResults, userMessage)];
     const checked = { coverage: false, metric: false, attribution: false, context: false };
 
     // Ownership is a three-state fact: nonempty, verified empty, or unknown.
@@ -185,7 +186,7 @@ export function runAnswerGate(input: AnswerGateInput): AnswerGateResult {
     }
 
     // Rule 1 — "today" news that is not today.
-    if (plan.tools.includes("get_news")) {
+    if (isTodayNewsRequest(userMessage) || plan.tools.includes("get_news")) {
         checked.coverage = true;
         const wantsToday = /النهار[د]?ده|اليوم|today|آخر الأخبار|أحدث خبر/i.test(userMessage);
         const coverage = input.coverage ?? checkCoverage(["news"], toolResults, { newsMustBeToday: wantsToday });

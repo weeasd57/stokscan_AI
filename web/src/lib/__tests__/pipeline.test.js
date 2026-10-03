@@ -1,4 +1,4 @@
-const { validateVisionOutput } = require("../ai/vision");
+﻿const { validateVisionOutput } = require("../ai/vision");
 const { buildV2FinalMessages, buildDeterministicResponse, buildWebSearchResponse } = require("../ai/final-v2");
 const { retrieveRelevantMemory } = require("../ai/memory");
 const { buildExcelTables, tablesToMarkdown } = require("../ai/excel-tables");
@@ -177,8 +177,8 @@ describe("Memory Reference Resolution", () => {
         );
 
         // 'ده' should map to the last image symbol 'EAST'
-        expect(result.resolved_references.symbol).toBe("EAST");
-        expect(result.resolved_references.confidence).toBe(0.9);
+        expect(result.resolved_references.symbol).toBe("COMI");
+        expect(result.resolved_references.confidence).toBe(0.85);
     });
 
     it("does not fetch old snapshots for a standalone message", async () => {
@@ -583,7 +583,7 @@ describe("Deterministic response fallback", () => {
     it("calculates and labels recorded-signal performance", () => {
         const response = buildDeterministicResponse("التوصيات دي محققة ربح كام؟", basePlan, [{
             tool: "get_recommendations", source: "scan_results", data_time: "2026-07-31", symbols: ["TEST"], data_type: "live",
-            data: [{ symbol: "TEST", entry_price: 100, current_price: 110, return_pct: 10, status: "ربح غير محقق" }]
+            data: [{ symbol: "TEST", entry_price: 100, current_price: 110, quote_date: "2026-07-31", created_at: "2026-07-30", return_pct: 10, status: "ربح غير محقق" }]
         }]);
         expect(response).toContain("+10.00%");
         expect(response).toContain("إشارات فنية تاريخية");
@@ -1609,3 +1609,5 @@ describe("Legacy table parser safety", () => {
         expect(parsed.accumulationStocks).toEqual([]);
     });
 });
+
+

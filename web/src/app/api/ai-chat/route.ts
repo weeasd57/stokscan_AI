@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { getSupabaseClient, getSupabaseServiceClient } from "@/lib/supabase/route-data";
 
 import { loadSessionState, loadSessionSummary, updateSessionState, updateSessionSummary } from "@/lib/ai/session";
 import { runPlanner } from "@/lib/ai/planner";
@@ -314,39 +314,71 @@ async function handleSessionResolution(
     userId: string,
     inputSessionId: string | null,
     message: string | null,
-    hasImages: boolean
+    hasImages: boolean,
+    authClient?: any
 ): Promise<string> {
-    let activeSessionId = inputSessionId;
+    const isUuidFormat = (id: unknown): boolean =>
+        typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+    let activeSessionId = inputSessionId && isUuidFormat(inputSessionId) ? inputSessionId : null;
     let sessionExists = false;
+    const client = supabase || authClient;
+
     if (activeSessionId) {
-        const { data: existing } = await supabase
+        const { data: existing } = await client
             .from("ai_chat_sessions")
             .select("id")
             .eq("id", activeSessionId)
             .eq("user_id", userId)
             .maybeSingle();
-        if (existing) sessionExists = true;
+        if (existing?.id) sessionExists = true;
     }
 
     if (!activeSessionId || !sessionExists) {
         const sessionTitle = message?.trim().substring(0, 32) || (hasImages ? "تحليل صورة محفظة" : "محادثة جديدة");
+        const targetId = activeSessionId || crypto.randomUUID();
         const insertPayload: any = {
+            id: targetId,
             title: sessionTitle,
             user_id: userId,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
         };
-        if (activeSessionId) insertPayload.id = activeSessionId;
 
-        const { data: newSession } = await supabase
+        let { data: newSession, error: insertError } = await client
             .from("ai_chat_sessions")
-            .insert(insertPayload)
+            .upsert(insertPayload, { onConflict: "id" })
             .select("id")
-            .single();
+            .maybeSingle();
 
-        if (newSession) activeSessionId = newSession.id;
+        if ((insertError || !newSession?.id) && authClient && authClient !== client) {
+            const authRetry = await authClient
+                .from("ai_chat_sessions")
+                .upsert(insertPayload, { onConflict: "id" })
+                .select("id")
+                .maybeSingle();
+            if (authRetry.data?.id) {
+                newSession = authRetry.data;
+                insertError = null;
+            }
+        }
+
+        if (newSession?.id) {
+            activeSessionId = newSession.id;
+        } else {
+            console.warn("[handleSessionResolution] Session upsert with targetId failed, generating fresh ID:", insertError);
+            const freshId = crypto.randomUUID();
+            insertPayload.id = freshId;
+            const fallbackClient = authClient || client;
+            const fallbackRes = await fallbackClient
+                .from("ai_chat_sessions")
+                .insert(insertPayload)
+                .select("id")
+                .maybeSingle();
+            activeSessionId = fallbackRes.data?.id || freshId;
+        }
     } else {
-        await supabase
+        await client
             .from("ai_chat_sessions")
             .update({ updated_at: new Date().toISOString() })
             .eq("id", activeSessionId)
@@ -365,7 +397,11 @@ export async function POST(req: NextRequest) {
     let clientMessageId = "";
     try {
         const authClient = await createSupabaseServerClient(req);
-        supabase = getSupabaseClient();
+        try {
+            supabase = getSupabaseServiceClient();
+        } catch {
+            supabase = getSupabaseClient();
+        }
 
         const { data: { user }, error: authError } = await authClient.auth.getUser();
         if (authError || !user) {
@@ -557,7 +593,7 @@ export async function POST(req: NextRequest) {
                     try {
                         // STEP 1: RESOLVE SESSION ID
                         sendEvent({ type: "status", status: "session", message: "Resolving session..." });
-                        const activeSessionId = await handleSessionResolution(supabase, userId, inputSessionId, message, hasImages);
+                        const activeSessionId = await handleSessionResolution(supabase, userId, inputSessionId, message, hasImages, authClient);
                         requestSessionId = activeSessionId;
                         streamSessionId = activeSessionId;
                         sendEvent({ type: "session_id", session_id: activeSessionId });
@@ -830,7 +866,7 @@ export async function POST(req: NextRequest) {
 
         // --- NON-STREAMING JSON FALLBACK ---
         console.log(`[BOT STAGE] Starting non-streaming pipeline...`);
-        const activeSessionId = await handleSessionResolution(supabase, userId, inputSessionId, message, hasImages);
+        const activeSessionId = await handleSessionResolution(supabase, userId, inputSessionId, message, hasImages, authClient);
         requestSessionId = activeSessionId;
 
         let permanentImageUrls: string[] = [];

@@ -28,6 +28,23 @@ describe("recommendation price evidence", () => {
     it("rejects a quote dated before the signal", () => {
         expect(recommendationPerformance({ status: "open", entry_price: 5, current_price: 6, current_date: "2026-09-01", created_at: "2026-09-02" }).return_pct).toBeNull();
     });
+    it.each(["none", "pending", "unknown", "cancelled"])("does not infer an open recommendation from %s plus a quote", status => {
+        const result = recommendationPerformance({ status, entry_price: 5, current_price: 6, profit_loss_pct: 20 });
+        expect(result).toMatchObject({ return_pct: null, return_basis: "unavailable", outcome: "unknown" });
+    });
+    it("uses an explicit active flag only when status is absent", () => {
+        expect(recommendationPerformance({ is_active: true, entry_price: 5, current_price: 6 }).return_basis).toBe("open_mark_to_market");
+        expect(recommendationPerformance({ status: "pending", is_active: true, entry_price: 5, current_price: 6 }).return_basis).toBe("unavailable");
+    });
+    it.each(["ربح غير محقق", "خسارة غير محققة", "خساره غير محققه"])("recognizes the explicit legacy open label %s", status => {
+        const row = { status, entry_price: 100, current_price: 110, profit_loss_pct: -3,
+            created_at: "2026-07-30", quote_date: "2026-07-31" };
+        expect(recommendationPerformance(row)).toMatchObject({ return_pct: 10, return_basis: "open_mark_to_market" });
+        expect(summarizeRecommendationEvidence([row]).open_count).toBe(1);
+    });
+    it("does not broaden Arabic status inference beyond the two recognized labels", () => {
+        expect(recommendationPerformance({ status: "قيد المراجعة", entry_price: 100, current_price: 110 }).return_basis).toBe("unavailable");
+    });
 });
 
 describe("recommendation pagination contract", () => {

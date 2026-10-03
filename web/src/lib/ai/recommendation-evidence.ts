@@ -16,12 +16,28 @@ export function positiveRecommendationPrice(value: unknown): number | null {
     return Number.isFinite(number) && number > 0 ? number : null;
 }
 
+function normalizedRecommendationStatus(value: unknown): string {
+    return String(value || "").trim().toLowerCase()
+        .replace(/[\u064b-\u065f\u0670]/g, "")
+        .replace(/[أإآ]/g, "ا").replace(/ة/g, "ه")
+        .replace(/\s+/g, " ");
+}
+
+function isExplicitOpenStatus(row: any): boolean {
+    const status = normalizedRecommendationStatus(row?.status);
+    return ["open", "active", "active_open", "ربح غير محقق", "خساره غير محققه"].includes(status)
+        || (status === "" && row?.is_active === true);
+}
+
 /** Recomputes the displayed return from its displayed price evidence. Never
  * combines a fresh quote with a persisted percentage from an older snapshot. */
 export function recommendationPerformance(row: any) {
     const entry = positiveRecommendationPrice(row?.entry_price);
-    const status = String(row?.status || "").toLowerCase();
-    const open = status === "open" || status === "active" || (!status.match(/^(win|loss|closed|target_hit|stop_hit)$/) && currentPricePresent(row));
+    const status = normalizedRecommendationStatus(row?.status);
+    // A quote is not proof that a recommendation is still open. In particular,
+    // "none", an unfamiliar status, or a failed status lookup must not turn a
+    // historical platform signal into an active recommendation.
+    const open = isExplicitOpenStatus(row);
     const closed = ["win", "loss", "closed", "target_hit", "stop_hit"].includes(status);
     const exit = positiveRecommendationPrice(row?.exit_price);
     const current = positiveRecommendationPrice(row?.current_price);
@@ -44,10 +60,6 @@ export function recommendationPerformance(row: any) {
     };
 }
 
-function currentPricePresent(row: any): boolean {
-    return positiveRecommendationPrice(row?.current_price) != null;
-}
-
 export function summarizeRecommendationEvidence(data: unknown, collection?: RecommendationCollection) {
     const rows: any[] = Array.isArray(data) ? data : [];
     const performance = rows.map(recommendationPerformance);
@@ -57,7 +69,7 @@ export function summarizeRecommendationEvidence(data: unknown, collection?: Reco
     return {
         count: rows.length, ...counts,
         evaluated: rows.length - counts.unknown,
-        open_count: rows.filter(row => ["open", "active"].includes(String(row?.status).toLowerCase())).length,
+        open_count: rows.filter(isExplicitOpenStatus).length,
         realized_count: performance.filter(row => row.return_basis === "closed_realized").length,
         unrealized_count: performance.filter(row => row.return_basis === "open_mark_to_market").length,
         collection: meta as RecommendationCollection | null,

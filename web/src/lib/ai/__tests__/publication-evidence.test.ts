@@ -50,6 +50,36 @@ test("bonus-share denial is rejected and fallback preserves the corporate action
     expect(safeEvidenceResponse("حدث ORHD", [action])).toContain("أسهم مجانية");
 });
 
+test("nested stock recommendation rejects stored return, signed mismatch and realized wording", () => {
+    const stock: any = { tool: "get_stock", symbols: ["GTHE"], data: { symbol: "GTHE", recommendation: {
+        has_recommendation: true, status: "open", signal: "BUY", entry_price: 5,
+        current_price: 4.25, current_date: "2026-10-01", created_at: "2026-09-01", profit_loss_pct: 8,
+    } } };
+    expect(checkStructuredClaims("GTHE حققت ربحًا محققًا +8%.", [stock])).not.toEqual([]);
+    expect(checkStructuredClaims("GTHE عائدها +15%.", [stock])).not.toEqual([]);
+    expect(checkStructuredClaims("GTHE توصية مفتوحة، وحققت عائداً محققاً 15%.", [stock])).not.toEqual([]);
+    expect(checkStructuredClaims("GTHE خسارتها غير المحققة 15% من سعر الدخول حتى آخر إغلاق.", [stock])).toEqual([]);
+});
+
+test("nested recommendation is not proof the user executed the signal", () => {
+    const stock: any = { tool: "get_stock", symbols: ["GTHE"], data: { symbol: "GTHE", recommendation: {
+        has_recommendation: true, status: "open", signal: "BUY", entry_price: 5,
+        current_price: 4.25, current_date: "2026-10-01", created_at: "2026-09-01",
+    } } };
+    expect(checkStructuredClaims("أنت اشتريت GTHE عند 5 جنيه.", [stock], "حلل GTHE")).not.toEqual([]);
+    expect(checkStructuredClaims("أنت اشتريت GTHE عند 5 جنيه.", [stock], "عندي GTHE في المحفظة")).not.toEqual([]);
+    expect(checkStructuredClaims("حسب كلامك أنت اشتريت GTHE عند 5 جنيه.", [stock], "أنا اشتريت GTHE عند 5 جنيه")).toEqual([]);
+    expect(checkStructuredClaims("حسب كلامك أنت بعت GTHE وربحت 20%.", [stock], "أنا بعت GTHE وربحت 20%")).toEqual([]);
+});
+
+test("nested absence permits an explicit no-recommendation statement", () => {
+    const stock: any = { tool: "get_stock", symbols: ["GTHE"], data: { symbol: "GTHE", recommendation: {
+        has_recommendation: false, status: "none",
+    } } };
+    expect(checkStructuredClaims("لا توجد توصية نشطة لسهم GTHE.", [stock])).toEqual([]);
+    expect(checkStructuredClaims("توجد توصية نشطة لسهم GTHE.", [stock])).not.toEqual([]);
+});
+
 test("stream publication reviews deterministic market responses before first token", async () => {
     const events: any[] = [];
     for await (const event of runPipelineStream("الشاشة اللحظية", [], { current_symbol: null, last_symbols: [], summary: null } as any,

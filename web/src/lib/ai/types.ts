@@ -92,7 +92,7 @@ export interface IntentPlan {
         timeframe: "current" | "historical" | "unspecified";
         reference: "last_image" | "last_stock" | "previous_analysis" | null;
         scan_direction?: "accumulation" | "distribution" | null;
-        technical_preset?: "macd_cross" | "rsi_oversold" | "volume_breakout" | "sma_200_breakout" | "smart_money_flow" | "rsi_bullish_divergence" | "bearish_divergence_alert" | null;
+        technical_preset?: "macd_cross" | "rsi_oversold" | "volume_breakout" | "sma_200_breakout" | "smart_money_flow" | "rsi_bullish_divergence" | "bearish_divergence_alert" | "bollinger_lower_touch" | "bollinger_upper_touch" | null;
         fair_value_direction?: "above" | "below" | null;
         require_distribution?: boolean;
         require_accumulation?: boolean;
@@ -200,7 +200,7 @@ export interface PlannerResult {
         timeframe?: string | null;
         requested_date?: string | null;
         scan_direction?: "accumulation" | "distribution" | null;
-        technical_preset?: "macd_cross" | "rsi_oversold" | "volume_breakout" | "sma_200_breakout" | "smart_money_flow" | "rsi_bullish_divergence" | "bearish_divergence_alert" | null;
+        technical_preset?: "macd_cross" | "rsi_oversold" | "volume_breakout" | "sma_200_breakout" | "smart_money_flow" | "rsi_bullish_divergence" | "bearish_divergence_alert" | "bollinger_lower_touch" | "bollinger_upper_touch" | null;
         fair_value_direction?: "above" | "below" | null;
         require_distribution?: boolean;
         require_accumulation?: boolean;

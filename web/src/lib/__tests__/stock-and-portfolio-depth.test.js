@@ -20,7 +20,8 @@ const { runPipeline } = require("../ai/pipeline");
 const { getNvidiaApiKeys, getDeepSeekApiKey } = require("../ai/server-secrets");
 const { loadSessionState, loadSessionSummary } = require("../ai/session");
 
-describe("Stock and Portfolio Depth Live Verification", () => {
+const liveDescribe = process.env.RUN_LIVE_CHAT_TESTS === "1" ? describe : describe.skip;
+liveDescribe("Stock and Portfolio Depth Live Verification", () => {
     let supabase;
     let apiKeys;
     let userId;

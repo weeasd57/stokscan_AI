@@ -445,6 +445,7 @@ EXAMPLE: If you see 4 stocks in the image, you MUST extract all 4 symbols, and l
   * "smart_money_flow": Institutional smart money flow accumulation (تدفق الأموال الذكية).
   * "rsi_bullish_divergence": Bullish RSI divergence reversal (صعودي RSI تباعد).
   * "bearish_divergence_alert": Bearish divergence warning (تنبيه تباعد هبوطي).
+  * "bollinger_lower_touch" / "bollinger_upper_touch": Daily low-high range touches the lower/upper Bollinger band for the same session. Never replace an unsupported indicator criterion with MACD.
   Use when user asks about any of these screener templates or technical indicator filters across the market.
 
 - "get_comparison": Fetches data to compare two or more stocks. Use when the user explicitly asks to compare stocks (e.g., 'مقارنة بين', 'أيهما أفضل').

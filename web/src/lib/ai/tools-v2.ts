@@ -12,6 +12,7 @@ import {
 import { attachEvidenceContract } from "./evidence";
 import { todayInCairo } from "./cairo-date";
 import { fetchRecommendationPages, positiveRecommendationPrice, recommendationPerformance, summarizeRecommendationEvidence } from "./recommendation-evidence";
+import { bollingerScanUnsupportedReason, bollingerTouchEvidence, consistentDailyRange, explicitBollingerPreset, requestedAllScanRows, requestedRsiCriterion, satisfiesNumericCriterion, scanSessionRows } from "./scan-request";
 
 function normalizeArabic(str: string): string {
     return str
@@ -119,6 +120,65 @@ const NON_EQUITY_SYMBOLS = new Set([
 export interface StructuredToolOutput {
     results: ToolResult[];
     formattedText: string;
+}
+
+async function fetchAccumulationMarketAlternatives(
+    supabase: any,
+    targetDate?: string | null,
+    limit = 10
+): Promise<{ stocks: any[]; date: string | null }> {
+    try {
+        let techQuery = supabase
+            .from("stock_technical_indicators")
+            .select("symbol, close, rsi_14, change_pct, volume, vol_sma20, momentum_10, date")
+            .order("date", { ascending: false })
+            .limit(300);
+        if (targetDate) techQuery = techQuery.eq("date", targetDate);
+        const { data: techRows, error } = await techQuery;
+        if (error || !techRows || techRows.length === 0) return { stocks: [], date: targetDate || null };
+        const latestDate = targetDate || techRows[0].date;
+        const todayTechs = techRows.filter((r: any) => r.date === latestDate && !NON_EQUITY_SYMBOLS.has(String(r.symbol).toUpperCase()));
+
+        const sorted = todayTechs
+            .filter((r: any) => Number(r.close || 0) > 0)
+            .sort((a: any, b: any) => {
+                const volRatioA = a.volume != null && Number(a.vol_sma20) > 0 ? Number(a.volume) / Number(a.vol_sma20) : 0;
+                const volRatioB = b.volume != null && Number(b.vol_sma20) > 0 ? Number(b.volume) / Number(b.vol_sma20) : 0;
+                const changeA = Number(a.change_pct || 0);
+                const changeB = Number(b.change_pct || 0);
+                const rsiA = Number(a.rsi_14 || 50);
+                const rsiB = Number(b.rsi_14 || 50);
+                const scoreA = volRatioA * 2 + changeA + (rsiA >= 45 && rsiA <= 75 ? 2 : 0);
+                const scoreB = volRatioB * 2 + changeB + (rsiB >= 45 && rsiB <= 75 ? 2 : 0);
+                return scoreB - scoreA;
+            })
+            .slice(0, limit);
+
+        const syms = sorted.map((r: any) => String(r.symbol).toUpperCase());
+        const { data: stocksData } = await supabase.from("stocks").select("symbol, name").in("symbol", syms);
+        const nameMap = new Map((stocksData || []).map((s: any) => [String(s.symbol).toUpperCase(), s.name || s.symbol]));
+
+        const stocks = sorted.map((r: any) => {
+            const sym = String(r.symbol).toUpperCase();
+            const volRatio = r.volume != null && Number(r.vol_sma20) > 0 ? Number((Number(r.volume) / Number(r.vol_sma20)).toFixed(2)) : null;
+            return {
+                symbol: sym,
+                name: nameMap.get(sym) || sym,
+                close: Number(r.close),
+                change_pct: r.change_pct != null ? Number(r.change_pct) : null,
+                volume: r.volume != null ? Number(r.volume) : null,
+                vol_ratio: volRatio,
+                rsi_14: r.rsi_14 != null ? Number(r.rsi_14) : null,
+                momentum_10: r.momentum_10 != null ? Number(r.momentum_10) : null,
+                is_market_alternative: true,
+            };
+        });
+
+        return { stocks, date: latestDate };
+    } catch (e) {
+        console.warn("Error fetching accumulation alternatives:", e);
+        return { stocks: [], date: targetDate || null };
+    }
 }
 
 export async function executeStructuredTools(
@@ -727,6 +787,28 @@ export async function executeStructuredTools(
                 ? "get_accumulation_stocks"
                 : null;
     if (scanTool) {
+        const hasHardScanCriterion = [plan.entities.min_acc_score, plan.entities.min_vol_ratio, plan.entities.max_dist_score,
+            plan.entities.min_consecutive_acc_days].some(value => value != null)
+            || Boolean(plan.entities.technical_preset || plan.entities.require_accumulation || plan.entities.require_distribution)
+            || /wyckoff|وايكوف|درج[ةه]|score|(?:فوق|اقل|اكتر|اعلي|نسب[ةه]).{0,16}\d|rsi|bollinger|بولنجر|بولينجر|متوسط|macd/i.test(normalizeArabic(userMessage));
+        const allowMarketAlternatives = symbols.length === 0 && !plan.entities.sector
+            && !(plan.entities.requested_sectors?.length || plan.entities.excluded_sectors?.length)
+            && !requestedDate && !requestedStartDate && !requestedEndDate
+            && plan.entities.timeframe !== "historical" && !plan.needs_historical_data && !hasHardScanCriterion
+            && !/الاسبوع\s+(?:(?:اللي|اللى)\s+فات|الماضي)|last\s+week|امس|مبارح|yesterday|\d{4}-\d{2}-\d{2}/i.test(normalizeArabic(userMessage));
+        const appendMarketAlternatives = async (targetDate?: string | null) => {
+            if (!allowMarketAlternatives || results.some(result => result.tool === "get_market_alternatives")) return;
+            const alt = await fetchAccumulationMarketAlternatives(supabase, targetDate, requestedCount || 10);
+            if (!alt.stocks.length) return;
+            results.push({ tool: "get_market_alternatives", source: "stock_technical_indicators", availability: "available",
+                data_time: alt.date || now, symbols: alt.stocks.map(stock => stock.symbol), data_type: "cached",
+                data: { stocks: alt.stocks, date: alt.date, coverage: "market_alternatives", reason: "no_accumulation_matches",
+                    description_ar: "بدائل استكشافية مرتبة حسب الزخم والحجم النسبي؛ ليست إشارات تجميع مؤكدة." } });
+            textParts.push(`\n[بدائل استكشافية للسوق بتاريخ ${alt.date}]: لا توجد أسهم مطابقة لمسح التجميع؛ هذه بدائل للمتابعة حسب الزخم والحجم النسبي.`);
+            alt.stocks.forEach((stock, index) => {
+                textParts.push(`• ${index + 1}. ${stock.symbol} (${stock.name}): السعر = ${stock.close} | التغير = ${stock.change_pct ?? "غير متاح"}% | RSI = ${stock.rsi_14 ?? "غير متاح"} | نسبة الحجم = ${stock.vol_ratio == null ? "غير متاحة" : `${stock.vol_ratio}x`}`);
+            });
+        };
         // For "both" mode we run accumulation query and use scan_rows for distribution too
         const scanDirections: Array<"accumulation" | "distribution"> = hasBothScanTools
             ? ["accumulation", "distribution"]
@@ -843,6 +925,7 @@ export async function executeStructuredTools(
                         }));
 
                         const staleNote = isStale ? ` (أحدث مسح مسجل — يُرجى الإشارة للتاريخ)` : "";
+                        const finalStocks = stocksWithNames;
                         if (displayedStocks.length > 0) {
                             textParts.push(`\n [بيانات مسح ${directionAr} بتاريخ ${maxDate}${staleNote}]:\n`);
                             displayedStocks.forEach((r: any, idx: number) => {
@@ -859,11 +942,21 @@ export async function executeStructuredTools(
                             tool: currentScanTool,
                             source: "stock_scans_summary",
                             data_time: maxDate,
-                            symbols: displayedStocks.map((r: any) => r.symbol),
+                            symbols: finalStocks.map((r: any) => r.symbol),
                             data_type: isStale || requestedDate || requestedStartDate ? "historical" : "cached",
-                            availability: isStale ? "stale" : stocksWithNames.length ? "available" : "empty",
-                            data: { stocks: stocksWithNames, scan_rows: stocksWithNames, date: maxDate, direction, stale_served: isStale, coverage: "recorded_snapshot" }
+                            availability: isStale ? "stale" : finalStocks.length ? "available" : "empty",
+                            data: {
+                                stocks: finalStocks,
+                                matches: finalStocks,
+                                scan_rows: finalStocks,
+                                date: maxDate,
+                                direction,
+                                stale_served: isStale,
+                                coverage: "recorded_snapshot",
+                                matched_count: matchingStocks.length,
+                            }
                         });
+                        if (direction === "accumulation" && finalStocks.length === 0) await appendMarketAlternatives(maxDate);
                     }
                 }
 
@@ -930,6 +1023,7 @@ export async function executeStructuredTools(
                         data_type: requestedDate ? "historical" : "live",
                         data: {
                             stocks: [],
+                            matches: [],
                             scan_rows: [],
                             date: requestedDate,
                             direction: dir,
@@ -937,6 +1031,7 @@ export async function executeStructuredTools(
                             message: `No recorded scan coverage for ${dir} in the requested scope.`
                         }
                     });
+                    if (dir === "accumulation") await appendMarketAlternatives();
                 }
             }
         } catch (e) {
@@ -955,7 +1050,28 @@ export async function executeStructuredTools(
     // ===== TECHNICAL SCREENER TEMPLATES =====
     if (plan.tools.includes("get_technical_scan")) {
         try {
+            await (async () => {
             let preset = plan.entities.technical_preset;
+            const norm = normalizeArabic(userMessage);
+            const bollingerReason = bollingerScanUnsupportedReason(userMessage);
+            const crossingRequested = /تقاطع|تقاطع\s*ذهبي|(?:اختراق|اخترق\S*)\s*(?:الاتجاه|(?:ال)?متوسط|(?:ال)?موفينج|sma|ema)|(?:sma|ema)\s*200.{0,20}(?:break|cross)|(?:break|cross).{0,20}(?:sma|ema)\s*200|macd.{0,20}(?:cross|تقاطع)|cross.{0,20}macd/i.test(norm);
+            const unsupportedReason = bollingerReason || (crossingRequested ? "crossing_requires_previous_session_indicators" : null)
+                || (/\bcmf\b/i.test(norm) ? "cmf_indicator_unavailable" : null)
+                || (requestedStartDate || requestedEndDate ? "technical_history_range_unsupported" : null);
+            if (unsupportedReason) {
+                const reasonAr = crossingRequested ? "البيانات المتاحة لقطة واحدة للمؤشرات؛ إثبات التقاطع يتطلب قيم الجلسة السابقة."
+                    : bollingerReason === "bollinger_side_unspecified" ? "حدد الحد السفلي أو العلوي لبولينجر المطلوب لمسه."
+                        : bollingerReason ? "شرط بولينجر المطلوب غير مدعوم بالماسح الحالي؛ المتاح هو لمس حد واحد محدد بمدى الجلسة."
+                            : "البيانات المتاحة لا تغطي شرط المؤشر أو الفترة المطلوبة.";
+                results.push({ tool: "get_technical_scan", source: "stock_technical_indicators", data_time: requestedDate || now,
+                    symbols: [], data_type: "cached", availability: "unsupported",
+                    data: { preset, stocks: [], matches: [], count: 0, reason: unsupportedReason, description_ar: reasonAr } });
+                textParts.push(`[الماسح الفني]: ${reasonAr}`);
+                return;
+            }
+            const explicitBandPreset = explicitBollingerPreset(userMessage);
+            if (explicitBandPreset) preset = explicitBandPreset;
+            if (requestedRsiCriterion(userMessage)) preset = "rsi_oversold";
             if (!preset && userMessage) {
                 const norm = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
                 if (/(?:ذرو[ةه]\s*البيع|تشبع\s*(?:بيعي|البيع)|oversold|rsi\s*(?:اقل|أقل|تحت|دون|<=|<)?\s*(?:30|35))/i.test(norm)) preset = "rsi_oversold";
@@ -964,14 +1080,21 @@ export async function executeStructuredTools(
                 else if (/(?:[اأ]موال\s*ذكي[ةه]|تدفق\s*(?:ال)?[اأ]موال|سيول[ةه]\s*ذكي[ةه]|smart\s*money|cmf)/i.test(norm)) preset = "smart_money_flow";
                 else if (/(?:دايفرجنس\s*(?:ايجابي|إيجابي|صعودي)|تباعد\s*(?:صعودي|ايجابي)|bullish\s*divergence|دايفرجنس.{0,15}ايجابي)/i.test(norm)) preset = "rsi_bullish_divergence";
                 else if (/(?:دايفرجنس\s*(?:سلبي|هبوطي)|تباعد\s*(?:هبوطي|سلبي)|bearish\s*divergence|تنبيه\s*تباعد|دايفرجنس.{0,15}(?:سلبي|هبوطي))/i.test(norm)) preset = "bearish_divergence_alert";
-                else preset = "macd_cross";
             }
-            if (!preset) preset = "macd_cross";
-            const { data: rawTechs } = await supabase
+            if (!preset) {
+                results.push({ tool: "get_technical_scan", source: "validation", data_time: now, symbols: [], data_type: "cached", availability: "unsupported",
+                    data: { stocks: [], matches: [], reason: "technical_criterion_unspecified", description_ar: "حدد شرط الماسح الفني المطلوب." } });
+                return;
+            }
+            let technicalQuery = supabase
                 .from("stock_technical_indicators")
-                .select("symbol, exchange, date, close, volume, ema_20, ema_50, ema_200, sma_20, sma_50, sma_200, rsi_14, macd, macd_signal, macd_histogram, momentum_10, roc_12, atr_14, adx_14, stoch_k, stoch_d, vol_sma20, vwap_20, r_vol, change_pct, rsi_divergence, macd_divergence, stoch_divergence, divergence_strength, divergence_periods, divergence_summary")
+                .select("symbol, exchange, date, close, volume, ema_20, ema_50, ema_200, sma_20, sma_50, sma_200, rsi_14, macd, macd_signal, macd_histogram, momentum_10, roc_12, atr_14, adx_14, stoch_k, stoch_d, vol_sma20, vwap_20, r_vol, change_pct, bb_upper, bb_lower, rsi_divergence, macd_divergence, stoch_divergence, divergence_strength, divergence_periods, divergence_summary")
+                .eq("exchange", "EGX")
                 .order("date", { ascending: false })
-                .limit(400);
+                .limit(1000);
+            if (requestedDate) technicalQuery = technicalQuery.eq("date", requestedDate);
+            const { data: rawTechs, error: techError } = await technicalQuery;
+            if (techError) throw techError;
 
             // Deduplicate per symbol (keep latest row per symbol)
             const latestBySymbol = new Map<string, any>();
@@ -982,8 +1105,10 @@ export async function executeStructuredTools(
                 }
             });
 
-            const allTechList = Array.from(latestBySymbol.values());
-            const latestDate = allTechList[0]?.date || now.split("T")[0];
+            const session = scanSessionRows(Array.from(latestBySymbol.values()), requestedDate);
+            const scopedSymbols = symbols.length > 0 ? symbols.map(symbol => symbol.toUpperCase()) : await resolveSectorSymbols();
+            const allTechList = session.rows.filter(row => !symbols.length && !plan.entities.sector || scopedSymbols.includes(String(row.symbol).toUpperCase()));
+            const latestDate = session.date;
 
             // Fetch company names
             const allSymbols = allTechList.map(t => t.symbol);
@@ -999,26 +1124,41 @@ export async function executeStructuredTools(
             let filtered: any[] = [];
             let presetTitleAr = "";
             let presetDescAr = "";
+            let missingEvidenceCount = 0;
+            const criterion = requestedRsiCriterion(userMessage) || { operator: "<" as const, threshold: 30 };
 
-            if (preset === "macd_cross") {
-                presetTitleAr = "التقاطع الذهبي لـ MACD (MACD Golden Cross)";
-                presetDescAr = "تقاطع خط MACD أعلى خط الإشارة مع تداول السهم فوق متوسط EMA 50";
+            if (preset === "bollinger_lower_touch" || preset === "bollinger_upper_touch") {
+                const side = preset === "bollinger_lower_touch" ? "lower" : "upper";
+                presetTitleAr = side === "lower" ? "لمس الحد السفلي لبولينجر" : "لمس الحد العلوي لبولينجر";
+                presetDescAr = "مدى أدنى وأعلى سعر في الجلسة يشمل قيمة حد بولينجر لنفس السهم والتاريخ.";
+                const { data: priceRows, error: priceError } = latestDate && allTechList.length ? await supabase.from("stock_prices")
+                    .select("symbol,date,low,high").eq("exchange", "EGX").eq("date", latestDate).in("symbol", allSymbols).limit(2000) : { data: [], error: null };
+                if (priceError) throw priceError;
+                const ranges = new Map<string, any[]>();
+                (priceRows || []).forEach((row: any) => { const symbol = String(row.symbol).toUpperCase(); ranges.set(symbol, [...(ranges.get(symbol) || []), row]); });
+                filtered = allTechList.flatMap(indicator => {
+                    const quote = consistentDailyRange(ranges.get(String(indicator.symbol).toUpperCase()) || []);
+                    const evidence = bollingerTouchEvidence(indicator, quote, side);
+                    if (!evidence.available) missingEvidenceCount++;
+                    return evidence.matches ? [{ ...indicator, bollinger_evidence: evidence }] : [];
+                });
+            } else if (preset === "macd_cross") {
+                presetTitleAr = "MACD أعلى خط الإشارة";
+                presetDescAr = "MACD أعلى خط الإشارة والسعر أعلى EMA 50 في اللقطة الحالية؛ لا يثبت حدوث تقاطع جديد.";
                 filtered = allTechList.filter(t => {
                     const macd = Number(t.macd ?? 0);
                     const macdSig = Number(t.macd_signal ?? 0);
                     const hist = Number(t.macd_histogram ?? 0);
                     const close = Number(t.close ?? 0);
                     const ema50 = Number(t.ema_50 ?? 0);
-                    const isBullishSignal = (t.macd_signal === "bullish" || t.macd_signal === "BULLISH" || macd >= macdSig || hist > 0);
-                    const isAboveEma50 = ema50 > 0 ? close >= ema50 * 0.98 : true;
-                    return isBullishSignal && isAboveEma50 && close > 0;
+                    const isBullishSignal = t.macd != null && t.macd_signal != null && Number.isFinite(macd) && Number.isFinite(macdSig) && macd > macdSig;
+                    return isBullishSignal && ema50 > 0 && close > ema50;
                 }).sort((a, b) => Number(b.change_pct ?? 0) - Number(a.change_pct ?? 0));
             } else if (preset === "rsi_oversold") {
                 presetTitleAr = "منطقة ذروة البيع RSI (RSI Oversold)";
-                presetDescAr = "مؤشر RSI أقل من 35 مشيراً إلى تشبع بيعي حاد وفرصة ارتداد صعودي";
+                presetDescAr = `RSI ${criterion.operator} ${criterion.threshold}`;
                 filtered = allTechList.filter(t => {
-                    const rsi = Number(t.rsi_14 ?? 100);
-                    return rsi > 0 && rsi <= 35;
+                    return t.rsi_14 != null && Number(t.rsi_14) >= 0 && Number(t.rsi_14) <= 100 && satisfiesNumericCriterion(t.rsi_14, criterion);
                 }).sort((a, b) => Number(a.rsi_14 ?? 0) - Number(b.rsi_14 ?? 0));
             } else if (preset === "volume_breakout") {
                 presetTitleAr = "اختراق حجم التداول (Volume Breakout)";
@@ -1035,18 +1175,20 @@ export async function executeStructuredTools(
                     return rB - rA;
                 });
             } else if (preset === "sma_200_breakout") {
-                presetTitleAr = "اختراق الاتجاه طويل المدى (SMA 200 / EMA 200 Breakout)";
-                presetDescAr = "تداول السهم فوق متوسط 200 يوم لتأكيد الاتجاه الصعودي طويل المدى";
+                const averageField = /ema\s*200/.test(norm) ? "ema_200" : "sma_200";
+                const below = /تحت|دون|اقل|below|</.test(norm);
+                const inclusive = /<=|>=|يساوي/.test(norm);
+                presetTitleAr = `السعر ${below ? "تحت" : "فوق"} ${averageField === "ema_200" ? "EMA" : "SMA"} 200`;
+                presetDescAr = `السعر ${below ? "<" : ">"}${inclusive ? "=" : ""} المتوسط المطلوب في اللقطة الحالية؛ لا يثبت حدوث اختراق جديد.`;
                 filtered = allTechList.filter(t => {
                     const close = Number(t.close ?? 0);
-                    const ema200 = Number(t.ema_200 ?? 0);
-                    const sma200 = Number(t.sma_200 ?? 0);
-                    const ref200 = ema200 > 0 ? ema200 : sma200;
-                    return ref200 > 0 && close >= ref200 && Number(t.change_pct ?? 0) >= -2;
+                    const ref200 = Number(t[averageField]);
+                    return t[averageField] != null && ref200 > 0 && close > 0
+                        && satisfiesNumericCriterion(close, { operator: below ? inclusive ? "<=" : "<" : inclusive ? ">=" : ">", threshold: ref200 });
                 }).sort((a, b) => Number(b.change_pct ?? 0) - Number(a.change_pct ?? 0));
             } else if (preset === "smart_money_flow") {
-                presetTitleAr = "تدفق الأموال الذكية (Smart Money Flow)";
-                presetDescAr = "رصد تراكم مؤسسي مع دخول سيولة قوية وتغير سعري إيجابي";
+                presetTitleAr = "زخم وحجم نسبي مرتفع";
+                presetDescAr = "حجم نسبي مرتفع مع تغير أو زخم موجب؛ لا يثبت تجميعاً مؤسسياً أو تدفق أموال ذكية.";
                 filtered = allTechList.filter(t => {
                     const rVol = Number(t.r_vol ?? 0);
                     const vol = Number(t.volume ?? 0);
@@ -1075,7 +1217,7 @@ export async function executeStructuredTools(
                 }).sort((a, b) => Number(b.divergence_strength ?? 50) - Number(a.divergence_strength ?? 50));
             }
 
-            const limitCount = requestedCount || 10;
+            const limitCount = requestedAllScanRows(userMessage) ? filtered.length : requestedCount || 10;
             const topMatches = filtered.slice(0, limitCount).map(t => ({
                 symbol: t.symbol,
                 name: namesMap.get(t.symbol) || t.symbol,
@@ -1088,7 +1230,9 @@ export async function executeStructuredTools(
                 ema_50: t.ema_50 != null ? Number(t.ema_50).toFixed(2) : "N/A",
                 ema_200: t.ema_200 != null ? Number(t.ema_200).toFixed(2) : "N/A",
                 divergence_summary: t.divergence_summary || null,
-                date: t.date || latestDate
+                date: t.date || latestDate,
+                bollinger_evidence: t.bollinger_evidence,
+                sma_200: t.sma_200 != null ? Number(t.sma_200).toFixed(2) : "N/A",
             }));
 
             if (topMatches.length > 0) {
@@ -1111,20 +1255,31 @@ export async function executeStructuredTools(
             results.push({
                 tool: "get_technical_scan",
                 source: "stock_technical_indicators",
-                data_time: latestDate,
+                data_time: latestDate || requestedDate || now,
                 symbols: topMatches.map(s => s.symbol),
-                data_type: "live",
+                data_type: requestedDate ? "historical" : "cached",
+                availability: missingEvidenceCount ? "partial" : topMatches.length ? "available" : "empty",
                 data: {
                     preset,
                     preset_name_ar: presetTitleAr,
                     description_ar: presetDescAr,
                     stocks: topMatches,
+                    matches: topMatches,
+                    matched_count: filtered.length,
+                    excluded_session_rows: session.excluded_count,
+                    missing_evidence_count: missingEvidenceCount,
+                    scan_collection: { complete: missingEvidenceCount === 0 && (rawTechs || []).length < 1000,
+                        total_candidates: allTechList.length, missing_evidence_count: missingEvidenceCount, excluded_session_rows: session.excluded_count },
+                    ...(preset === "rsi_oversold" ? { criterion } : {}),
                     count: topMatches.length,
                     date: latestDate
                 }
             });
+            })();
         } catch (e) {
             console.warn("Error in get_technical_scan tool:", e);
+            results.push({ tool: "get_technical_scan", source: "stock_technical_indicators", data_time: requestedDate || now, symbols: [], data_type: "cached", availability: "failed",
+                error: "technical_scan_fetch_failed", data: { stocks: [], matches: [], reason: "technical_scan_fetch_failed" } });
         }
     }
 

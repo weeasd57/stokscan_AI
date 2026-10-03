@@ -21,7 +21,8 @@ const { getNvidiaApiKeys, getDeepSeekApiKey } = require("../ai/server-secrets");
 const { loadSessionState, loadSessionSummary } = require("../ai/session");
 const { evidenceViolations } = require("../ai/response-evidence");
 
-describe("Comprehensive Multi-Turn Architecture Verification", () => {
+const liveDescribe = process.env.RUN_LIVE_CHAT_TESTS === "1" ? describe : describe.skip;
+liveDescribe("Comprehensive Multi-Turn Architecture Verification", () => {
     let supabase;
     let apiKeys;
     let userId;

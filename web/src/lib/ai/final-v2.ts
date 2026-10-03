@@ -9,7 +9,8 @@ import { sanitizeReply } from "./sanitizer";
 import { executionFetch } from "./execution";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { buildComparisonMatrix } from "./comparison-matrix";
-import { evidencePolicyPrompt, volumeAssessment } from "./response-evidence";
+import { evidencePolicyPrompt, volumeAssessment, safeEvidenceResponse } from "./response-evidence";
+import { assembleContextSafely, EvidenceContextOverflow } from "./context-budget";
 import { recommendationPerformance } from "./recommendation-evidence";
 import { recommendationSummaryText, renderRecommendationEvidence } from "./recommendation-presentation";
 
@@ -94,7 +95,8 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
         lines.push(`  - egx_ai_score: ${stockData?.egx_ai_score ?? scanStock?.egx_ai_score ?? "NOT_PROVIDED"} ← [تقييم نموذج EGX للتعلم الآلي فنيًا من 0 إلى 1، مثلاً 0.67 تعني ثقة 67.0%]`);
         const rec = stockData?.recommendation;
         if (rec) {
-            lines.push(`  - platform_recommendation: ${rec.has_recommendation ? (rec.is_active ? `ACTIVE_OPEN (إشارة ${rec.signal}، سعر الدخول: ${rec.entry_price} ج.م، المستهدف: ${rec.target_price} ج.م، وقف الخسارة: ${rec.stop_loss} ج.م، صدرت: ${rec.duration}، العائد المحقق حتى الآن: ${rec.profit_loss_str})` : `PREVIOUS_CLOSED (الحالة: ${rec.status}، النتيجة: ${rec.outcome_desc}، صدرت: ${rec.duration}، العائد: ${rec.profit_loss_str})`) : "NONE (لا توجد توصيات سابقة أو حالية مسجلة لهذا السهم على المنصة)"}`);
+            lines.push(`  - platform_recommendation: ${rec.has_recommendation ? (rec.is_active ? `ACTIVE_OPEN (إشارة ${rec.signal}، سعر الدخول: ${rec.entry_price} ج.م، المستهدف: ${rec.target_price} ج.م، وقف الخسارة: ${rec.stop_loss} ج.م، صدرت: ${rec.duration}، العائد غير المحقق: ${rec.profit_loss_str}، تاريخ التقييم: ${rec.valuation_date || "غير متاح"})` : `PREVIOUS_CLOSED (الحالة: ${rec.status}، النتيجة: ${rec.outcome_desc}، صدرت: ${rec.duration}، العائد: ${rec.profit_loss_str})`) : "NONE (لا توجد توصيات سابقة أو حالية مسجلة لهذا السهم على المنصة)"}`);
+            lines.push("  - سجل توصيات المنصة لا يثبت أن المستخدم نفذ أو لم ينفذ الصفقة. لا تنسب إليه تنفيذًا أو ربحًا محققًا دون إفصاح منه.");
         }
 
 
@@ -191,7 +193,7 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
     lines.push("12. 📏 عتبات المؤشرات الثابتة (STRICT THRESHOLDS): للـ ADX (أقل 20=ضعيف، 20-25=بداية، 25-40=قوي، >40=مفرط/قوي جداً). للـ RSI (>70=تشبع شرائي ومخاطرة عالية ولا تطارد السهم، <30=تشبع بيعي، 40-70=محايد). للـ vol_ratio (<0.8x=سيولة ضعيفة، ~1.0x=متوسطة، >1.5x=انفجار). لا تنصح بالدخول إذا كانت السيولة ضعيفة.");
     lines.push("13. 🎯 شروط الدخول (ACTIONABLE CONDITIONS): فقط عندما يدعمها التحليل الفني والأساسي واضواً. لا تقدّم شروط دخول إذا لم تدعمها البيانات (RSI 40-70، أو السعر قريب من المقاومة، أو سيولة ضعيفة). عندما يكون الاتجاه واضحاً والزخم إيجابياً، قدّم شرطاً تنفيذياً محدداً (مثال: 'الدخول يصبح جذاباً إذا عاد الحجم فوق 1.0x واخترق X، بينما كسر الدعم Y يلغي السيناريو').");
     lines.push("14. 🤖 الرأي الإحصائي والرياضيات (ML MODELS & MATH): استخدم دائماً القيم المجهزة مسبقاً في ML STATISTICAL DELTAS أعلاه. لا تخترع فوارق حسابية من عندك.");
-    lines.push("15. 📋 فصل وضوح: استخراج التوصيات (SEPARATE MARKET VIEW FROM RECOMMENDATION): إذا وجدت platform_recommendation في STRICT EVIDENCE CONTEXT، استخرجها في قسم منفصل بعنوان 'توصية سابقة على المنصة'. لا تخلطها مع تحليلك الفني الحالي. إذا كانت التوصية نشطة (ACTIVE_OPEN)، قل 'هذه توصية سابقة لم تمكنها من التنفيذ بعد' ولا تصفها بأنها توصية حالية. إذا كانت CLOSED أو NONE، قل ذلك صراحةً ثم انتقل إلى التحليل الفني الحالي.");
+    lines.push("15. افصل توصية المنصة المسجلة عن التحليل الحالي. ACTIVE_OPEN تعني توصية مفتوحة وعائدًا غير محقق؛ CLOSED تعني توصية مغلقة، وNONE تعني عدم وجود سجل. لا تفترض تنفيذ المستخدم أو عدم تنفيذه، ولا تصف الإشارة القديمة بأنها دخول جديد.");
     lines.push("16. ⛔ سلامة ومطابقة الرموز والبيانات (SYMBOL & DATA INTEGRITY): يجب عليك فقط كتابة وتحليل الأسهم الموجودة صراحة في STRICT EVIDENCE CONTEXT أعلاه. يمنع منعاً باتاً استبدال أو خلط رموز الأسهم ببعضها البعض، ويجب ربط بيانات كل سهم (السعر، التغير، RSI، حجم التداول، إلخ) برمزها الصحيح بدقة بالغة دون أي تبديل أو خلط، مع الامتناع التام عن ذكر أو مناقشة أي أسهم غير متواجدة في البيانات المرفقة.");
     lines.push("16b. ⛔ عندما يسأل المستخدم عن مركزه الشخصي أو قراره في سهم (مثل 'اشتريت السهم بسعر X'، 'أوقف خساير؟'، 'سعري X'، 'متوسطي X') ولكن البيانات المعروضة أمامه هي قائمة مسح عام للسوق لعدة أسهم (مثل get_distribution_stocks أو get_accumulation_stocks بدون تحديد سهم المستخدم): يمنع منعاً باتاً اختيار أول سهم عشوائي من الجدول والادعاء بأنه سهم المستخدم أو تطبيق سعر الشراء عليه! بل اطلب منه فوراً تحديد رمز السهم المقصود لتحليله بدقة.");
     lines.push("17. 📊 قوالب الماسح الفني (TECHNICAL SCREENER TEMPLATES): عند وجود نتائج get_technical_scan، اعرض الأسهم المرصودة مع أسمائها، أسعارها، ونسب التغير والمؤشرات ذات الصلة (مثل RSI، MACD، حجم التداول النسبي، أو إشارات الدايفرجنس). وضح للمستخدم طبيعة الفلتر الفني ومعناه الاستثماري دون تقديم نصيحة شراء مباشرة.");
@@ -201,6 +203,35 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
     return lines.join("\n");
 }
 
+export function isStockFollowUpQuestion(
+    userMessage: string,
+    plan: IntentPlan,
+    recentHistory: Array<{ role: string; content: string }>,
+    resolvedReference?: { symbol: string | null; confidence: number } | null
+): boolean {
+    const normMsg = userMessage.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase();
+
+    const followUpPattern = /(?:^|[^\u0621-\u064A])(?:(?:متي|امتي|فين|كام)\s+(?:اشتري|ادخل|ابيع|اخرج)|(?:اشتري|ادخل|ابيع|اخرج)\s+(?:امتي|متي|فين)|هل\s+(?:ادخل|اشتري|ابيع|اخرج|اعمل\s+متوسط)|(?:ادخل|اشتري|ابيع|اخرج)\s+(?:دلوقتي|الان|حاليا)|(?:وقف\s*(?:ال)?خسار(?:[هة]|ت[هة])?|ستوب\s*لوس|الستوب(?:\s*لوس)?|stop\s*loss)(?:\s+كام)?|(?:الهدف|مستهدف[هة]?|هدفه|هدفها|تارجت|target)(?:\s+(?:بتاعه|كام|ايه))?|(?:رايك|توقعاتك|نظرتك)(?:\s+ايه)?(?:\s+(?:فيه|ليه|له|عنه))?|(?:اشتريه?|ادخله?)\s+ولا\s+(?:ابيعه?|استني)|(?:ابيعه?|اخرج)\s+ولا\s+(?:استني|احتفظ|اكمل)|(?:اشتري|ادخل)\s+ولا\s+(?:استني|احتفظ)|(?:اعمل|اعدل)\s+متوسط|(?:دعمه|مقاومته|الدعم|المقاوم[هة])\s+كام|السهم\s+(?:ده|دا|دي)|شروط\s+الدخول)(?:$|[^\u0621-\u064A])/i;
+
+    const matchesFollowUpQuery = followUpPattern.test(normMsg);
+
+    const isImplicitStockRef = Boolean(
+        (resolvedReference && resolvedReference.symbol && resolvedReference.confidence >= 0.7) ||
+        plan.entities?.reference === "last_stock" ||
+        plan.intent === "follow_up" ||
+        (plan as any).resolved_from?.symbol
+    );
+
+    const hasPriorAssistantTurn = Array.isArray(recentHistory) && recentHistory.some(m => m.role === "assistant" && typeof m.content === "string" && m.content.trim().length > 0);
+
+    return hasPriorAssistantTurn && (matchesFollowUpQuery || isImplicitStockRef);
+}
+
+/**
+ * Safely assembles final prompt context ensuring LIVE DATA, DATABASE DATA, toolResults,
+ * and stock facts are NEVER dropped or sliced. Truncation, if needed, applies strictly to
+ * web search snippets, secondary image memory, or verbose guidelines.
+ */
 export function buildV2FinalMessages(
 
     userMessage: string,
@@ -379,14 +410,14 @@ export function buildV2FinalMessages(
         const historicalResults = validResults.filter(r => r.data_type === "historical");
 
         if (liveResults.length > 0) {
-            sections.push("=== LIVE DATA ===");
+            let liveDataLines: string[] = ["=== LIVE DATA ==="];
             liveResults.forEach(r => {
-                sections.push(`الأداة: ${r.tool} | المصدر: ${r.source} | الوقت: ${r.data_time} | نوع: ${r.data_type}`);
+                liveDataLines.push(`الأداة: ${r.tool} | المصدر: ${r.source} | الوقت: ${r.data_time} | نوع: ${r.data_type}`);
                 if (typeof r.data === "object" && r.data !== null) {
                     if (r.tool === "get_technical_scan" && Array.isArray(r.data.stocks)) {
-                        sections.push("  stocks_table (You MUST output this exact Markdown table structure to the user under a suitable heading. Do not convert it to lists or paragraphs):");
-                        sections.push("  | # | السهم | الاسم | السعر | التغير | RSI | حجم نسبي | تفاصيل فنية أخرى |");
-                        sections.push("  |---|---|---|---|---|---|---|---|");
+                        liveDataLines.push("  stocks_table (You MUST output this exact Markdown table structure to the user under a suitable heading. Do not convert it to lists or paragraphs):");
+                        liveDataLines.push("  | # | السهم | الاسم | السعر | التغير | RSI | حجم نسبي | تفاصيل فنية أخرى |");
+                        liveDataLines.push("  |---|---|---|---|---|---|---|---|");
                         r.data.stocks.forEach((s: any, idx: number) => {
                             const changeStr = Number(s.change_pct) >= 0 ? `+${s.change_pct}%` : `${s.change_pct}%`;
                             const extra = [];
@@ -394,16 +425,16 @@ export function buildV2FinalMessages(
                             if (s.ema_200 && s.ema_200 !== "N/A") extra.push(`EMA 200: ${s.ema_200}`);
                             if (s.divergence_summary) extra.push(s.divergence_summary);
                             const detailText = extra.length > 0 ? extra.join(" ، ") : "-";
-                            sections.push(`  | ${idx + 1} | **${s.symbol}** | ${s.name || s.symbol} | ${s.close} ج.م | ${changeStr} | ${s.rsi || "N/A"} | ${s.r_vol || "1.00"}x | ${detailText} |`);
+                            liveDataLines.push(`  | ${idx + 1} | **${s.symbol}** | ${s.name || s.symbol} | ${s.close} ج.م | ${changeStr} | ${s.rsi || "N/A"} | ${s.r_vol || "1.00"}x | ${detailText} |`);
                         });
                         for (const [key, val] of Object.entries(r.data)) {
                             if (key !== "stocks") {
-                                sections.push(`  ${key}: ${formatFactValue(val)}`);
+                                liveDataLines.push(`  ${key}: ${formatFactValue(val)}`);
                             }
                         }
                     } else {
                         for (const [key, val] of Object.entries(r.data)) {
-                            sections.push(`  ${key}: ${formatFactValue(val)}`);
+                            liveDataLines.push(`  ${key}: ${formatFactValue(val)}`);
                         }
                     }
                 }
@@ -449,6 +480,7 @@ export function buildV2FinalMessages(
     }
 
     sections.push("=== RESPONSE RULES ===");
+    sections.push("- افصل أخبار اليوم عن الأخبار القديمة وأحداث الشركات ومعنويات السوق. وجود إجراء شركة قديم أو سجل معنويات لا يثبت خبرًا منشورًا اليوم. عند غياب عنوان بتاريخ اليوم قل لم أجد خبرًا موثقًا اليوم، ثم اعرض الأقدم مع تاريخ نشره؛ لا تنفِ الأحداث المسجلة ولا تستخدم وقت الجلب كتاريخ للخبر.");
     sections.push("=== CONVERSATION TONE ===");
     sections.push("- كن مساعداً مالياً محادثياً: ابدأ بإجابة السؤال مباشرة، ثم اذكر أقوى دليل رقمي، ثم اسأل سؤال متابعة واحداً فقط إذا كانت معلومة لازمة ناقصة.");
     sections.push("- عند الاستعلام عن أي سهم (سواء كتب المستخدم رمزه مثل \"AFMC\" أو اسمه أو طلب تحليله): قدّم المسار التحليلي الفني والمالي الكامل للسهم بشكل منظم ومكتمل:");
@@ -481,11 +513,9 @@ export function buildV2FinalMessages(
     sections.push("- إذا كان مستوى الدعم أو المقاومة المحسوب في === LIVE DATA === بعيداً جداً عن السعر الحالي (بمسافة تزيد عن 40%)، نبّه العميل بوضوح أن هذا المستوى بعيد جداً ولا يعتبر نقطة مرجعية موثوقة أو عمليّة للتداول قصير المدى ولا يُنصح بالاعتماد عليه.");
     sections.push("- اكتب بعربية واضحة وطبيعية، ويمكن استخدام تعبير مصري خفيف إذا كان مناسباً لأسلوب المستخدم.");
     sections.push("- عند تحليل أي سهم، اذكر دائماً مؤشرات RSI وMACD ونسبة السيولة وحجم التداول من المتوسط لأنها ركائز التحليل الفني الأساسية.");
-    sections.push("- لا تنشئ جدول Markdown من نفسك؛ سيضيف النظام الجدول المنظم المستخرج من البيانات بعد ردك");
-    sections.push("- لا تذكر أو تسرد أي رمز أو اسم شركة غير موجود في مصادر البيانات والجداول أعلاه");
+        sections.push("- لا تذكر أو تسرد أي رمز أو اسم شركة غير موجود في مصادر البيانات والجداول أعلاه");
     sections.push("- لا تعيد سرد قوائم الأسهم في النص؛ اشرح الاتجاهات فقط واترك القائمة للجدول المنظم");
-    sections.push("- يتم إدراج خاتمة رابط قناة EGX Bots المجانية على تليجرام تلقائياً في نهاية كل رد، فلا داعي لكتابتها يدوياً إلا إذا سأل المستخدم عنها صراحة.");
-    sections.push("- عندما يسأل المستخدم عن سبب هبوط أو صعود أو حركة سهم معين (مثل: ما سبب هبوط/صعود... أو ليه نزل/طلع...):");
+        sections.push("- عندما يسأل المستخدم عن سبب هبوط أو صعود أو حركة سهم معين (مثل: ما سبب هبوط/صعود... أو ليه نزل/طلع...):");
     sections.push("  1. إذا كانت هناك أخبار في === LIVE DATA ===، اشرح العوامل والأخبار المرتبطة بالسهم أولاً.");
     sections.push("  2. قدم تحليلاً فنياً ومالياً مفسراً لسبب الحركة (مثل: عمليات جني أرباح فنية بعد وصول مؤشر RSI لمناطق تشبع شرائي مرتفعة، أو ضعف السيولة وانخفاض التداول عن المتوسط، أو اختبار مستويات مقاومة وتراجع السعر منها، أو حركات تصحيحية في المسار الصاعد).");
     sections.push("- الأحداث المالية المؤثرة (أداة get_corporate_actions في === LIVE DATA ===):");
@@ -564,14 +594,9 @@ export function buildV2FinalMessages(
     sections.push("    3. التزم بالتماسك المنطقي التام؛ يمنع التناقض في نفس الرد (مثل القول بأن السهم في مرحلة تجميع صاعدة ثم القول في نفس الفقرة بأنه في مرحلة تصريف). طابق كلامك مع إشارات التجميع والتصريف الفعلية الواردة في البيانات.");
     sections.push("    4. 📅 قاعدة توضيح تواريخ المؤشرات: إذا كانت هناك بيانات أو مؤشرات لنفس السهم من تواريخ مختلفة (مثل السعر اللحظي مقابل مسح Wyckoff من تاريخ سابق): يجب عليك كتابة تاريخ كل مؤشر بوضوح بجانبه (مثال: 'مؤشر RSI يبلغ قيمته الفلانية (في تاريخ كذا)، بينما كان قيمته الأخرى في تاريخ المسح الفلاني')؛ يمنع تماماً دمج أو سرد قيم مختلفة لنفس المؤشر دون توضيح التواريخ المرتبطة بكل قيمة بشكل واضح ودقيق.");
     sections.push("    5. إذا ذكر المستخدم سعراً مختلفاً عن السعر المسجل، لا تقل إنه مخطئ ولا تستخدم صيغة 'مش X'. اذكر آخر سعر مسجل مع تاريخه ومصدره، ووضح صراحةً أن السعر اللحظي قد يختلف أو أنه غير متاح حالياً.");
-    sections.push("  • عندما يسألك المستخدم عن التجميع والتصريف (Accumulation/Distribution) لسهم معين:");
-    sections.push("    1. يجب أن تبحث عن أداة get_accumulation_stocks أو get_distribution_stocks في البيانات وتستخرج منها درجة التجميع (acc_score) ودرجة التصريف (dist_score) ومرحلة Wyckoff (wyckoff_phase) وأيام التجميع/التصريف.");
-    sections.push("    2. اشرح النتيجة بوضوح مستنداً لتلك الأرقام والتواريخ. صيغة الإجابة الصحيحة: 'بناءً على مسح Wyckoff بتاريخ [X]: درجة التجميع (acc_score) = [قيمة acc_score]، درجة التصريف (dist_score) = [قيمة dist_score]، المرحلة: [wyckoff_phase]، أيام التجميع المتتالية: [عدد الأيام]'.");
-    sections.push("    3. يمنع تماماً تجاهل بيانات التجميع الفنية المتاحة أو استخدام مؤشر RSI كبديل للتعبير عن التجميع.");
-    sections.push("    4. 🚫 يمنع منعاً باتاً: إذا كانت wyckoff_phase = 'accumulation' أو 'strong_accumulation'، لا تقل أبداً 'السهم في مرحلة تصريف' حتى لو كان RSI مرتفعاً. المرحلة محددة من البيانات الفعلية وليس من RSI.");
-    sections.push("  • يمنع تكرار نفس التفسير أو الجملة اللفظية لأكثر من سؤال أو مؤشر (مثل تكرار جملة 'هذا يعني أن السهم في مرحلة تشبع... ويمكن أن يبدأ في هبوط قريباً'). صِف كل مؤشر وقيمته الرقمية بشكل منفصل وبتفسير فني دقيق ومتنوع.");
-    sections.push("  • تقريب الأرقام السعرية ومستويات الدعم والمقاومة إلى رقمين عشريين دائماً (مثال: 0.43 جنيه وليس 0.428684 جنيه).");
-    sections.push("  • يمنع تماماً تكرار الجمل التمهيدية (مثل: حسناً دعونا نبدأ... حسناً دعونا نبدأ) أو تكرار الفقرات ذات المعنى المماثل في الرد.");
+        sections.push("  • يمنع تكرار نفس التفسير أو الجملة اللفظية لأكثر من سؤال أو مؤشر (مثل تكرار جملة 'هذا يعني أن السهم في مرحلة تشبع... ويمكن أن يبدأ في هبوط قريباً'). صِف كل مؤشر وقيمته الرقمية بشكل منفصل وبتفسير فني دقيق ومتنوع.");
+    
+    
     sections.push("- عندما يسأل المستخدم عن وجود توصيات أو إشارات (أو عند العثور على توصيات في البيانات):");
     sections.push("  • إذا توفرت توصيات أو إشارات في بيانات الأدوات (المسترجعة من get_recommendations أو get_signals): قم بعرض تفاصيل كل توصية بوضوح (سعر الدخول، الهدف، وقف الخسارة، ونسبة العائد المتوقعة أو الفعلية والتقييم الفعلي لأدائها).");
     sections.push("  • إذا لم تكن هناك توصيات مسجلة للأسهم المطلوبة في البيانات: ابدأ الرد بإجابة حوارية مباشرة موضحاً أنه لا توجد حالياً توصيات جديدة مسجلة على هذه الأسهم بصفحة التوصيات بالنظام، ثم قدم له قراءة فنية لمستويات الدعم والمقاومة للاسترشاد بها.");
@@ -632,15 +657,29 @@ export function buildV2FinalMessages(
     }
 
 
+    const isFollowUp = isStockFollowUpQuestion(userMessage, plan, recentHistory, resolvedReference);
+    if (isFollowUp) {
+        sections.push([
+            "=== FOLLOW-UP QUESTION & ANTI-REPETITION GUIDANCE ===",
+            "⚠️ تنبيه فائق الأهمية: هذا سؤال متابعة (Follow-up) لسهم تمت مناقشته أو تحليله بالفعل في المحادثة.",
+            "قواعد الإجابة على أسئلة المتابعة ومنع التكرار (Anti-Repetition Rules):",
+            "1. أجب عن السؤال المحدد مباشرة وبشكل تنفيذي دقيق (ANSWER THE SPECIFIC QUESTION DIRECTLY):",
+            "   - إذا كان السؤال عن شروط أو توقيت الدخول (مثل 'متى أشتري' أو 'هل أدخل دلوقتي'): اذكر مباشرة وبوضوح شروط وتوقيت الدخول، مستويات التفعيل السعرية (trigger levels)، نسبة العائد إلى المخاطرة (risk-reward)، والمؤشرات التأكيدية المطلوبة.",
+            "   - إذا كان السؤال عن وقف الخسارة أو المستهدف (مثل 'وقف الخسارة كام' أو 'الهدف كام'): اذكر الرقم ومستوى الدعم/المقاومة المرتبط به ومبرره الفني مباشرة دون مقدمات مكررة.",
+            "   - إذا كان السؤال عن قرار الاحتفاظ أو البيع أو التعديل (مثل 'اشتريه ولا أبيعه'، 'أبيع ولا أستنى'، 'أعمل متوسط'): قدّم القرار الفني المباشر بناءً على موقع السعر ومستويات الدعم والمقاومة وإدارة المخاطر.",
+            "2. قاعدة منع التكرار الصارمة (STRICT ANTI-REPETITION RULE):",
+            "   - يُمنع منعاً باتاً إعادة كتابة ملف السهم بالكامل أو التحليل الفني الشامل المكون من 2000 حرف.",
+            "   - يُمنع تكرار فقرات RSI و MACD ونماذج وايكوف وسكورات ML بحذافيرها كما كُتبت في الردود السابقة.",
+            "   - ركز فوراً وبإيجاز واحترافية على الإجابة عن سؤال العميل المحدد.",
+        ].join("\n"));
+    }
+
     if (correctionPrompt) {
         sections.push("⚠️ SYSTEM CORRECTION ALERT:\n" + correctionPrompt);
     }
 
 
-    let contextText = sections.join("\n\n");
-    if (contextText.length > MAX_CONTEXT_CHARS) {
-        contextText = `...\n\n[تم اقتطاع السياق القديم - تجاوز الحد الأقصى]\n\n` + contextText.slice(-MAX_CONTEXT_CHARS);
-    }
+    let contextText = assembleContextSafely(sections, MAX_CONTEXT_CHARS);
 
     // The trading-day date shown to the user must be Africa/Cairo local time:
     // raw UTC can report yesterday between midnight and 02:00/03:00 Cairo.
@@ -653,6 +692,8 @@ export function buildV2FinalMessages(
         ? "اعرض قائمة الأسهم ونتائج المسح الفني دائمًا في جدول ماركداون (Markdown Table) منسق ومكتمل الأعمدة بدلاً من القوائم المنقطة أو الأسطر الطويلة لتفادي تداخل النصوص واللغات."
         : isPortfolioContext
         ? "قدّم تقريراً شاملاً ومنظماً للمحفظة والمراكز: ابدأ بنظرة عامة على الأداء والمراكز، ثم فصّل التحليل الفني ومستويات الدعم والمقاومة والزخم لكل سهم مسجل في البيانات، واختم بإدارة المخاطر والتوجيهات العملية."
+        : isFollowUp
+        ? "المستخدم يطرح سؤال متابعة محدد عن سهم تمت مناقشته وتحليله في الرسائل السابقة. أجب عن السؤال المحدد مباشرة وبوضوح وبشكل تنفيذي ومركّز (مثل شروط وتوقيت الدخول، مستويات التفعيل السعرية، نسبة العائد إلى المخاطرة، المؤشرات التأكيدية، أو مستويات وقف الخسارة والمستهدف بدقة). يُمنع منعاً باتاً تكرار التقرير التعريفي الكامل للسهم أو إعادة سرد فقرات RSI وMACD ونماذج وايكوف بحذافيرها من جديد!"
         : (plan.intent === "stock_analysis" || (Array.isArray(plan.entities.symbols) && plan.entities.symbols.length === 1))
         ? "قدّم تحليلاً فنياً ومالياً متكاملاً وشاملاً للسهم يغطي السعر، المؤشرات الفنية، مستويات الدعم والمقاومة، تقييمات نماذج الذكاء الاصطناعي (KING AI و EGX AI)، مرحلة وايكوف، والأحداث المؤثرة بأسلوب تحليلي محادثي احترافي متكامل."
         : "أجب مباشرة وبقدر التفصيل الذي يحتاجه السؤال؛ اجمع الأرقام المتصلة في جمل طبيعية ولا تحوّل كل حقل إلى سطر ثابت (إلا في حالة القوائم أو نتائج الفلاتر فاستخدم الجداول دائماً).";
@@ -695,19 +736,25 @@ export function buildV2FinalMessages(
    - وضح للمستخدم في أول سطر من إجابتك بوضوح واحترافية: أن هذا السهم/الشركة غير مدرج في قاعدة بيانات الأسهم الرئيسية الـ 236 المسجلة على المنصة (مثلاً لأنه مدرج بسوق المشروعات الصغيرة والمتوسطة SMEs / بورصة النيل، أو شركة خارج السوق الرئيسي)، وبالتالي لا تتوفر له مؤشرات فنية أو سكورات ML آلية لحظية.
     - ثم قدم له ملخصاً وافياً ومفيداً عن نشاط الشركة، وتطوراتها، وأحدث الأخبار المتاحة عنها من نتائج البحث على الويب مع الإشارة للمصادر بصيغة [1] و [2].
 8. ⚠️ شروط الدخول (ACTIONABLE CONDITIONS): فقط عندما يدعمها التحليل الفني والأساسي واضواً. لا تقدّم شروط دخول إذا لم تدعمها البيانات (RSI 40-70، أو السعر قريب من المقاومة، أو سيولة ضعيفة). عندما يكون الاتجاه واضحاً والزخم إيجابياً، قدّم شرطاً تنفيذياً محدداً.
-    9. 📋 فصل وضوح: استخراج التوصيات (SEPARATE MARKET VIEW FROM RECOMMENDATION): إذا وجدت platform_recommendation في البيانات، استخرجها في قسم منفصل بعنوان 'توصية سابقة على المنصة'. لا تخلطها مع تحليلك الفني الحالي. إذا كانت التوصية نشطة (ACTIVE_OPEN)، قل 'هذه توصية سابقة لم تمكنها من التنفيذ بعد' ولا تصفها بأنها توصية حالية. إذا كانت CLOSED أو NONE، قل ذلك صراحةً ثم انتقل إلى التحليل الفني الحالي.
+    9. 📋 فصل وضوح: استخراج التوصيات (SEPARATE MARKET VIEW FROM RECOMMENDATION): إذا وجدت platform_recommendation في البيانات، استخرجها في قسم منفصل بعنوان 'توصية سابقة على المنصة'. لا تخلطها مع تحليلك الفني الحالي. إذا كانت التوصية نشطة (ACTIVE_OPEN)، قل 'هذه توصية سابقة قيد المتابعة ولم تُغلق بعد' ولا تصفها بأنها توصية جديدة. إذا كانت CLOSED أو NONE، قل ذلك صراحةً ثم انتقل إلى التحليل الفني الحالي.
 10. 📢 رابط قناة EGX Bots العامة للتنبيهات والفرص (https://t.me/egxbots) يتم إدراجه تلقائياً كخاتمة في نهاية كل رد، فلا داعي لكتابته يدوياً.
 11. 🚫 ممنوع نهائياً اختلاق "قائمة الرموز المسموح بها" أو عبارات مثل "غير موجود في قائمة الرموز المسموح بها". لا توجد قائمة رموز محدودة في النظام؛ اعتمد فقط على البيانات الممررة في السياق (=== ALLOWED SYMBOLS === أو نتائج الأدوات). إذا لم يظهر رمز في تلك القائمة فهذا لا يعني أنه محظور، بل أنه لم يُستخدم في هذا الطلب.
 12. 🏦 قاعدة السيولة والمحفظة: إضافة سهم للمحفظة أو تعديلها مجرد تسجيل (أضف الكمية وسعر الدخول فقط). لا يُشترط وجود سيولة ولا تُخصم السيولة عند الإضافة، ولا تقل أبداً "سيولتك لا تكفي لإضافة السهم" أو ترفض إضافة سهم بسبب صفر/نقص السيولة. السيولة تُستعلم عنها أو تُضاف/تُعدَّل فقط عندما يطلبها المستخدم صراحة.
 13. 🎯 دقة التوصيات المغلقة: لا تدّع أن التوصية "حققت هدفها" أو بلغت سعر الهدف إلا إذا نصّت البيانات الممررة صراحة على ذلك (مثل حالة win/CLOSED مع سعر إغلاق). إذا كان سعر الإغلاق/الخروج أقل من الهدف، اذكر أنها أُغلقت بسعر الخروج الفعلي ولا تقل إن الهدف تحقق. اعرض سعر الدخول وسعر الخروج الفعلي كما هما في البيانات حرفياً، وإذا وجدت تعارضاً بين الهدف وسعر الخروج فاعتمد سعر الخروج الفعلي ولا تُنشئ أرقاماً جديدة. إذا كان وقف الخسارة أعلى من سعر الدخول (بيانات غير منطقية) فلا تتحدث عنه كوقف تنفيذي صحيح.
-14. 📅 "اليوم/النهارده" في سياق السوق تعني جلسة اليوم بتوقيت القاهرة الموضحة في رأس الرسالة. لا تخلط تواريخ الجلسات المختلفة في نفس الرد عند عرض سعر وبيانات من أكثر من مصدر.`;
+14. 📅 "اليوم/النهارده" في سياق السوق تعني جلسة اليوم بتوقيت القاهرة الموضحة في رأس الرسالة. لا تخلط تواريخ الجلسات المختلفة في نفس الرد عند عرض سعر وبيانات من أكثر من مصدر.
+15. 🔁 توجيهات منع التكرار لأسئلة المتابعة (ANTI-REPETITION FOR FOLLOW-UPS):
+عندما يسأل المستخدم سؤال متابعة (مثل "متى أشتري"، "هل أدخل"، "ادخل دلوقتي"، "وقف الخسارة كام"، "الهدف كام"، "اشتريه ولا أبيعه"، "أعمل متوسط") لسهم تمت مناقشته أو تحليله بالفعل في المحادثة:
+- أجب عن السؤال المحدد مباشرة وبشكل تنفيذي محدد (شروط وتوقيت الدخول، مستويات التفعيل السعرية، نسبة العائد إلى المخاطرة، المؤشرات التأكيدية المطلوبة).
+- يُمنع تكرار ملف السهم التعريفي بالكامل، وتجنب إعادة سرد فقرات RSI و MACD ونماذج وايكوف وسكورات ML حرفياً كالتقرير الأولي.`;
 
     const messages: { role: string; content: any }[] = [
         { role: "system", content: systemPrompt }
     ];
 
     if (plan.needs_history && recentHistory.length > 0) {
-        recentHistory.forEach(m => {
+        // Keep recent history turns (up to 6) to avoid bloating context and latency
+        const historySlice = recentHistory.slice(-6);
+        historySlice.forEach(m => {
             const content = String(m.content || "")
                 .replace(/ERROR:.*image.*model does not support image input[^.]*\.?/gi, "")
                 .replace(/Cannot read ["']?image\.(?:png|jpe?g|webp)["']?[^.]*\.?/gi, "")
@@ -1079,7 +1126,7 @@ export function buildDeterministicNewsResponse(
 
     if (items.length === 0) {
         if (caItems.length > 0) {
-            return [`${noVerifiedNews} لكن توجد أحداث مالية مؤثرة:`, ...formatCaSection(caItems)].join("\n");
+            return [`لم تصدر أخبار صحفية مسجلة ${rangeLabel}${plan.entities.symbols?.length ? ` للأسهم ${plan.entities.symbols.join("، ")}` : ""}، بينما تتوفر الأحداث والإفصاحات المالية المؤثرة التالية:`, ...formatCaSection(caItems)].join("\n");
         }
         return noVerifiedNews;
     }
@@ -1097,8 +1144,23 @@ export function buildDeterministicNewsResponse(
         return true;
     }).map(article => ({ ...article, date: article.event_date }));
     if (uniqueItems.length === 0) {
+        if (!requestedDay && evidence.articles.length > 0) {
+            const recentHeadlines = evidence.articles.slice(0, 5);
+            const fallbackLines = [
+                `أهم الأخبار الفعلية المتاحة ${rangeLabel}:`
+            ];
+            recentHeadlines.forEach((item: any) => {
+                const dateStr = item.event_date ? ` (${String(item.event_date).slice(0, 10)})` : "";
+                const symbolPrefix = item.symbol ? `**${item.symbol}**: ` : "";
+                fallbackLines.push(`- ${symbolPrefix}${item.title}${dateStr}`);
+            });
+            if (caItems.length > 0) {
+                fallbackLines.push(...formatCaSection(caItems));
+            }
+            return fallbackLines.join("\n");
+        }
         if (caItems.length > 0) {
-            return [`${noVerifiedNews} لكن توجد أحداث مالية مؤثرة:`, ...formatCaSection(caItems)].join("\n");
+            return [`لم تصدر أخبار صحفية مسجلة ${rangeLabel}${plan.entities.symbols?.length ? ` للأسهم ${plan.entities.symbols.join("، ")}` : ""}، بينما تتوفر الأحداث والإفصاحات المالية المؤثرة التالية:`, ...formatCaSection(caItems)].join("\n");
         }
         return noVerifiedNews;
     }
@@ -1378,11 +1440,15 @@ export async function generateV2Response(
             : "لا توجد بيانات حية أو تاريخية كافية لهذا الطلب حالياً. لم أستخدم معلومات عامة حتى لا أضيف أرقاماً أو أسماء غير مؤكدة.";
     }
 
-    const messages = buildV2FinalMessages(
-        userMessage, plan, visionContext, toolResults,
-        relevantFacts, recentHistory, resolvedReference, sessionState,
-        correctionPrompt
-    );
+    let messages;
+    try {
+        messages = buildV2FinalMessages(userMessage, plan, visionContext, toolResults,
+            relevantFacts, recentHistory, resolvedReference, sessionState, correctionPrompt);
+    } catch (error) {
+        if (!(error instanceof EvidenceContextOverflow)) throw error;
+        if (meta) { meta.source = "deterministic"; meta.degraded = true; }
+        return sanitizeReply(buildDeterministicResponse(userMessage, plan, toolResults, sessionState) || safeEvidenceResponse(userMessage, toolResults));
+    }
 
     const result = await callResponderLlm(messages, apiKeys, false, requestedModel, maxOutputTokens);
     if (result.response) {
@@ -1510,11 +1576,16 @@ export async function* generateV2Stream(
         return;
     }
 
-    const messages = buildV2FinalMessages(
-        userMessage, plan, visionContext, toolResults,
-        relevantFacts, recentHistory, resolvedReference, sessionState,
-        correctionPrompt
-    );
+    let messages;
+    try {
+        messages = buildV2FinalMessages(userMessage, plan, visionContext, toolResults,
+            relevantFacts, recentHistory, resolvedReference, sessionState, correctionPrompt);
+    } catch (error) {
+        if (!(error instanceof EvidenceContextOverflow)) throw error;
+        if (meta) { meta.source = "deterministic"; meta.degraded = true; }
+        yield sanitizeReply(buildDeterministicResponse(userMessage, plan, toolResults, sessionState) || safeEvidenceResponse(userMessage, toolResults));
+        return;
+    }
 
 
     const result = await callResponderLlm(messages, apiKeys, true, requestedModel, maxOutputTokens);
@@ -1970,11 +2041,15 @@ export function buildDeterministicTechnicalScanResponse(
     const presetNameAr = data.preset_name_ar || "الماسح الفني";
     const descAr = data.description_ar || "";
     const dataTime = techScan.data_time || "أحدث جلسة";
+    if (techScan.availability === "failed" || techScan.availability === "unsupported" || data.error)
+        return data.reason || data.description_ar || data.error || "تعذر التحقق من نتائج الفحص المطلوب.";
 
     const lines: string[] = [
         `### نتائج ${presetNameAr}`,
         descAr ? `*${descAr}* (جلسة ${dataTime})\n` : `(جلسة ${dataTime})\n`
     ];
+    const collection = data.scan_collection;
+    if (collection && (!collection.complete || collection.missing_evidence_count > 0)) lines.push(`الفحص جزئي: بيانات ${collection.missing_evidence_count || 0} سهم غير مكتملة؛ لا يمكن الجزم بأن القائمة تشمل كل الأسهم.`);
 
     if (stocks.length === 0) {
         lines.push(`لا توجد أسهم تحقق الشروط الدقيقة لهذا الفلتر حالياً في جلسة ${dataTime}.`);
@@ -1986,9 +2061,10 @@ export function buildDeterministicTechnicalScanResponse(
     lines.push("| # | السهم | الاسم | السعر | التغير | RSI | حجم نسبي | تفاصيل فنية أخرى |");
     lines.push("|---|---|---|---|---|---|---|---|");
 
-    stocks.slice(0, 15).forEach((s: any, idx: number) => {
+    stocks.forEach((s: any, idx: number) => {
         const changeStr = Number(s.change_pct) >= 0 ? `+${s.change_pct}%` : `${s.change_pct}%`;
         const extraDetails: string[] = [];
+        if (s.bollinger_evidence?.available) extraDetails.push(`حد Bollinger: ${s.bollinger_evidence.band}؛ أدنى/أعلى الجلسة: ${s.bollinger_evidence.low}/${s.bollinger_evidence.high}؛ ${s.date}`);
         if (s.ema_50 && s.ema_50 !== "N/A") extraDetails.push(`EMA 50: ${s.ema_50}`);
         if (s.ema_200 && s.ema_200 !== "N/A") extraDetails.push(`EMA 200: ${s.ema_200}`);
         if (s.divergence_summary) extraDetails.push(s.divergence_summary);
@@ -2463,7 +2539,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
                 && (!plan.entities.requested_end_date || !!article.event_date && article.event_date <= plan.entities.requested_end_date));
             parts.push(headlines.length
                 ? `الأخبار: ${headlines.length} عنوان للأسهم ${compoundNews.symbols.join("، ")}: ${headlines.slice(0, 3).map(article => `${article.title} (${article.event_date || "تاريخ النشر غير موثق"})`).join("؛ ")}.`
-                : `الأخبار: لم أجد خبراً موثقاً للفترة المطلوبة للأسهم ${compoundNews.symbols.join("، ") || "المطلوبة"}. هذا لا يؤكد عدم صدور أخبار.`);
+                : (evidence.articles.length
+                    ? `الأخبار: تتوفر ${evidence.articles.length} عناوين مسجلة للأسهم ${compoundNews.symbols.join("، ")}: ${evidence.articles.slice(0, 3).map(article => `${article.title} (${article.event_date || "سابق"})`).join("؛ ")}.`
+                    : `الأخبار: لم أجد خبراً موثقاً للفترة المطلوبة للأسهم ${compoundNews.symbols.join("، ") || "المطلوبة"}. هذا لا يؤكد عدم صدور أخبار.`));
         }
         const scan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
         if (scan?.data?.stocks?.length) {
@@ -2626,7 +2704,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
 
     const decision = /(أبيع|ابيع|ابيعه|أبيعه|بيع|أشتري|اشتري|شراء|احتفظ|أحتفظ|اخرج|أخرج)/i.test(userMessage);
     const isOwnedStockAdviceQuery = /(اشتريت.*نزل|نازل بيا|خسران|اشتريت.*سهم|اشتريت اليوم|اشتريت.*ونزل)/i.test(userMessage);
-    const entryTiming = /(ينصح|داخل|دخول|ادخل|أدخل|بكره|بكرة|يصحح|تصحيح|مستهدف|هدف|اخر الاسبوع|آخر الأسبوع|المحفظه|المحفظة|مليون)/i.test(userMessage);
+    const entryTiming = /(اشتري|أشتري|شراء|متوسط|ينصح|داخل|دخول|ادخل|أدخل|بكره|بكرة|يصحح|تصحيح|مستهدف|هدف|اخر الاسبوع|آخر الأسبوع|المحفظه|المحفظة|مليون)/i.test(userMessage);
     const stockData = toolResults.filter(result => result.tool === "get_stock" && result.data?.symbol);
     const riskQuestion = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage);
     if (riskQuestion && stockData.length > 0) {
@@ -2648,7 +2726,8 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             "وجود إشارة تصريف أو هبوط سابق يرفع الحذر، لكنه لا يتنبأ بنسبة هبوط محددة. استخدم مستوى المخاطر وخطة وقف الخسارة الخاصة بك، فهذا ليس توصية استثمارية."
         ].join("\n");
     }
-    if (decision && stockData.length > 0) {
+    const exitDecision = /(?:أبيع|ابيع|أبيعه|ابيعه|احتفظ|أحتفظ|اخرج|أخرج)/i.test(userMessage);
+    if (exitDecision && stockData.length > 0) {
         const levelResults = toolResults.filter(result => result.tool === "get_stock_levels" && result.data?.symbol);
         const levelBySymbol = new Map(levelResults.map(result => [String(result.data.symbol).toUpperCase(), result.data]));
         const compoundScan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
