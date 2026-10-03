@@ -27,6 +27,13 @@ export const createSupabaseServerClient = async (request?: NextRequest) => {
   const cookieStore = request?.cookies ?? await cookies()
 
   return createServerClient(supabaseUrl, anonKey, {
+    // The browser client owns refresh-token rotation. A server route that
+    // tries to refresh the same cookie concurrently can revoke the token and
+    // create a retry storm, so server clients validate/read only.
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
     cookies: {
       get(name: string) {
         return cookieStore.get(name)?.value
