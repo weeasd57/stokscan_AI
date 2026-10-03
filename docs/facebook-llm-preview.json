@@ -1,0 +1,465 @@
+{
+  "generated_at": "2026-10-03T22:56:15.897Z",
+  "symbol": "CCAP",
+  "source": "llm",
+  "degraded": false,
+  "gate": {
+    "ok": true,
+    "reasons": [],
+    "checked": {
+      "coverage": false,
+      "metric": false,
+      "attribution": true,
+      "context": true
+    }
+  },
+  "evidence": [
+    {
+      "tool": "get_stock",
+      "availability": "stale",
+      "source": "database",
+      "data_time": "2026-10-01",
+      "symbols": [
+        "CCAP"
+      ],
+      "data_type": "historical",
+      "data": {
+        "symbol": "CCAP",
+        "name": "QALA For Financial Investments",
+        "price": 6.88,
+        "change_pct": "+3.77%",
+        "change_pct_num": 3.7707,
+        "rsi_14": "61.89",
+        "rsi_14_num": 61.8852,
+        "macd_signal": "0.3209",
+        "macd_signal_num": 0.320912,
+        "macd": 0.263316,
+        "macd_histogram": -0.05759599999999998,
+        "vol_ratio": "0.91x",
+        "vol_ratio_num": 0.9094277282504204,
+        "volume": 112109163,
+        "vol_sma20": 123274406,
+        "sma_50": "5.97",
+        "ema_50": "6.15",
+        "sma_200": "4.64",
+        "ema_200": "4.90",
+        "bb_upper": "7.51",
+        "bb_lower": "5.86",
+        "stoch_k": "58.88",
+        "stoch_d": "51.36",
+        "is_live_intraday": false,
+        "live_update_time": null,
+        "live_refresh_failed": false,
+        "live_refresh_unsupported": false,
+        "live_refresh_error": "جلسة EGX مغلقة حالياً؛ سيتم استخدام آخر إغلاق مسجل",
+        "session_open": false,
+        "king_ai_score": 0.5257,
+        "egx_ai_score": 0.5101,
+        "wyckoff_phase": "neutral",
+        "wyckoff_status": "observed",
+        "wyckoff_as_of": "2026-10-01",
+        "acc_score": 5,
+        "dist_score": 0,
+        "signal": "neutral",
+        "consecutive_acc_days": 0,
+        "consecutive_dist_days": 0,
+        "market_cap": 7261497963,
+        "eps": null,
+        "book_value_per_share": null,
+        "pe_ratio": null,
+        "recommendation": {
+          "has_recommendation": false,
+          "is_active": false,
+          "status": "none",
+          "message": "لا توجد توصيات سابقة أو حالية مسجلة لهذا السهم على المنصة."
+        },
+        "corporate_actions": [
+          {
+            "symbol": "CCAP",
+            "exchange": "EGX",
+            "action_type": "capital_increase",
+            "title": "الرقابة المالية توافق على دعوة عمومية القلعة للنظر في زيادة رأس المال المُصدر والمدفوع - جريدة حابي",
+            "action_date": null,
+            "published_at": "2026-10-01T00:00:00+00:00",
+            "updated_at": "2026-10-01T14:19:06.953476+00:00",
+            "url": "https://news.google.com/rss/articles/CBMi1wJBVV95cUxNdUpyemxqaWdLLU9zZ1dGMTRwSWtpVlZ4cFZ3Q0tSRU1rbXE5RmI1MVpJaTJUcFFjaWQzSU9UMVZWSmFZQ3Z0b0FCLTBQSWM2SHRJR1N5dGdJSkZ5MmRMdDY4ZERETklKZmktTzZqWV9USlZWa25aRnFKZzJQTy1WSkFJZEpLUkJDNkxjbGp3UVdFZFRqQzVWNWJnMUVHZEZFclIzZmI2amRSUDlXeE44d3JxRmF5bk1QQVY4OUlTMlZVWjVQYUNGbTAybXNLb0p1T0JJTjhSNXg5OTVoT0JkLWZwOTI5V0FRUmpyaDJITG9GXzFLUzkyY2E5eHJsVFNGbHhYdVp4MUlkWm40YzZmaXI2TkRlNFVINHdBYW1tODBOTXQ4aV9hamtrajNnRGlzSTZZbk5hQzNlUUZkMFB5dnlxRmh0enZiR1Zzb2REN19VWmhmU3VZ?oc=5",
+            "source": "جريدة حابي",
+            "sentiment_score": 0,
+            "sentiment_label": "neutral",
+            "confidence": 0.8,
+            "details": null,
+            "origin": "scheduler",
+            "action_type_ar": "زيادة رأس المال"
+          },
+          {
+            "symbol": "CCAP",
+            "exchange": "EGX",
+            "action_type": "capital_increase",
+            "title": "«الرقابة المالية» توافق على نشر إفصاح القلعة لزيادة رأس المال إلى 25 مليار جنيه - جريدة المال",
+            "action_date": null,
+            "published_at": "2026-10-01T00:00:00+00:00",
+            "updated_at": "2026-10-01T14:19:07.614761+00:00",
+            "url": "https://news.google.com/rss/articles/CBMi_gJBVV95cUxOVEtNbXBOT3dXQmRzMTB6M3F0RDBNdDk1VmtmR2NBalNxOVVMN29vdFlLY2xwNWxhRzZHR3ZqNF9GdXZCRGdjd3BwV1c0cGExMEo0SVhiUFlHR3ZyU2FCTVZNbU9qX3dIT3BWMVZ2a2lkNWtoYjJiR0Fpa25ZV0ZsTklYTktTMTU4b2xFcVRDNHFwT3h1MTdTWnVFdzdKbF9SWVdsM0hWSFlHczlKNElLNTJ1cjVMLU9MMGVYUkhvZ0Z6TFVzczR3YkdhNnZmd1hPbUR3VUVHM1c2ZmlBRzJ6c3lxckJiUldEOHBlMkRCNC03aTZGYWtNMXU1RkFXZWdmYzV1QTVPeUNyWWJoZDBieUpGRnRyY2FpOE53N0N4V3JhT19SQzdUQTNYRWpva3J2QkNuZkJLdE5RWHc3R1lWR2lxZ3lIdjQxWHVNT003V0p5dm13NzRIeUJSNDByb1d1TWF1cTR2SlVxaGRqYl9BU3FmSjNPU3doZHA5dk53?oc=5",
+            "source": "جريدة المال",
+            "sentiment_score": 0,
+            "sentiment_label": "neutral",
+            "confidence": 0.8,
+            "details": null,
+            "origin": "scheduler",
+            "action_type_ar": "زيادة رأس المال"
+          },
+          {
+            "symbol": "CCAP",
+            "exchange": "EGX",
+            "action_type": "capital_increase",
+            "title": "الرقابة المالية توافق على دعوة عمومية القلعة لبحث زيادة رأس المال إلى 25 مليار جنيه - أصول مصر",
+            "action_date": null,
+            "published_at": "2026-10-01T00:00:00+00:00",
+            "updated_at": "2026-10-01T14:19:08.483697+00:00",
+            "url": "https://news.google.com/rss/articles/CBMiUkFVX3lxTFBqTTY0Q0dKUmMzUFFzVXhYWGFOSnVIR3A5NlZKdkFhZnhGTUd2dk4xX1BnMHNwR0tZTkhwcEVCVWRJY3gxVnVDWUNYNjl5WHd6TEE?oc=5",
+            "source": "أصول مصر",
+            "sentiment_score": 0,
+            "sentiment_label": "neutral",
+            "confidence": 0.8,
+            "details": null,
+            "origin": "scheduler",
+            "action_type_ar": "زيادة رأس المال"
+          }
+        ]
+      },
+      "evidence": [
+        {
+          "id": "get_stock-0",
+          "source": "جريدة حابي",
+          "url": "https://news.google.com/rss/articles/CBMi1wJBVV95cUxNdUpyemxqaWdLLU9zZ1dGMTRwSWtpVlZ4cFZ3Q0tSRU1rbXE5RmI1MVpJaTJUcFFjaWQzSU9UMVZWSmFZQ3Z0b0FCLTBQSWM2SHRJR1N5dGdJSkZ5MmRMdDY4ZERETklKZmktTzZqWV9USlZWa25aRnFKZzJQTy1WSkFJZEpLUkJDNkxjbGp3UVdFZFRqQzVWNWJnMUVHZEZFclIzZmI2amRSUDlXeE44d3JxRmF5bk1QQVY4OUlTMlZVWjVQYUNGbTAybXNLb0p1T0JJTjhSNXg5OTVoT0JkLWZwOTI5V0FRUmpyaDJITG9GXzFLUzkyY2E5eHJsVFNGbHhYdVp4MUlkWm40YzZmaXI2TkRlNFVINHdBYW1tODBOTXQ4aV9hamtrajNnRGlzSTZZbk5hQzNlUUZkMFB5dnlxRmh0enZiR1Zzb2REN19VWmhmU3VZ?oc=5",
+          "title": "الرقابة المالية توافق على دعوة عمومية القلعة للنظر في زيادة رأس المال المُصدر والمدفوع - جريدة حابي",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_stock-1",
+          "source": "جريدة المال",
+          "url": "https://news.google.com/rss/articles/CBMi_gJBVV95cUxOVEtNbXBOT3dXQmRzMTB6M3F0RDBNdDk1VmtmR2NBalNxOVVMN29vdFlLY2xwNWxhRzZHR3ZqNF9GdXZCRGdjd3BwV1c0cGExMEo0SVhiUFlHR3ZyU2FCTVZNbU9qX3dIT3BWMVZ2a2lkNWtoYjJiR0Fpa25ZV0ZsTklYTktTMTU4b2xFcVRDNHFwT3h1MTdTWnVFdzdKbF9SWVdsM0hWSFlHczlKNElLNTJ1cjVMLU9MMGVYUkhvZ0Z6TFVzczR3YkdhNnZmd1hPbUR3VUVHM1c2ZmlBRzJ6c3lxckJiUldEOHBlMkRCNC03aTZGYWtNMXU1RkFXZWdmYzV1QTVPeUNyWWJoZDBieUpGRnRyY2FpOE53N0N4V3JhT19SQzdUQTNYRWpva3J2QkNuZkJLdE5RWHc3R1lWR2lxZ3lIdjQxWHVNT003V0p5dm13NzRIeUJSNDByb1d1TWF1cTR2SlVxaGRqYl9BU3FmSjNPU3doZHA5dk53?oc=5",
+          "title": "«الرقابة المالية» توافق على نشر إفصاح القلعة لزيادة رأس المال إلى 25 مليار جنيه - جريدة المال",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_stock-2",
+          "source": "أصول مصر",
+          "url": "https://news.google.com/rss/articles/CBMiUkFVX3lxTFBqTTY0Q0dKUmMzUFFzVXhYWGFOSnVIR3A5NlZKdkFhZnhGTUd2dk4xX1BnMHNwR0tZTkhwcEVCVWRJY3gxVnVDWUNYNjl5WHd6TEE?oc=5",
+          "title": "الرقابة المالية توافق على دعوة عمومية القلعة لبحث زيادة رأس المال إلى 25 مليار جنيه - أصول مصر",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_stock-3",
+          "source": "جريدة الكنانة نيوز",
+          "url": "https://news.google.com/rss/articles/CBMixAJBVV95cUxNTy10MXNwOEZwdHFsS1RBTEVWd2FIcEhWVWFSYUhNUmcyM2plamRDb2VKcXFkSE1SRjRreHdFU1dlQTFYU2UwZUstMS1saVJoSU1SZmpZQzMweWlwSkQyYXVINjhmNWNNZWpINUFISTNBVjNXbTZwaFo5QXQ4b0NNUzJydVRYSGZiSUZHMFBJX0JVN1Z0TUs1aW01c09kMk1US2pjNDlJcDN1Y3ctQTZzOG1ZbmZZdEJ1dmRfaUZfVlVpQ2k1SncyNVpfZUdDVnRqTFY2QXVyVkJncmNnX3k0c3g5VmZuZmVUdXU5ck5TeXNQdkdFZjFnWTZDd3YyejhOd20tNW1DUlRQWURzc2lTSldjc0x6RE9pUDdreUxIb2YtLXdNTVBCRTdwTE5HTldwWjRFenNzOXR3V2xCZGE4SkxUTEY?oc=5",
+          "title": "البورصة: ديون بـ75.2 مليار جنيه وخسائر متراكمة والقلعة تخطط لزيادة رأس المال - جريدة الكنانة نيوز",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_stock-4",
+          "source": "شبكة تواصل الإخبارية",
+          "url": "https://news.google.com/rss/articles/CBMiU0FVX3lxTE5FM2VyVEdGZDUta2VmQzZMV3ZTdEJwMG9BQVdJSUxCMWFEb2xPb3pOa1FJeTVfRG9GMEdTcF9KZm5LQ292dk5DYnl0QVBpWGg3R09v?oc=5",
+          "title": "«الرقابة المالية» توافق على نشر إفصاح «القلعة» لزيادة رأس المال لـ 25 مليار جنيه - شبكة تواصل الإخبارية",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_stock-5",
+          "source": "جريدة المال",
+          "url": "https://news.google.com/rss/articles/CBMipgNBVV95cUxQUzd1WkpPQjlDR0xzUS12QVRnM3NxMm1OTklNeG1ZdkRWUWViRmw3T2Z0bFY4aXFkWTRfSFNodGo0RU1nNHRsTHM0NXZqZUdTR3B1VzViMnlneU1IMk00Wkp1dEJmUFJ0Tk9IZHphU2d5Ml9Cd3MyV3NpU3Rpa0pzMmhaNVNqTW5KRFhUaEhwMHVYTlZWZHNYSGlSazA2YW9HVnBZcFhBajRKdVFOT3VZU1VDaHo3LUhzZ0I3SFlkTXBfZW1aR01UaFJid3hVUUVRUWlDcW1OQ0VsRVlhTHVnVkR3S21Td0F0eEJTaHRKXzZ2Q281YlF0Q1AzVEZ2UzRPYTZnV3ZWMUhXLVFrRzlOSjlKMC1CbWItRGJLS2Z0VU9lek9DWndCalB1eWlVd0V6TWF6ZkhOWDVVUF9ENXlHemhUdTFNRnUwT09ldk52NFBycFBpcVhFSmdlNXpvcU5mVDE4YTdsSFJqZ3V1b3pib0hnNVhfOXJkQkRaYkJkRXNVQmVFZWV1WExmR1NUcnlJWWNVTktwMG14N0VPQ3FHMWc2VkF2QQ?oc=5",
+          "title": "«القلعة للاستثمارات» تدعو لعمومية غير عادية للنظر في زيادة رأس المال - جريدة المال",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_stock-6",
+          "source": "اليوم السابع",
+          "url": "https://news.google.com/rss/articles/CBMi6ANBVV95cUxPLWprTjVfVS1IdlNmZXJja0JsV3JkY3doYmJTeDcydGtNMXpBVmhqd3lONjNUOWtxelJpQi1fUGdfdFJOOVBUZFJsd09VYWRrN18wWUc0R0tQYUNUWFBiUkJIVF9jVk9tTWVVN2NFbG0wWVd0a1NOc2pHNU5JX0syeXVJTjNNZWlEenhFcTZLQzhFZ21ZLW91cDRNQmdidFkycXktQi1PWF9OVWlmY2JrQUVMV2ZETjRQU2tvSzNxT0hGdHRLT3NZZGljRm8tUEVfdk1TOTBHb3VXMExBSzJnMjJtdHR4RkxGSUxoc0FHcXNoaFRvZWEtQmVhTDROU1dCSDluZ1pGOXQ5cmd3Y3hrbzF1WmY5dmh5MHVVcFVCS2tBQkVXdWpVNWFHaU5MTngtbzNSQ0wxemJpcjJudjhZS0pjV0VzSjRIbGJRRE5MTy1wVjlVRmtsV0EzbklXN1h5emVrdkw5VUpKWmRsaFhYRHllT3h3VWFqa0lfazdtWXRLenhkQ0toUm9kSWduVU9xODlIMFgzYzVqUFNhWUEzTDZ0Vmx2UzdjclNVb1Q3NjVybmRqb1NkUnZ3UG5TcVIxdGZDUjJQdF9IY0Q0a2xQVHlyT25Hdy1IeU1Ha0w5UXJVSlVMS0RJZtIB4wNBVV95cUxONFdETzZiX2tUVDRqZUJkdG5FQ05QdW5nNk90bVJ5SVJsZnE4LXU3cTBXbG52eTRfRDR1cjR3QzVMWS10bmUtbzcxRllWNmxYaEhiMy1TclVwLU9BMmRIME92eGtjZEFRZVZqNTlMZXZ2UmxBMlhlOUhWTkN1SzN3YlpyWm1MQWtiWjR5UkNOZVNDNExmSkFoSXRxNjR0YUI2RlcwSnJ4T3ltdENhbkgtQkpKMWNJS2l2N2RnM2RhYlozclRMUjlZQmliQVk2VTI3RlRsVDdTUXQ0cnlWRjBrN0NnUlZvamFMRXZBeE1xOEF5RFJ4QkVabzFFRmdKSjZweHBfV3NJaGtxSWlnbFM0YlZnNkJSbkJUc0lyXzhOVFhnbVY2ZVA2eEFMU05CSnlxaHdVc0VJUFBoTi16WXcwWHNYY1VxMnZVTm93YzEyVGp3T0g1LXdmUHFYQnhpX2FabHVlZWJHYlNRbVZnbXRWTVdHSFVyYXJoY0dmVUJOT0txVFhqZVJtTG4xSjlZMXVrRXFFLWhiMjBqVVh1eDlOYTMyZElZaFFQbWMxNXBHcnh3NjV6TEk1LW4xeHhjeXhRTUF0NldLMzZibUFEclVVcUdlazlqYVliMnNrTXZncnVVWGc?oc=5",
+          "title": "ديون بـ75 مليارًا وخسائر متراكمة..القلعة تراهن على زيادة رأس المال لتقليص الأعباء - اليوم السابع",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_stock-7",
+          "source": "بوابة بلوم",
+          "url": "https://news.google.com/rss/articles/CBMi7AJBVV95cUxPZWdXdGRMdUhNaVZvY2UwOC1aLXE2X1FmMGJoUmtsUFN5RS1DbDlMczY4aXZmMXpHRU5LazFoQWNZUmk1bHZvdHd0c1p1X2VUR2N2U29EZFhHbDA3U2FveEgxQ0xUNXpDd0M4dTZxY1J3WmJiOVpmZXAwM3RvTDdRTnBMR0hXd2FZVFhsdHV4b1V5cEc4VjNrSHJNN3ZmMkU1N3JVOU1tTV9wQ2VHTERzcVVQY0dQT0VGVVNtak5lU05fRW9LejJqRjBXc1dUYWtQa0FuY19lSkw4LWFBMll0ZFhLQU4yc0ROWk1CWkFqYTNtUGZzenJaZWJOMXctUkRsdUs4SGtONWJjVnhDVWJUR0REUzU3TFR6VmZCdDFYcVdPV09DdmJBU3FzZnZiQzBuT1NuOHB3Nmk1SG5qTUhJb1FqblpIWC1GcXhEeFJEWExDNVowQ0hZTWNSazlqU1QtR3FVbXhuUHZpOVps?oc=5",
+          "title": "الرقابة المالية توافق على دعوة عمومية القلعة لمناقشة زيادة رأس المال إلى 25 مليار جنيه - بوابة بلوم",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_stock-8",
+          "source": "أموال الغد",
+          "url": "https://news.google.com/rss/articles/CBMi1AJBVV95cUxNRGZULTNFcm5wcEprY29iTUJSekR1R3UwYThUa0lCQldTWGptQXVuU19zZkRMbmRIMlRLQkVrd1F1MEpmY3EwRWpsSWZfdUFpbktkNmN2clBiZGJPLTZaZFltcmpkcDBSdzZaTjNMTERFRHZyU0FCb096SWxnb2llYXhTeEpnVFNGUVhTX0FDbmNtMDdjYmtNY1NRdWxiMTFCZm5yQkwwZ3l4QXEwc0FsMkoxWHVHeTI0TDFXTW5fSkhxaFhreGJwSjg3M0ZDLVBuNktLQU1WYlFaNnB3Rl9GbXE2bnE1bXoyNFB4ZUdMLTlENU1GSjlsRE9MM0dRd0pRNjNlcjdCNS1VVm9vUXlLQmx6UlBlbFBzdHpTeTVVZ3NzQlNBYkFUbk11cGdybldJUTBUU2Zvb3VMeFFWNDhpUEtINFFPMFhYVURkR2NxYm1aTlpx?oc=5",
+          "title": "القلعة تعتزم رفع حصتها في المصرية للتكرير إلى 27.1% وزيادة رأس المال - أموال الغد",
+          "as_of": "2026-09-24T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "stale",
+          "confidence": 0.9,
+          "claim": null
+        },
+        {
+          "id": "get_stock-9",
+          "source": "Masrawy",
+          "url": "https://news.google.com/rss/articles/CBMi7ARBVV95cUxQOC1WbmxuRk16aE1UbUx2eWlieC1tVEpZTlozMDJicXdWVTlrT2RGTXY4LWthNGFCYnpBNFozZTkzcjhuUEdpNGZoR0JRaXEwU0xDc2FGWklqSW9JZHd2N1BFUVVmOTAwZXJ6ZTFwZFFuaWR4NDZzbTlIWVRsRFhaOVlaUTJjQTMtVUcxazNuR3BEb1MwVlI4SjBudmVmRTEyUGJzUVlzVnBrcWRySm82b0Q4d2lZRC1UUGhNNVVSZ0d1RUljR0U0Tzh0ZVdhQzd0UjVxUkFjRXF5NjRlNnNLUHkxWXA5b1dfYWRhWF9TTTNiNHVLY3VqWGFzWGNONDJHWkQwVVU2RzNOR1FpYUJQWlYya2Rjb2NaVFRTY0RJMkd5QVZLcTJDVU9lZWJqbms5MzFfX1FiTHM4aTZwVDRfUjJlUUM1c3lpNXlKeEZPY29iR1FQMWt4VW1NU1REWmhDVlZBaEt2djRMY0RRd05kVWtCc3VFRUN2eXp4SnAwXzVycHZ3MVBoSnU5dWpBVmoxekhQVXRyNXczQmRVLUhVczRScjRmTVcxMWNvZ25NT2l1Y2podGF6ZXRnbklFUk82N0RUNmpVUXJNMFdnRjRRTVpnendhRTBCTFJid2lacEpNZFVGRHhDUHI4aXR1RmRYWmVFTFB4TkhIa1dDVFU1djMzb3hlX1Z6X3NKZXdCMVdHNWZyTUEzV3NPOU5zUFR3Y29wa3ZxMW1LeXcxRFlrcDdxTkFLM0RNREczU3poZ1J4eTBVWFM5dTVCWmJwVjB3bVI3WFp5RkpIUWJHb3c0MXR5elhQVDQzdWpxQdIBvwRBVV95cUxPakZLTnZRcTJhMUdPVGh4Z0tLS1ppcy1lLUp5SWVvd3RTOFltY2REX1lWeTU0ZWRLTVk0WGZZUGY2Yk1TVDZXTldvbzNuTEJyejdycG1vUXVNS2RvODlsRENJRkh6NlNETF8zcE1sNlRMWDVfM3dZMkNfSHd5WVlYVmxPbWpuaXpFdnFEUmpiT0VpM1ZlWmF6dkZCekFyUVFwdnAyRXNlYUJZTTg2ODkyckRJMUxyVEdvY1Focm5veDJubFIxYV8tNEtzV0d6U09yWTR1cWF2YzlCdDYtendEem94ckRibDFFLVhKSTZwelg2S3N4a19jM1NZS3kwZVVOQ1VWRVprNDMxYUlFRG11OERBOVlDNW13MG44bjBWaTcwcUw1Z21WQ0dkUlNHZVppSVlzR2RGeTJvd0NRQnlaemFHbUJMMEhTLTVEOXpyTWItbmVlSHZfNy00dnRzeWRBVzdCZlFQeHFIazRYSHN3MF9rVVVnWlZLSUlaVTc4U3RjUi1kSm9zNGNRNjJ3Z0RUSFZBN0twSndGRDFNWFZrSEE1N0ozaWZxTGhXd0tpbmxTeFVTZFVaUGFCbFpINXBTbW5SeUliRXRKdlBLWWstQzFOR3JRS1hFRi1RZC1WdnkyazFUV252b0ZaME9qLWhpMHlKcER5UzZtWlp6MEhieHZ0UHlmemhONGNsRzNHTmp5WGR4SlJEY1F0cFJLUEJVUWxEM0I2STBnRGNHb2UteV91LUFwcE5uMlpuT1hHTQ?oc=5",
+          "title": "القلعة تتحول للربحية بقوة.. 16.6 مليار جنيه أرباحاً خلال النصف الأول من 2026 - Masrawy",
+          "as_of": "2026-09-24T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "stale",
+          "confidence": 0.6,
+          "claim": null
+        }
+      ]
+    },
+    {
+      "tool": "get_corporate_actions",
+      "source": "database",
+      "data_time": "2026-10-03T22:56:11.233Z",
+      "symbols": [
+        "CCAP"
+      ],
+      "data_type": "live",
+      "availability": "available",
+      "data": {
+        "corporate_actions": [
+          {
+            "symbol": "CCAP",
+            "exchange": "EGX",
+            "action_type": "capital_increase",
+            "title": "الرقابة المالية توافق على دعوة عمومية القلعة للنظر في زيادة رأس المال المُصدر والمدفوع - جريدة حابي",
+            "action_date": null,
+            "published_at": "2026-10-01T00:00:00+00:00",
+            "updated_at": "2026-10-01T14:19:06.953476+00:00",
+            "url": "https://news.google.com/rss/articles/CBMi1wJBVV95cUxNdUpyemxqaWdLLU9zZ1dGMTRwSWtpVlZ4cFZ3Q0tSRU1rbXE5RmI1MVpJaTJUcFFjaWQzSU9UMVZWSmFZQ3Z0b0FCLTBQSWM2SHRJR1N5dGdJSkZ5MmRMdDY4ZERETklKZmktTzZqWV9USlZWa25aRnFKZzJQTy1WSkFJZEpLUkJDNkxjbGp3UVdFZFRqQzVWNWJnMUVHZEZFclIzZmI2amRSUDlXeE44d3JxRmF5bk1QQVY4OUlTMlZVWjVQYUNGbTAybXNLb0p1T0JJTjhSNXg5OTVoT0JkLWZwOTI5V0FRUmpyaDJITG9GXzFLUzkyY2E5eHJsVFNGbHhYdVp4MUlkWm40YzZmaXI2TkRlNFVINHdBYW1tODBOTXQ4aV9hamtrajNnRGlzSTZZbk5hQzNlUUZkMFB5dnlxRmh0enZiR1Zzb2REN19VWmhmU3VZ?oc=5",
+            "source": "جريدة حابي",
+            "sentiment_score": 0,
+            "sentiment_label": "neutral",
+            "confidence": 0.8,
+            "details": null,
+            "origin": "scheduler",
+            "action_type_ar": "زيادة رأس المال"
+          },
+          {
+            "symbol": "CCAP",
+            "exchange": "EGX",
+            "action_type": "capital_increase",
+            "title": "«الرقابة المالية» توافق على نشر إفصاح القلعة لزيادة رأس المال إلى 25 مليار جنيه - جريدة المال",
+            "action_date": null,
+            "published_at": "2026-10-01T00:00:00+00:00",
+            "updated_at": "2026-10-01T14:19:07.614761+00:00",
+            "url": "https://news.google.com/rss/articles/CBMi_gJBVV95cUxOVEtNbXBOT3dXQmRzMTB6M3F0RDBNdDk1VmtmR2NBalNxOVVMN29vdFlLY2xwNWxhRzZHR3ZqNF9GdXZCRGdjd3BwV1c0cGExMEo0SVhiUFlHR3ZyU2FCTVZNbU9qX3dIT3BWMVZ2a2lkNWtoYjJiR0Fpa25ZV0ZsTklYTktTMTU4b2xFcVRDNHFwT3h1MTdTWnVFdzdKbF9SWVdsM0hWSFlHczlKNElLNTJ1cjVMLU9MMGVYUkhvZ0Z6TFVzczR3YkdhNnZmd1hPbUR3VUVHM1c2ZmlBRzJ6c3lxckJiUldEOHBlMkRCNC03aTZGYWtNMXU1RkFXZWdmYzV1QTVPeUNyWWJoZDBieUpGRnRyY2FpOE53N0N4V3JhT19SQzdUQTNYRWpva3J2QkNuZkJLdE5RWHc3R1lWR2lxZ3lIdjQxWHVNT003V0p5dm13NzRIeUJSNDByb1d1TWF1cTR2SlVxaGRqYl9BU3FmSjNPU3doZHA5dk53?oc=5",
+            "source": "جريدة المال",
+            "sentiment_score": 0,
+            "sentiment_label": "neutral",
+            "confidence": 0.8,
+            "details": null,
+            "origin": "scheduler",
+            "action_type_ar": "زيادة رأس المال"
+          },
+          {
+            "symbol": "CCAP",
+            "exchange": "EGX",
+            "action_type": "capital_increase",
+            "title": "الرقابة المالية توافق على دعوة عمومية القلعة لبحث زيادة رأس المال إلى 25 مليار جنيه - أصول مصر",
+            "action_date": null,
+            "published_at": "2026-10-01T00:00:00+00:00",
+            "updated_at": "2026-10-01T14:19:08.483697+00:00",
+            "url": "https://news.google.com/rss/articles/CBMiUkFVX3lxTFBqTTY0Q0dKUmMzUFFzVXhYWGFOSnVIR3A5NlZKdkFhZnhGTUd2dk4xX1BnMHNwR0tZTkhwcEVCVWRJY3gxVnVDWUNYNjl5WHd6TEE?oc=5",
+            "source": "أصول مصر",
+            "sentiment_score": 0,
+            "sentiment_label": "neutral",
+            "confidence": 0.8,
+            "details": null,
+            "origin": "scheduler",
+            "action_type_ar": "زيادة رأس المال"
+          }
+        ],
+        "failed_symbols": [],
+        "counts": {
+          "total": 19,
+          "from_database": 19,
+          "from_web": 0,
+          "saved_to_database": 0
+        }
+      },
+      "evidence": [
+        {
+          "id": "get_corporate_actions-0",
+          "source": "جريدة حابي",
+          "url": "https://news.google.com/rss/articles/CBMi1wJBVV95cUxNdUpyemxqaWdLLU9zZ1dGMTRwSWtpVlZ4cFZ3Q0tSRU1rbXE5RmI1MVpJaTJUcFFjaWQzSU9UMVZWSmFZQ3Z0b0FCLTBQSWM2SHRJR1N5dGdJSkZ5MmRMdDY4ZERETklKZmktTzZqWV9USlZWa25aRnFKZzJQTy1WSkFJZEpLUkJDNkxjbGp3UVdFZFRqQzVWNWJnMUVHZEZFclIzZmI2amRSUDlXeE44d3JxRmF5bk1QQVY4OUlTMlZVWjVQYUNGbTAybXNLb0p1T0JJTjhSNXg5OTVoT0JkLWZwOTI5V0FRUmpyaDJITG9GXzFLUzkyY2E5eHJsVFNGbHhYdVp4MUlkWm40YzZmaXI2TkRlNFVINHdBYW1tODBOTXQ4aV9hamtrajNnRGlzSTZZbk5hQzNlUUZkMFB5dnlxRmh0enZiR1Zzb2REN19VWmhmU3VZ?oc=5",
+          "title": "الرقابة المالية توافق على دعوة عمومية القلعة للنظر في زيادة رأس المال المُصدر والمدفوع - جريدة حابي",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_corporate_actions-1",
+          "source": "جريدة المال",
+          "url": "https://news.google.com/rss/articles/CBMi_gJBVV95cUxOVEtNbXBOT3dXQmRzMTB6M3F0RDBNdDk1VmtmR2NBalNxOVVMN29vdFlLY2xwNWxhRzZHR3ZqNF9GdXZCRGdjd3BwV1c0cGExMEo0SVhiUFlHR3ZyU2FCTVZNbU9qX3dIT3BWMVZ2a2lkNWtoYjJiR0Fpa25ZV0ZsTklYTktTMTU4b2xFcVRDNHFwT3h1MTdTWnVFdzdKbF9SWVdsM0hWSFlHczlKNElLNTJ1cjVMLU9MMGVYUkhvZ0Z6TFVzczR3YkdhNnZmd1hPbUR3VUVHM1c2ZmlBRzJ6c3lxckJiUldEOHBlMkRCNC03aTZGYWtNMXU1RkFXZWdmYzV1QTVPeUNyWWJoZDBieUpGRnRyY2FpOE53N0N4V3JhT19SQzdUQTNYRWpva3J2QkNuZkJLdE5RWHc3R1lWR2lxZ3lIdjQxWHVNT003V0p5dm13NzRIeUJSNDByb1d1TWF1cTR2SlVxaGRqYl9BU3FmSjNPU3doZHA5dk53?oc=5",
+          "title": "«الرقابة المالية» توافق على نشر إفصاح القلعة لزيادة رأس المال إلى 25 مليار جنيه - جريدة المال",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_corporate_actions-2",
+          "source": "أصول مصر",
+          "url": "https://news.google.com/rss/articles/CBMiUkFVX3lxTFBqTTY0Q0dKUmMzUFFzVXhYWGFOSnVIR3A5NlZKdkFhZnhGTUd2dk4xX1BnMHNwR0tZTkhwcEVCVWRJY3gxVnVDWUNYNjl5WHd6TEE?oc=5",
+          "title": "الرقابة المالية توافق على دعوة عمومية القلعة لبحث زيادة رأس المال إلى 25 مليار جنيه - أصول مصر",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_corporate_actions-3",
+          "source": "جريدة الكنانة نيوز",
+          "url": "https://news.google.com/rss/articles/CBMixAJBVV95cUxNTy10MXNwOEZwdHFsS1RBTEVWd2FIcEhWVWFSYUhNUmcyM2plamRDb2VKcXFkSE1SRjRreHdFU1dlQTFYU2UwZUstMS1saVJoSU1SZmpZQzMweWlwSkQyYXVINjhmNWNNZWpINUFISTNBVjNXbTZwaFo5QXQ4b0NNUzJydVRYSGZiSUZHMFBJX0JVN1Z0TUs1aW01c09kMk1US2pjNDlJcDN1Y3ctQTZzOG1ZbmZZdEJ1dmRfaUZfVlVpQ2k1SncyNVpfZUdDVnRqTFY2QXVyVkJncmNnX3k0c3g5VmZuZmVUdXU5ck5TeXNQdkdFZjFnWTZDd3YyejhOd20tNW1DUlRQWURzc2lTSldjc0x6RE9pUDdreUxIb2YtLXdNTVBCRTdwTE5HTldwWjRFenNzOXR3V2xCZGE4SkxUTEY?oc=5",
+          "title": "البورصة: ديون بـ75.2 مليار جنيه وخسائر متراكمة والقلعة تخطط لزيادة رأس المال - جريدة الكنانة نيوز",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_corporate_actions-4",
+          "source": "شبكة تواصل الإخبارية",
+          "url": "https://news.google.com/rss/articles/CBMiU0FVX3lxTE5FM2VyVEdGZDUta2VmQzZMV3ZTdEJwMG9BQVdJSUxCMWFEb2xPb3pOa1FJeTVfRG9GMEdTcF9KZm5LQ292dk5DYnl0QVBpWGg3R09v?oc=5",
+          "title": "«الرقابة المالية» توافق على نشر إفصاح «القلعة» لزيادة رأس المال لـ 25 مليار جنيه - شبكة تواصل الإخبارية",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_corporate_actions-5",
+          "source": "جريدة المال",
+          "url": "https://news.google.com/rss/articles/CBMipgNBVV95cUxQUzd1WkpPQjlDR0xzUS12QVRnM3NxMm1OTklNeG1ZdkRWUWViRmw3T2Z0bFY4aXFkWTRfSFNodGo0RU1nNHRsTHM0NXZqZUdTR3B1VzViMnlneU1IMk00Wkp1dEJmUFJ0Tk9IZHphU2d5Ml9Cd3MyV3NpU3Rpa0pzMmhaNVNqTW5KRFhUaEhwMHVYTlZWZHNYSGlSazA2YW9HVnBZcFhBajRKdVFOT3VZU1VDaHo3LUhzZ0I3SFlkTXBfZW1aR01UaFJid3hVUUVRUWlDcW1OQ0VsRVlhTHVnVkR3S21Td0F0eEJTaHRKXzZ2Q281YlF0Q1AzVEZ2UzRPYTZnV3ZWMUhXLVFrRzlOSjlKMC1CbWItRGJLS2Z0VU9lek9DWndCalB1eWlVd0V6TWF6ZkhOWDVVUF9ENXlHemhUdTFNRnUwT09ldk52NFBycFBpcVhFSmdlNXpvcU5mVDE4YTdsSFJqZ3V1b3pib0hnNVhfOXJkQkRaYkJkRXNVQmVFZWV1WExmR1NUcnlJWWNVTktwMG14N0VPQ3FHMWc2VkF2QQ?oc=5",
+          "title": "«القلعة للاستثمارات» تدعو لعمومية غير عادية للنظر في زيادة رأس المال - جريدة المال",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_corporate_actions-6",
+          "source": "اليوم السابع",
+          "url": "https://news.google.com/rss/articles/CBMi6ANBVV95cUxPLWprTjVfVS1IdlNmZXJja0JsV3JkY3doYmJTeDcydGtNMXpBVmhqd3lONjNUOWtxelJpQi1fUGdfdFJOOVBUZFJsd09VYWRrN18wWUc0R0tQYUNUWFBiUkJIVF9jVk9tTWVVN2NFbG0wWVd0a1NOc2pHNU5JX0syeXVJTjNNZWlEenhFcTZLQzhFZ21ZLW91cDRNQmdidFkycXktQi1PWF9OVWlmY2JrQUVMV2ZETjRQU2tvSzNxT0hGdHRLT3NZZGljRm8tUEVfdk1TOTBHb3VXMExBSzJnMjJtdHR4RkxGSUxoc0FHcXNoaFRvZWEtQmVhTDROU1dCSDluZ1pGOXQ5cmd3Y3hrbzF1WmY5dmh5MHVVcFVCS2tBQkVXdWpVNWFHaU5MTngtbzNSQ0wxemJpcjJudjhZS0pjV0VzSjRIbGJRRE5MTy1wVjlVRmtsV0EzbklXN1h5emVrdkw5VUpKWmRsaFhYRHllT3h3VWFqa0lfazdtWXRLenhkQ0toUm9kSWduVU9xODlIMFgzYzVqUFNhWUEzTDZ0Vmx2UzdjclNVb1Q3NjVybmRqb1NkUnZ3UG5TcVIxdGZDUjJQdF9IY0Q0a2xQVHlyT25Hdy1IeU1Ha0w5UXJVSlVMS0RJZtIB4wNBVV95cUxONFdETzZiX2tUVDRqZUJkdG5FQ05QdW5nNk90bVJ5SVJsZnE4LXU3cTBXbG52eTRfRDR1cjR3QzVMWS10bmUtbzcxRllWNmxYaEhiMy1TclVwLU9BMmRIME92eGtjZEFRZVZqNTlMZXZ2UmxBMlhlOUhWTkN1SzN3YlpyWm1MQWtiWjR5UkNOZVNDNExmSkFoSXRxNjR0YUI2RlcwSnJ4T3ltdENhbkgtQkpKMWNJS2l2N2RnM2RhYlozclRMUjlZQmliQVk2VTI3RlRsVDdTUXQ0cnlWRjBrN0NnUlZvamFMRXZBeE1xOEF5RFJ4QkVabzFFRmdKSjZweHBfV3NJaGtxSWlnbFM0YlZnNkJSbkJUc0lyXzhOVFhnbVY2ZVA2eEFMU05CSnlxaHdVc0VJUFBoTi16WXcwWHNYY1VxMnZVTm93YzEyVGp3T0g1LXdmUHFYQnhpX2FabHVlZWJHYlNRbVZnbXRWTVdHSFVyYXJoY0dmVUJOT0txVFhqZVJtTG4xSjlZMXVrRXFFLWhiMjBqVVh1eDlOYTMyZElZaFFQbWMxNXBHcnh3NjV6TEk1LW4xeHhjeXhRTUF0NldLMzZibUFEclVVcUdlazlqYVliMnNrTXZncnVVWGc?oc=5",
+          "title": "ديون بـ75 مليارًا وخسائر متراكمة..القلعة تراهن على زيادة رأس المال لتقليص الأعباء - اليوم السابع",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_corporate_actions-7",
+          "source": "بوابة بلوم",
+          "url": "https://news.google.com/rss/articles/CBMi7AJBVV95cUxPZWdXdGRMdUhNaVZvY2UwOC1aLXE2X1FmMGJoUmtsUFN5RS1DbDlMczY4aXZmMXpHRU5LazFoQWNZUmk1bHZvdHd0c1p1X2VUR2N2U29EZFhHbDA3U2FveEgxQ0xUNXpDd0M4dTZxY1J3WmJiOVpmZXAwM3RvTDdRTnBMR0hXd2FZVFhsdHV4b1V5cEc4VjNrSHJNN3ZmMkU1N3JVOU1tTV9wQ2VHTERzcVVQY0dQT0VGVVNtak5lU05fRW9LejJqRjBXc1dUYWtQa0FuY19lSkw4LWFBMll0ZFhLQU4yc0ROWk1CWkFqYTNtUGZzenJaZWJOMXctUkRsdUs4SGtONWJjVnhDVWJUR0REUzU3TFR6VmZCdDFYcVdPV09DdmJBU3FzZnZiQzBuT1NuOHB3Nmk1SG5qTUhJb1FqblpIWC1GcXhEeFJEWExDNVowQ0hZTWNSazlqU1QtR3FVbXhuUHZpOVps?oc=5",
+          "title": "الرقابة المالية توافق على دعوة عمومية القلعة لمناقشة زيادة رأس المال إلى 25 مليار جنيه - بوابة بلوم",
+          "as_of": "2026-10-01T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": 0.8,
+          "claim": null
+        },
+        {
+          "id": "get_corporate_actions-8",
+          "source": "أموال الغد",
+          "url": "https://news.google.com/rss/articles/CBMi1AJBVV95cUxNRGZULTNFcm5wcEprY29iTUJSekR1R3UwYThUa0lCQldTWGptQXVuU19zZkRMbmRIMlRLQkVrd1F1MEpmY3EwRWpsSWZfdUFpbktkNmN2clBiZGJPLTZaZFltcmpkcDBSdzZaTjNMTERFRHZyU0FCb096SWxnb2llYXhTeEpnVFNGUVhTX0FDbmNtMDdjYmtNY1NRdWxiMTFCZm5yQkwwZ3l4QXEwc0FsMkoxWHVHeTI0TDFXTW5fSkhxaFhreGJwSjg3M0ZDLVBuNktLQU1WYlFaNnB3Rl9GbXE2bnE1bXoyNFB4ZUdMLTlENU1GSjlsRE9MM0dRd0pRNjNlcjdCNS1VVm9vUXlLQmx6UlBlbFBzdHpTeTVVZ3NzQlNBYkFUbk11cGdybldJUTBUU2Zvb3VMeFFWNDhpUEtINFFPMFhYVURkR2NxYm1aTlpx?oc=5",
+          "title": "القلعة تعتزم رفع حصتها في المصرية للتكرير إلى 27.1% وزيادة رأس المال - أموال الغد",
+          "as_of": "2026-09-24T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "stale",
+          "confidence": 0.9,
+          "claim": null
+        },
+        {
+          "id": "get_corporate_actions-9",
+          "source": "Masrawy",
+          "url": "https://news.google.com/rss/articles/CBMi7ARBVV95cUxQOC1WbmxuRk16aE1UbUx2eWlieC1tVEpZTlozMDJicXdWVTlrT2RGTXY4LWthNGFCYnpBNFozZTkzcjhuUEdpNGZoR0JRaXEwU0xDc2FGWklqSW9JZHd2N1BFUVVmOTAwZXJ6ZTFwZFFuaWR4NDZzbTlIWVRsRFhaOVlaUTJjQTMtVUcxazNuR3BEb1MwVlI4SjBudmVmRTEyUGJzUVlzVnBrcWRySm82b0Q4d2lZRC1UUGhNNVVSZ0d1RUljR0U0Tzh0ZVdhQzd0UjVxUkFjRXF5NjRlNnNLUHkxWXA5b1dfYWRhWF9TTTNiNHVLY3VqWGFzWGNONDJHWkQwVVU2RzNOR1FpYUJQWlYya2Rjb2NaVFRTY0RJMkd5QVZLcTJDVU9lZWJqbms5MzFfX1FiTHM4aTZwVDRfUjJlUUM1c3lpNXlKeEZPY29iR1FQMWt4VW1NU1REWmhDVlZBaEt2djRMY0RRd05kVWtCc3VFRUN2eXp4SnAwXzVycHZ3MVBoSnU5dWpBVmoxekhQVXRyNXczQmRVLUhVczRScjRmTVcxMWNvZ25NT2l1Y2podGF6ZXRnbklFUk82N0RUNmpVUXJNMFdnRjRRTVpnendhRTBCTFJid2lacEpNZFVGRHhDUHI4aXR1RmRYWmVFTFB4TkhIa1dDVFU1djMzb3hlX1Z6X3NKZXdCMVdHNWZyTUEzV3NPOU5zUFR3Y29wa3ZxMW1LeXcxRFlrcDdxTkFLM0RNREczU3poZ1J4eTBVWFM5dTVCWmJwVjB3bVI3WFp5RkpIUWJHb3c0MXR5elhQVDQzdWpxQdIBvwRBVV95cUxPakZLTnZRcTJhMUdPVGh4Z0tLS1ppcy1lLUp5SWVvd3RTOFltY2REX1lWeTU0ZWRLTVk0WGZZUGY2Yk1TVDZXTldvbzNuTEJyejdycG1vUXVNS2RvODlsRENJRkh6NlNETF8zcE1sNlRMWDVfM3dZMkNfSHd5WVlYVmxPbWpuaXpFdnFEUmpiT0VpM1ZlWmF6dkZCekFyUVFwdnAyRXNlYUJZTTg2ODkyckRJMUxyVEdvY1Focm5veDJubFIxYV8tNEtzV0d6U09yWTR1cWF2YzlCdDYtendEem94ckRibDFFLVhKSTZwelg2S3N4a19jM1NZS3kwZVVOQ1VWRVprNDMxYUlFRG11OERBOVlDNW13MG44bjBWaTcwcUw1Z21WQ0dkUlNHZVppSVlzR2RGeTJvd0NRQnlaemFHbUJMMEhTLTVEOXpyTWItbmVlSHZfNy00dnRzeWRBVzdCZlFQeHFIazRYSHN3MF9rVVVnWlZLSUlaVTc4U3RjUi1kSm9zNGNRNjJ3Z0RUSFZBN0twSndGRDFNWFZrSEE1N0ozaWZxTGhXd0tpbmxTeFVTZFVaUGFCbFpINXBTbW5SeUliRXRKdlBLWWstQzFOR3JRS1hFRi1RZC1WdnkyazFUV252b0ZaME9qLWhpMHlKcER5UzZtWlp6MEhieHZ0UHlmemhONGNsRzNHTmp5WGR4SlJEY1F0cFJLUEJVUWxEM0I2STBnRGNHb2UteV91LUFwcE5uMlpuT1hHTQ?oc=5",
+          "title": "القلعة تتحول للربحية بقوة.. 16.6 مليار جنيه أرباحاً خلال النصف الأول من 2026 - Masrawy",
+          "as_of": "2026-09-24T00:00:00+00:00",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "stale",
+          "confidence": 0.6,
+          "claim": null
+        }
+      ]
+    },
+    {
+      "tool": "get_stock_levels",
+      "source": "stock_prices",
+      "data_time": "2026-10-01",
+      "symbols": [
+        "CCAP"
+      ],
+      "data_type": "live",
+      "data": {
+        "symbol": "CCAP",
+        "close": 6.88,
+        "support": 5.97,
+        "resistance": 7.32,
+        "long_term_support": 5.13,
+        "long_term_resistance": 7.32,
+        "lookback_sessions": 60,
+        "price_vs_support": "فوق الدعم",
+        "price_vs_resistance": "تحت المقاومة",
+        "distance_from_support_pct": 13.23,
+        "distance_from_resistance_pct": 6.4,
+        "position_pct": 67.41,
+        "trading_zone": "منطقة حيادية للمراقبة (بين الدعم والمقاومة)"
+      },
+      "availability": "available",
+      "evidence": [
+        {
+          "source": "stock_prices",
+          "as_of": "2026-10-01",
+          "fetched_at": "2026-10-03T22:56:12.174Z",
+          "freshness": "fresh",
+          "confidence": null,
+          "claim": null
+        }
+      ]
+    }
+  ],
+  "reply": "**القلعة (CCAP) — قراءة فنية لجلسة 2026-10-01**\n\nأغلقت القلعة للاستثمارات المالية عند 6.88 جنيه بارتفاع +3.77%، بحجم تداول 112.1 مليون سهم ونسبة 0.91x من متوسط 20 جلسة، أي تداولاً أقل من المتوسط قليلاً. هذه قراءة للجلسة المؤرخة 2026-10-01 وليست سعراً لحظياً.\n\nفنياً: RSI عند 61.89 وهو زخم محايد يميل للإيجابية (دون منطقة التشبع الشرائي). MACD عند 0.2633 مقابل خط إشارة 0.3209، والهيستوجرام سالب (-0.0576)، أي أن مؤشر الماكد تحت خط الإشارة ولا يوجد تقاطع صاعد مؤكد. المتوسطات: SMA50 عند 5.97 وEMA50 عند 6.15 وSMA200 عند 4.64، والسعر فوقها جميعاً.\n\nالمستويات: الدعم المسجل 5.97 (يبعد 13.23% عن السعر) والمقاومة المسجلة 7.32 (تبعد 6.4%)، والموقع 67.41% داخل النطاق — منطقة حيادية للمراقبة.\n\nالسيناريو الإيجابي: ثبات فوق 5.97 مع عودة الحجم فوق 1.0x واختراق 7.32 يفتح مجالاً للاستمرار. السيناريو السلبي: كسر 5.97 يلغي الزخم الصاعد ويهدف نحو 5.13 (الدعم طويل الأجل).\n\nوايكوف: المرحلة neutral كما في 2026-10-01، ودرجة التجميع 5 (ضعيفة) ودرجة التصريف 0، ولا تُعد هذه تأكيداً لتجميع.\n\nأخبار: لم أجد خبراً موثقاً بتاريخ اليوم؛ المسجل إجراء زيادة رأس المال المنشور 2026-10-01 (موافقة الرقابة المالية على دعوة عمومية لزيادة رأس المال إلى 25 مليار جنيه) — وتاريخ النشر مستقل عن تاريخ التنفيذ.\n\n**الرأي الإحصائي للذكاء الاصطناعي (ML Scores):** KING AI = 52.57%، EGX AI = 51.01%، الفرق 1.56 نقطة (≤3) → اتفاق قوي. التصنيفان محايدان، وهما درجة ثقة في إيجابية الاتجاه وليسا نسبة نجاح ولا توصية مستقلة.\n\nالتحليل تعليمي وليس توصية شخصية.\n\nhttps://t.me/egxbots\n\n✅ تحليل EGX Bots مبني على أحدث البيانات المتاحة ومؤرّخ بمصدره — مش نصيحة استثمار، القرار ليك.\n\n> ℹ️ **حالة السعر:** CCAP: آخر إغلاق مسجل 6.88 جنيه بتاريخ 2026-10-01، وليس سعراً لحظياً.",
+  "preview_only": true
+}

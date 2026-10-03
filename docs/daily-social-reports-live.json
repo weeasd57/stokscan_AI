@@ -1,0 +1,886 @@
+{
+  "preview_only": true,
+  "generated_at": "2026-10-03T23:09:43.931Z",
+  "reports": [
+    {
+      "kind": "stock",
+      "date": "2026-10-01",
+      "symbol": "CCAP",
+      "ms": 6593,
+      "question": "حلل سهم CCAP فنياً لجلسة 2026-10-01: الإغلاق والتغير وحجم التداول مقارنة بمتوسطه، الاتجاه والزخم والدعم والمقاومة والسيناريو الإيجابي والسلبي والمخاطر.",
+      "content": "بيانات هذه القراءة مبنية على آخر إغلاق مسجل بتاريخ 2026-10-01، وليست أسعاراً لحظية.\n\n**الإغلاق والتغير والحجم**\nأغلق السهم عند 6.88 جنيه بارتفاع +3.77% عن الجلسة السابقة. بلغ حجم التداول 112,109,163 سهماً مقابل متوسط 20 جلسة عند 123,274,406، أي بنسبة حجم نسبي 0.91x — تداول أقل من المتوسط، وهي سيولة متوسطة مائلة للضعف النسبي ولا ترقى لوصفها انفجاراً أو ضغطاً اتجاهياً.\n\n**الاتجاه والزخم**\nRSI عند 61.89 وهو في نطاق 40–70، أي زخم محايد يميل للإيجابية دون تشبع شرائي. MACD عند 0.263316 مقابل خط إشارة 0.3209، والهيستوجرام سالب عند -0.0576، ما يعني أن MACD تحت خط الإشارة — إشارة زخم قصير الأجل غير مؤكدة صعودياً. السعر فوق SMA-50 (5.97) وفوق EMA-50 (6.15) وفوق SMA-200 (4.64) وفوق EMA-200 (4.90)، وهو ترتيب صاعد على المتوسطات. سجل وايكوف: neutral بتاريخ 2026-10-01، مع درجة تجميع 5 ودرجة تصريف 0، وأيام متتالية صفر — أي لا توجد إشارة تجميع أو تصريف مؤكدة، والحياد هنا حالة رصد فعلية وليست غياب بيانات.\n\n**الدعم والمقاومة**\nالدعم المسجل 5.97 (يبعد 13.23% عن السعر)، والمقاومة المسجلة 7.32 (تبعد 6.4% عن السعر). الدعم طويل الأجل 5.13 والمقاومة طويلة الأجل 7.32. موقع السعر عند 67.41% من النطاق، أي منطقة حيادية للمراقبة بين الدعم والمقاومة. حدود بولنجر عند 5.86 و7.51، وستوكاستيك K عند 58.88 مقابل D عند 51.36.\n\n**السيناريو الإيجابي**\nيحتاج السهم إلى تجاوز 7.32 بحجم يتخطى 1.0x ليصبح الطريق مفتوحاً نحو امتداد أعلى، مع تحول هيستوجرام MACD إلى موجب وتقاطع MACD فوق خط الإشارة كتأكيد.\n\n**السيناريو السلبي**\nالفشل في اختراق 7.32 مع استمرار الحجم دون المتوسط يبقي السهم في نطاق عرضي. كسر 5.97 يلغي النظرة الإيجابية قصيرة الأجل ويفتح الطريق نحو 5.13.\n\n**المخاطر**\nالحجم أقل من المتوسط (0.91x) لا يدعم استمرارية الصعود، وهيستوجرام MACD سالب يشير لضعف زخم قصير الأجل، والقرب من المقاومة (6.4%) يحد من العائد المتاح مقارنة بالمخاطرة.\n\n**توصية سابقة على المنصة**\nلا توجد توصيات سابقة أو حالية مسجلة لهذا السهم على المنصة (NONE).\n\n**الرأي الإحصائي للذكاء الاصطناعي (ML Scores)**\nKING AI = 52.57%، EGX AI = 51.01%، والفرق بينهما 1.56 نقطة (≤ 3 نقاط) → اتفاق قوي. التفسير: 52.57% و51.01% يقعان في نطاق 45–55% أي تصنيف \"محايد\" لكلا النموذجين. النسبة تمثل درجة ثقة الموديل في إيجابية الاتجاه وفق تعريفه، وليست توصية مستقلة بالشراء أو التجنب. اختلاف النماذج وارد لاختلاف المدخلات وأوزان التدريب. القرار الفني العام بناءً على اتفاق قوي مع مؤشرات فنية محايدة: **مراقبة**.\n\n**الخلاصة**\nالسهم في منطقة حيادية بين دعم 5.97 ومقاومة 7.32، بزخم محايد يميل للإيجابية وحجم دون المتوسط. لا تتوفر شروط دخول واضحة في هذه القراءة؛ يُراقب اختراق 7.32 بحجم فوق 1.0x، بينما كسر 5.97 يلغي السيناريو الإيجابي. هذا تحليل تعليمي لعينة محدودة لا يمثل السوق كله.\n\nhttps://t.me/egxbots\n\n✅ تحليل EGX Bots مبني على أحدث البيانات المتاحة ومؤرّخ بمصدره — مش نصيحة استثمار، القرار ليك.",
+      "evidence": [
+        {
+          "tool": "get_stock",
+          "availability": "stale",
+          "source": "database",
+          "data_time": "2026-10-01",
+          "symbols": [
+            "CCAP"
+          ],
+          "data_type": "historical",
+          "data": {
+            "symbol": "CCAP",
+            "name": "QALA For Financial Investments",
+            "price": 6.88,
+            "change_pct": "+3.77%",
+            "change_pct_num": 3.7707,
+            "rsi_14": "61.89",
+            "rsi_14_num": 61.8852,
+            "macd_signal": "0.3209",
+            "macd_signal_num": 0.320912,
+            "macd": 0.263316,
+            "macd_histogram": -0.05759599999999998,
+            "vol_ratio": "0.91x",
+            "vol_ratio_num": 0.9094277282504204,
+            "volume": 112109163,
+            "vol_sma20": 123274406,
+            "sma_50": "5.97",
+            "ema_50": "6.15",
+            "sma_200": "4.64",
+            "ema_200": "4.90",
+            "bb_upper": "7.51",
+            "bb_lower": "5.86",
+            "stoch_k": "58.88",
+            "stoch_d": "51.36",
+            "is_live_intraday": false,
+            "live_update_time": null,
+            "live_refresh_failed": false,
+            "live_refresh_unsupported": false,
+            "live_refresh_error": null,
+            "session_open": false,
+            "king_ai_score": 0.5257,
+            "egx_ai_score": 0.5101,
+            "wyckoff_phase": "neutral",
+            "wyckoff_status": "observed",
+            "wyckoff_as_of": "2026-10-01",
+            "acc_score": 5,
+            "dist_score": 0,
+            "signal": "neutral",
+            "consecutive_acc_days": 0,
+            "consecutive_dist_days": 0,
+            "market_cap": 7261497963,
+            "eps": null,
+            "book_value_per_share": null,
+            "pe_ratio": null,
+            "recommendation": {
+              "has_recommendation": false,
+              "is_active": false,
+              "status": "none",
+              "message": "لا توجد توصيات سابقة أو حالية مسجلة لهذا السهم على المنصة."
+            }
+          },
+          "evidence": [
+            {
+              "source": "database",
+              "as_of": "2026-10-01",
+              "fetched_at": "2026-10-03T23:09:19.183Z",
+              "freshness": "fresh",
+              "confidence": null,
+              "claim": null
+            }
+          ]
+        },
+        {
+          "tool": "get_stock_levels",
+          "source": "stock_prices",
+          "data_time": "2026-10-01",
+          "symbols": [
+            "CCAP"
+          ],
+          "data_type": "historical",
+          "data": {
+            "symbol": "CCAP",
+            "close": 6.88,
+            "support": 5.97,
+            "resistance": 7.32,
+            "long_term_support": 5.13,
+            "long_term_resistance": 7.32,
+            "lookback_sessions": 60,
+            "price_vs_support": "فوق الدعم",
+            "price_vs_resistance": "تحت المقاومة",
+            "distance_from_support_pct": 13.23,
+            "distance_from_resistance_pct": 6.4,
+            "position_pct": 67.41,
+            "trading_zone": "منطقة حيادية للمراقبة (بين الدعم والمقاومة)"
+          },
+          "availability": "stale",
+          "evidence": [
+            {
+              "source": "stock_prices",
+              "as_of": "2026-10-01",
+              "fetched_at": "2026-10-03T23:09:19.183Z",
+              "freshness": "fresh",
+              "confidence": null,
+              "claim": null
+            }
+          ]
+        }
+      ],
+      "source": "llm",
+      "validation": {
+        "ok": true,
+        "reasons": [],
+        "checked": {
+          "coverage": false,
+          "metric": false,
+          "attribution": true,
+          "context": true
+        }
+      },
+      "passed": true
+    },
+    {
+      "kind": "accumulation",
+      "date": "2026-10-01",
+      "symbol": "CCAP",
+      "ms": 8059,
+      "question": "ما الأسهم عالية السيولة التي ظهرت عليها إشارات تجميع في جلسة 2026-10-01؟ اشرح درجة التجميع والحجم النسبي والأدلة والمخاطر، وميز الإشارة الضعيفة عن المؤكدة. إذا لم توجد نتائج صالحة اذكر ذلك دون اختراع أسهم.",
+      "content": "**مسح التجميع — جلسة 2026-10-01 (عينة الأسهم مرتفعة السيولة)**\n\nالاستعلام: أسهم عالية السيولة ظهرت عليها إشارات تجميع في جلسة 2026-10-01. النتائج أدناه من مسح التجميع بتاريخ 2026-10-01، وهي عينة مرتفعة السيولة فقط ولا تمثل السوق كله. جميع الأسهم المذكورة مصنفة تجميعاً (لا يوجد أي سهم تصريف في هذه القائمة)، والأسعار غير مدرجة في البيانات (آخر إغلاق مسجل، تاريخه غير محدد).\n\n 1 | GBCO | GB Corp | 3.33% | 54.16 | 3.57x | 90.0 | accumulation | 2 | 0.0432  2 | BIOC | GlaxoSmithKline S.A.E. | 8.85% | 63.85 | 4.43x | 90.0 | strong_accumulation | 3 | -20.0492  3 | VALU | U Consumer Finance S.A.E | 6.87% | 54.15 | 4.26x | 85.0 | accumulation | 1 | -0.1914  4 | MOSC | Misr Oils & Soap Co. | 7.87% | 34.49 | 3.90x | 85.0 | accumulation | 1 | -6.9291  5 | PHAR | Egyptian International Pharmaceutical Industries Co. | 1.67% | 38.12 | 1.67x | 68.4 | accumulation | 3 | -3.237  6 | AFMC | Alexandria Flour Mills Co. | 10.12% | 48.74 | 2.07x | 66.5 | accumulation | 1 | -9.0585  7 | CRST | Creast Mark For Contracting And Real Estate Development | 10.22% | 37.41 | 1.73x | 64.6 | accumulation | 2 | 0.1617  8 | EGBE | Egyptian Gulf Bank | 0.77% | 57.58 | 2.20x | 63.9 | accumulation | 1 | -0.001  9 | NHPS | National Housing for Professional Syndicates | 5.59% | 37.93 | 1.82x | 61.3 | accumulation | 1 | -3.2048  10 | ROTO | Rowad Tourism (Al Rowad) Co | 8.12% | 41.66 | 1.80x | 60.9 | accumulation | 1 | -1.3734 |\n\n**قراءة الإشارة: المؤكدة مقابل الضعيفة**\n\nالإشارات الأقوى في هذه العينة هي GBCO وBIOC بدرجة تجميع 90.0 لكل منهما، مع حجم نسبي مرتفع (3.57x و4.43x على الترتيب)، وBIOC وحدها مسجلة في مرحلة strong_accumulation مع 3 أيام تجميع متتالية. يليهما VALU وMOSC بدرجة 85.0 وحجم نسبي 4.26x و3.90x، لكن كليهما بيوم تجميع واحد فقط، ما يجعلهما إشارة حديثة لم تتراكم بعد. أما PHAR وAFMC وCRST وEGBE وNHPS وROTO فدرجاتها بين 60.9 و68.4، وهي إشارات تجميع أولية أو متوسطة؛ بعضها (PHAR وCRST) يمتد لعدة أيام لكن بحجم نسبي أقل (1.67x و1.73x)، وبعضها بيوم واحد فقط.\n\n**الأدلة والمخاطر**\n\nالدليل الأساسي هنا هو درجة التجميع ومرحلة وايكوف والحجم النسبي، وكلها إيجابية تجميعياً. لكن يجب الانتباه إلى أن RSI لمعظم هذه الأسهم يقع في المنطقة المحايدة (34.49 إلى 63.85)، أي لا يوجد تشبع شرائي يستدعي الحذر الشديد، لكنه أيضاً لا يمثل زخماً صاعداً مؤكداً بذاته. المخاطر الرئيسية: (1) ارتفاع التغير اليومي لبعض الأسهم (AFMC 10.12% وCRST 10.22%) قد يعكس حركة سعرية سريعة تحتاج تثبيتاً؛ (2) قيم MACD Signal سالبة لمعظم الأسهم (BIOC -20.05، AFMC -9.06، MOSC -6.93) وهي إشارة تحتاج متابعة ولا تُقرأ كإيجابية بذاتها؛ (3) العينة محدودة بارتفاع السيولة ولا تمثل اتجاهاً عاماً للسوق.\n\n**الرأي الإحصائي للذكاء الاصطناعي (ML Scores)**\n\nتقييمات KING AI وEGX AI غير متوفرة لهذه الأسهم في البيانات الممررة، ولا يمكن استنتاجها أو تقديرها. لذلك لا يوجد رأي إحصائي من النماذج لهذه الجلسة، ويبقى الاعتماد على الأدلة الفنية المذكورة أعلاه فقط.\n\n**الخلاصة**\n\nأقوى إشارات التجميع في هذه العينة: GBCO وBIOC (درجة 90.0)، ثم VALU وMOSC (85.0). الإشارات متوسطة القوة: PHAR وAFMC وCRST وEGBE وNHPS وROTO (60.9–68.4). لا توجد أسهم تصريف في هذا المسح. هذه قراءة تعليمية وليست توصية، والعينة لا تمثل السوق كله.\n\nhttps://t.me/egxbots\n\n✅ تحليل EGX Bots مبني على أحدث البيانات المتاحة ومؤرّخ بمصدره — مش نصيحة استثمار، القرار ليك.",
+      "evidence": [
+        {
+          "tool": "get_accumulation_stocks",
+          "source": "stock_scans_summary",
+          "data_time": "2026-10-01",
+          "symbols": [
+            "GBCO",
+            "BIOC",
+            "PHAR",
+            "AFMC",
+            "CRST"
+          ],
+          "data_type": "historical",
+          "availability": "available",
+          "data": {
+            "stocks": [
+              {
+                "symbol": "GBCO",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 90,
+                "dist_score": 0,
+                "vol_ratio": 3.569,
+                "consecutive_acc_days": 2,
+                "consecutive_dist_days": 0,
+                "change_pct": 3.3333,
+                "volume": 10159624,
+                "rsi_14": 54.16,
+                "macd_signal": 0.0432,
+                "name": "GB Corp"
+              },
+              {
+                "symbol": "BIOC",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "strong_accumulation",
+                "acc_score": 90,
+                "dist_score": 0,
+                "vol_ratio": 4.425,
+                "consecutive_acc_days": 3,
+                "consecutive_dist_days": 0,
+                "change_pct": 8.8549,
+                "volume": 1080723,
+                "rsi_14": 63.85,
+                "macd_signal": -20.0492,
+                "name": "GlaxoSmithKline S.A.E."
+              },
+              {
+                "symbol": "PHAR",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 68.4,
+                "dist_score": 0,
+                "vol_ratio": 1.669,
+                "consecutive_acc_days": 3,
+                "consecutive_dist_days": 0,
+                "change_pct": 1.6681,
+                "volume": 1171718,
+                "rsi_14": 38.12,
+                "macd_signal": -3.237,
+                "name": "Egyptian International Pharmaceutical Industries Co."
+              },
+              {
+                "symbol": "AFMC",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 66.5,
+                "dist_score": 0,
+                "vol_ratio": 2.073,
+                "consecutive_acc_days": 1,
+                "consecutive_dist_days": 0,
+                "change_pct": 10.1166,
+                "volume": 648691,
+                "rsi_14": 48.74,
+                "macd_signal": -9.0585,
+                "name": "Alexandria Flour Mills Co."
+              },
+              {
+                "symbol": "CRST",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 64.6,
+                "dist_score": 0,
+                "vol_ratio": 1.73,
+                "consecutive_acc_days": 2,
+                "consecutive_dist_days": 0,
+                "change_pct": 10.219,
+                "volume": 147612435,
+                "rsi_14": 37.41,
+                "macd_signal": 0.1617,
+                "name": "Creast Mark For Contracting And Real Estate Development"
+              }
+            ],
+            "matches": [
+              {
+                "symbol": "GBCO",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 90,
+                "dist_score": 0,
+                "vol_ratio": 3.569,
+                "consecutive_acc_days": 2,
+                "consecutive_dist_days": 0,
+                "change_pct": 3.3333,
+                "volume": 10159624,
+                "rsi_14": 54.16,
+                "macd_signal": 0.0432,
+                "name": "GB Corp"
+              },
+              {
+                "symbol": "BIOC",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "strong_accumulation",
+                "acc_score": 90,
+                "dist_score": 0,
+                "vol_ratio": 4.425,
+                "consecutive_acc_days": 3,
+                "consecutive_dist_days": 0,
+                "change_pct": 8.8549,
+                "volume": 1080723,
+                "rsi_14": 63.85,
+                "macd_signal": -20.0492,
+                "name": "GlaxoSmithKline S.A.E."
+              },
+              {
+                "symbol": "VALU",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 85,
+                "dist_score": 0,
+                "vol_ratio": 4.256,
+                "consecutive_acc_days": 1,
+                "consecutive_dist_days": 0,
+                "change_pct": 6.8732,
+                "volume": 8776539,
+                "rsi_14": 54.15,
+                "macd_signal": -0.1914,
+                "name": "U Consumer Finance S.A.E"
+              },
+              {
+                "symbol": "MOSC",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 85,
+                "dist_score": 0,
+                "vol_ratio": 3.902,
+                "consecutive_acc_days": 1,
+                "consecutive_dist_days": 0,
+                "change_pct": 7.874,
+                "volume": 47457,
+                "rsi_14": 34.49,
+                "macd_signal": -6.9291,
+                "name": "Misr Oils & Soap Co."
+              },
+              {
+                "symbol": "PHAR",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 68.4,
+                "dist_score": 0,
+                "vol_ratio": 1.669,
+                "consecutive_acc_days": 3,
+                "consecutive_dist_days": 0,
+                "change_pct": 1.6681,
+                "volume": 1171718,
+                "rsi_14": 38.12,
+                "macd_signal": -3.237,
+                "name": "Egyptian International Pharmaceutical Industries Co."
+              },
+              {
+                "symbol": "AFMC",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 66.5,
+                "dist_score": 0,
+                "vol_ratio": 2.073,
+                "consecutive_acc_days": 1,
+                "consecutive_dist_days": 0,
+                "change_pct": 10.1166,
+                "volume": 648691,
+                "rsi_14": 48.74,
+                "macd_signal": -9.0585,
+                "name": "Alexandria Flour Mills Co."
+              },
+              {
+                "symbol": "CRST",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 64.6,
+                "dist_score": 0,
+                "vol_ratio": 1.73,
+                "consecutive_acc_days": 2,
+                "consecutive_dist_days": 0,
+                "change_pct": 10.219,
+                "volume": 147612435,
+                "rsi_14": 37.41,
+                "macd_signal": 0.1617,
+                "name": "Creast Mark For Contracting And Real Estate Development"
+              },
+              {
+                "symbol": "EGBE",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 63.9,
+                "dist_score": 0,
+                "vol_ratio": 2.196,
+                "consecutive_acc_days": 1,
+                "consecutive_dist_days": 0,
+                "change_pct": 0.7678,
+                "volume": 427565,
+                "rsi_14": 57.58,
+                "macd_signal": -0.001,
+                "name": "Egyptian Gulf Bank"
+              },
+              {
+                "symbol": "NHPS",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 61.3,
+                "dist_score": 0,
+                "vol_ratio": 1.816,
+                "consecutive_acc_days": 1,
+                "consecutive_dist_days": 0,
+                "change_pct": 5.5865,
+                "volume": 339965,
+                "rsi_14": 37.93,
+                "macd_signal": -3.2048,
+                "name": "National Housing for Professional Syndicates"
+              },
+              {
+                "symbol": "ROTO",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 60.9,
+                "dist_score": 0,
+                "vol_ratio": 1.795,
+                "consecutive_acc_days": 1,
+                "consecutive_dist_days": 0,
+                "change_pct": 8.122,
+                "volume": 347741,
+                "rsi_14": 41.66,
+                "macd_signal": -1.3734,
+                "name": "Rowad Tourism (Al Rowad) Co"
+              }
+            ],
+            "scan_rows": [
+              {
+                "symbol": "GBCO",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 90,
+                "dist_score": 0,
+                "vol_ratio": 3.569,
+                "consecutive_acc_days": 2,
+                "consecutive_dist_days": 0,
+                "change_pct": 3.3333,
+                "volume": 10159624,
+                "rsi_14": 54.16,
+                "macd_signal": 0.0432,
+                "name": "GB Corp"
+              },
+              {
+                "symbol": "BIOC",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "strong_accumulation",
+                "acc_score": 90,
+                "dist_score": 0,
+                "vol_ratio": 4.425,
+                "consecutive_acc_days": 3,
+                "consecutive_dist_days": 0,
+                "change_pct": 8.8549,
+                "volume": 1080723,
+                "rsi_14": 63.85,
+                "macd_signal": -20.0492,
+                "name": "GlaxoSmithKline S.A.E."
+              },
+              {
+                "symbol": "VALU",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 85,
+                "dist_score": 0,
+                "vol_ratio": 4.256,
+                "consecutive_acc_days": 1,
+                "consecutive_dist_days": 0,
+                "change_pct": 6.8732,
+                "volume": 8776539,
+                "rsi_14": 54.15,
+                "macd_signal": -0.1914,
+                "name": "U Consumer Finance S.A.E"
+              },
+              {
+                "symbol": "MOSC",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 85,
+                "dist_score": 0,
+                "vol_ratio": 3.902,
+                "consecutive_acc_days": 1,
+                "consecutive_dist_days": 0,
+                "change_pct": 7.874,
+                "volume": 47457,
+                "rsi_14": 34.49,
+                "macd_signal": -6.9291,
+                "name": "Misr Oils & Soap Co."
+              },
+              {
+                "symbol": "PHAR",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 68.4,
+                "dist_score": 0,
+                "vol_ratio": 1.669,
+                "consecutive_acc_days": 3,
+                "consecutive_dist_days": 0,
+                "change_pct": 1.6681,
+                "volume": 1171718,
+                "rsi_14": 38.12,
+                "macd_signal": -3.237,
+                "name": "Egyptian International Pharmaceutical Industries Co."
+              },
+              {
+                "symbol": "AFMC",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 66.5,
+                "dist_score": 0,
+                "vol_ratio": 2.073,
+                "consecutive_acc_days": 1,
+                "consecutive_dist_days": 0,
+                "change_pct": 10.1166,
+                "volume": 648691,
+                "rsi_14": 48.74,
+                "macd_signal": -9.0585,
+                "name": "Alexandria Flour Mills Co."
+              },
+              {
+                "symbol": "CRST",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 64.6,
+                "dist_score": 0,
+                "vol_ratio": 1.73,
+                "consecutive_acc_days": 2,
+                "consecutive_dist_days": 0,
+                "change_pct": 10.219,
+                "volume": 147612435,
+                "rsi_14": 37.41,
+                "macd_signal": 0.1617,
+                "name": "Creast Mark For Contracting And Real Estate Development"
+              },
+              {
+                "symbol": "EGBE",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 63.9,
+                "dist_score": 0,
+                "vol_ratio": 2.196,
+                "consecutive_acc_days": 1,
+                "consecutive_dist_days": 0,
+                "change_pct": 0.7678,
+                "volume": 427565,
+                "rsi_14": 57.58,
+                "macd_signal": -0.001,
+                "name": "Egyptian Gulf Bank"
+              },
+              {
+                "symbol": "NHPS",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 61.3,
+                "dist_score": 0,
+                "vol_ratio": 1.816,
+                "consecutive_acc_days": 1,
+                "consecutive_dist_days": 0,
+                "change_pct": 5.5865,
+                "volume": 339965,
+                "rsi_14": 37.93,
+                "macd_signal": -3.2048,
+                "name": "National Housing for Professional Syndicates"
+              },
+              {
+                "symbol": "ROTO",
+                "scan_date": "2026-10-01",
+                "signal": "accumulation",
+                "wyckoff_phase": "accumulation",
+                "acc_score": 60.9,
+                "dist_score": 0,
+                "vol_ratio": 1.795,
+                "consecutive_acc_days": 1,
+                "consecutive_dist_days": 0,
+                "change_pct": 8.122,
+                "volume": 347741,
+                "rsi_14": 41.66,
+                "macd_signal": -1.3734,
+                "name": "Rowad Tourism (Al Rowad) Co"
+              }
+            ],
+            "date": "2026-10-01",
+            "direction": "accumulation",
+            "stale_served": false,
+            "coverage": "high_liquidity_subset",
+            "matched_count": 10,
+            "description_ar": "عينة الأسهم مرتفعة السيولة فقط؛ لا تمثل السوق كله"
+          },
+          "evidence": [
+            {
+              "source": "stock_scans_summary",
+              "as_of": "2026-10-01",
+              "fetched_at": "2026-10-03T23:09:25.583Z",
+              "freshness": "fresh",
+              "confidence": null,
+              "claim": null
+            }
+          ]
+        }
+      ],
+      "source": "llm",
+      "validation": {
+        "ok": true,
+        "reasons": [],
+        "checked": {
+          "coverage": false,
+          "metric": false,
+          "attribution": true,
+          "context": true
+        }
+      },
+      "passed": true
+    },
+    {
+      "kind": "market",
+      "date": "2026-10-01",
+      "symbol": "CCAP",
+      "ms": 6332,
+      "question": "حلل وضع السوق المصري لجلسة 2026-10-01: المؤشرات واتجاه السوق والسيولة واتساع الصعود والهبوط والقطاعات الأبرز، فقط فيما تتوفر له بيانات موثقة. وضح المقاييس غير المتاحة.",
+      "content": "**جلسة 2026-10-01 — لقطة إغلاق يومية وليست بيانات لحظية**\n\nالمؤشرات أغلقت على ارتفاع قوي: **EGX30 عند 53,055 نقطة** (+2.24%)، و**EGX100 عند 25,655.6 نقطة** (+3.55%)، وهي قيم إغلاق يومي بتاريخ الجلسة المذكورة. رغم هذا الصعود، فإن حقل النظام المصنّف لاتجاه السوق (regime) مسجّل **\"bear\"**، أي أن التصنيف العام لا يزال هبوطياً ولم يتغيّر بمجرد جلسة صاعدة واحدة — وهذا تعارض ظاهري طبيعي بين قراءة الجلسة الواحدة والتصنيف الأوسع.\n\n**الدولار** مسجّل عند **50.81 جنيه**، لكن تاريخه **2026-08-25** وليس جلسة 2026-10-01، فلا يصح ربطه بحركة اليوم.\n\n**اتساع السوق:** المتاح لديّ هو قائمتا أكبر الرابحين وأكبر الخاسرين فقط، وليست شاملة لكل الأسهم. في الرابحين تصدّر **GTWL** (+17.49%) ثم **SWDY** (+14.29%) و**PRCL** (+13.37%) و**CERA** (+11.02%) و**TALM** (+10.53%) و**ISMA** (+10.39%) و**ATLC** (+10.25%) و**CRST** (+10.22%) و**AFMC** (+10.12%) و**GRCA** (+9.02%). وفي الخاسرين **EMFD** (-6.49%) و**OFH** (-5.15%) و**MFSC** (-3.30%) و**KABO** (-2.74%) و**ACGC** (-2.11%) و**TYCN** (-1.84%) و**NEDA** (-1.12%) و**CANA** (-0.30%) و**BINV** (-0.30%) و**IFAP** (-0.26%). هذه عيّنة محدودة لا تمثل السوق كله، ولا يجوز استنتاج نسبة صعود/هبوط إجمالية منها.\n\n**غير متاح في البيانات الموثقة:** لا تتوفر لديّ بيانات قطاعات، ولا سيولة كلية للسوق، ولا عدد الأسهم الصاعدة مقابل الهابطة، ولا قيم تداول إجمالية، ولا أي مؤشرات فنية (RSI/MACD) على مستوى المؤشر. لذلك لا أستطيع تأكيد \"القطاعات الأبرز\" ولا قياس اتساع السوق بدقة.\n\n**الخلاصة:** جلسة صاعدة على مستوى المؤشرين مع تصنيف اتجاه عام لا يزال هبوطياً، والعيّنة المتاحة تُظهر رابحين بأرقام أعلى من الخاسرين، لكنها غير كافية للحكم على الاتساع أو القطاعات.\n\n**الرأي الإحصائي للذكاء الاصطناعي (ML Scores):** لا تتوفر تقييمات KING AI أو EGX AI في البيانات الممررة لهذا الاستعلام، فلا يمكن عرضها أو تفسيرها.\n\nهل تريد أن أستعرض لك تفاصيل جلسة سهم بعينه من قائمتي الرابحين أو الخاسرين؟\n\n✅ تحليل EGX Bots مبني على أحدث البيانات المتاحة ومؤرّخ بمصدره — مش نصيحة استثمار، القرار ليك.",
+      "evidence": [
+        {
+          "tool": "get_market",
+          "source": "database",
+          "data_time": "2026-10-01",
+          "symbols": [
+            "EGX30",
+            "EGX100",
+            "USDEGP"
+          ],
+          "data_type": "historical",
+          "data": {
+            "quote_kind": "daily_close",
+            "is_live_intraday": false,
+            "component_dates": {
+              "egx30": "2026-10-01",
+              "egx100": "2026-10-01",
+              "usd": "2026-08-25",
+              "movers": "2026-10-01"
+            },
+            "egx30": 53055,
+            "egx30_change_pct": 2.2356767922797616,
+            "egx100": 25655.6,
+            "egx100_change_pct": 3.5485381249898973,
+            "usd": 50.81,
+            "regime": "bear",
+            "top_gainers": [
+              {
+                "symbol": "GTWL",
+                "name": "Golden Textiles & Clothes Wool",
+                "change": 17.4935
+              },
+              {
+                "symbol": "SWDY",
+                "name": "El Sewedy Electric Company",
+                "change": 14.2857
+              },
+              {
+                "symbol": "PRCL",
+                "name": "General Co. for Ceramic & Porcelain Products",
+                "change": 13.3704
+              },
+              {
+                "symbol": "CERA",
+                "name": "Arab Ceramic Co. - Ceramica Remas",
+                "change": 11.0236
+              },
+              {
+                "symbol": "TALM",
+                "name": "Taaleem Management Services S.A.E",
+                "change": 10.5319
+              },
+              {
+                "symbol": "ISMA",
+                "name": "Ismailia Misr Poultry",
+                "change": 10.3868
+              },
+              {
+                "symbol": "ATLC",
+                "name": "Al Tawfeek Leasing Company-A.T.LEASE",
+                "change": 10.2518
+              },
+              {
+                "symbol": "CRST",
+                "name": "Creast Mark For Contracting And Real Estate Development",
+                "change": 10.219
+              },
+              {
+                "symbol": "AFMC",
+                "name": "Alexandria Flour Mills Co.",
+                "change": 10.1166
+              },
+              {
+                "symbol": "GRCA",
+                "name": "Grand Investment Capital",
+                "change": 9.0159
+              }
+            ],
+            "top_losers": [
+              {
+                "symbol": "EMFD",
+                "name": "Emaar Misr for Development SAE",
+                "change": -6.4897
+              },
+              {
+                "symbol": "OFH",
+                "name": "O B Financial Holding",
+                "change": -5.1546
+              },
+              {
+                "symbol": "MFSC",
+                "name": "Misr Duty Free Shops Co.",
+                "change": -3.2988
+              },
+              {
+                "symbol": "KABO",
+                "name": "El Nasr Clothing & Textiles Co.",
+                "change": -2.7368
+              },
+              {
+                "symbol": "ACGC",
+                "name": "Arab Cotton Ginning Co.",
+                "change": -2.1088
+              },
+              {
+                "symbol": "TYCN",
+                "name": "Tycoon Holding Company For Financial Investments",
+                "change": -1.8447
+              },
+              {
+                "symbol": "NEDA",
+                "name": "Northern Upper Egypt Development & Agricultural Production",
+                "change": -1.1152
+              },
+              {
+                "symbol": "CANA",
+                "name": "Suez Canal Bank SAE",
+                "change": -0.3049
+              },
+              {
+                "symbol": "BINV",
+                "name": "B Investments Holding SAE",
+                "change": -0.3004
+              },
+              {
+                "symbol": "IFAP",
+                "name": "International Agricultural Products",
+                "change": -0.2573
+              }
+            ]
+          },
+          "availability": "stale",
+          "evidence": [
+            {
+              "source": "database",
+              "as_of": "2026-10-01",
+              "fetched_at": "2026-10-03T23:09:34.725Z",
+              "freshness": "fresh",
+              "confidence": null,
+              "claim": null
+            }
+          ]
+        }
+      ],
+      "source": "llm",
+      "validation": {
+        "ok": true,
+        "reasons": [],
+        "checked": {
+          "coverage": false,
+          "metric": false,
+          "attribution": true,
+          "context": true
+        }
+      },
+      "passed": true
+    },
+    {
+      "kind": "follow_up",
+      "date": "2026-10-01",
+      "symbol": "CCAP",
+      "ms": 4607,
+      "question": "تابع تحليل سهم CCAP بين جلسة 2026-09-30 وجلسة 2026-10-01: ما الذي تغير في الإغلاق والزخم والحجم والمستويات؟ هل تحقق السيناريو السابق؟ لا تفترض تحقق اختراق من الإغلاق الحالي وحده.",
+      "content": "**ما الذي تغيّر فعلياً؟**\n\n| البند | 2026-09-30 | 2026-10-01 | التغيّر |\n|---|---|---|---|\n| الإغلاق | 6.63 | 6.88 | +3.77% |\n| RSI (14) | غير متاح | 61.89 | زخم محايد يميل للإيجابية |\n| الحجم | 90,193,290 | 112,109,163 | أعلى عدداً |\n| الحجم النسبي | غير متاح | 0.91x | أقل من متوسط 20 جلسة |\n| الدعم المسجل | 5.85 | 5.97 | ارتفع |\n| المقاومة المسجلة | 7.32 | 7.32 | ثابتة |\n| موقع السعر | 53.06% من النطاق | 67.41% من النطاق | اقتراب من المقاومة |\n\n**هل تحقق السيناريو السابق؟**\nلا. الإغلاق عند 6.88 ما زال **تحت المقاومة المسجلة 7.32** بمسافة 6.4%، ولم يتحقق اختراق مؤكد. ارتفاع الإغلاق وحده لا يُعد اختراقاً؛ الاختراق يتطلب إغلاقاً أعلى من 7.32 مع حجم نسبي ≥ 1.0x، والحجم الحالي 0.91x أقل من المتوسط.\n\n**القراءة الفنية:**\n- MACD = 0.2633 مقابل خط الإشارة 0.3209، والهيستوجرام = -0.0576 (سالب) → لا يوجد تقاطع صاعد مؤكد.\n- Stochastic: K = 58.88 و D = 51.36 → منطقة محايدة.\n- وايكوف: neutral (حالة رصد observed بتاريخ 2026-10-01)، درجة التجميع 5 ودرجة التصريف 0، وأيام التتابع 0. لا يوجد دليل على تجميع أو تصريف مؤسسي.\n- لا توجد توصيات سابقة أو حالية مسجلة على المنصة لهذا السهم.\n\n**الرأي الإحصائي للذكاء الاصطناعي (ML Scores):**\n- KING AI = 52.57% → محايد.\n- EGX AI = 51.01% → محايد.\n- اتفاق النماذج: الفرق = 1.56 نقطة (≤ 3 نقاط) → اتفاق قوي.\n- القرار الفني العام: **مراقبة** — توافق النماذج قوي لكنه محايد في المستوى، ولا تدعمه مؤشرات فنية إيجابية حاسمة (MACD سلبي، حجم دون المتوسط، السعر تحت المقاومة).\n\n**الخلاصة التنفيذية:**\nالسيناريو السابق لم يتحقق بعد. الدخول يصبح قابلاً للمراجعة فقط إذا أغلق السهم أعلى من 7.32 بحجم نسبي ≥ 1.0x، بينما كسر الدعم 5.97 يلغي السيناريو الصاعد. لا يوجد حالياً تفعيل سعري مؤكد.\n\n*ملاحظة: هذه العينة المحدودة لا تمثل السوق كله، والتحليل تعليمي قائم على الأرقام المسجلة فقط.*\n\nhttps://t.me/egxbots\n\n✅ تحليل EGX Bots مبني على أحدث البيانات المتاحة ومؤرّخ بمصدره — مش نصيحة استثمار، القرار ليك.\n\n> ℹ️ **حالة السعر:** CCAP: آخر إغلاق مسجل 6.88 جنيه بتاريخ 2026-10-01، وليس سعراً لحظياً.",
+      "evidence": [
+        {
+          "tool": "get_stock",
+          "availability": "stale",
+          "source": "database",
+          "data_time": "2026-10-01",
+          "symbols": [
+            "CCAP"
+          ],
+          "data_type": "historical",
+          "data": {
+            "symbol": "CCAP",
+            "name": "QALA For Financial Investments",
+            "price": 6.88,
+            "change_pct": "+3.77%",
+            "change_pct_num": 3.7707,
+            "rsi_14": "61.89",
+            "rsi_14_num": 61.8852,
+            "macd_signal": "0.3209",
+            "macd_signal_num": 0.320912,
+            "macd": 0.263316,
+            "macd_histogram": -0.05759599999999998,
+            "vol_ratio": "0.91x",
+            "vol_ratio_num": 0.9094277282504204,
+            "volume": 112109163,
+            "vol_sma20": 123274406,
+            "sma_50": "5.97",
+            "ema_50": "6.15",
+            "sma_200": "4.64",
+            "ema_200": "4.90",
+            "bb_upper": "7.51",
+            "bb_lower": "5.86",
+            "stoch_k": "58.88",
+            "stoch_d": "51.36",
+            "is_live_intraday": false,
+            "live_update_time": null,
+            "live_refresh_failed": false,
+            "live_refresh_unsupported": false,
+            "live_refresh_error": null,
+            "session_open": false,
+            "king_ai_score": 0.5257,
+            "egx_ai_score": 0.5101,
+            "wyckoff_phase": "neutral",
+            "wyckoff_status": "observed",
+            "wyckoff_as_of": "2026-10-01",
+            "acc_score": 5,
+            "dist_score": 0,
+            "signal": "neutral",
+            "consecutive_acc_days": 0,
+            "consecutive_dist_days": 0,
+            "market_cap": 7261497963,
+            "eps": null,
+            "book_value_per_share": null,
+            "pe_ratio": null,
+            "recommendation": {
+              "has_recommendation": false,
+              "is_active": false,
+              "status": "none",
+              "message": "لا توجد توصيات سابقة أو حالية مسجلة لهذا السهم على المنصة."
+            }
+          },
+          "evidence": [
+            {
+              "source": "database",
+              "as_of": "2026-10-01",
+              "fetched_at": "2026-10-03T23:09:39.786Z",
+              "freshness": "fresh",
+              "confidence": null,
+              "claim": null
+            }
+          ]
+        },
+        {
+          "tool": "get_stock_levels",
+          "source": "stock_prices",
+          "data_time": "2026-10-01",
+          "symbols": [
+            "CCAP"
+          ],
+          "data_type": "historical",
+          "data": {
+            "symbol": "CCAP",
+            "close": 6.88,
+            "support": 5.97,
+            "resistance": 7.32,
+            "long_term_support": 5.13,
+            "long_term_resistance": 7.32,
+            "lookback_sessions": 60,
+            "price_vs_support": "فوق الدعم",
+            "price_vs_resistance": "تحت المقاومة",
+            "distance_from_support_pct": 13.23,
+            "distance_from_resistance_pct": 6.4,
+            "position_pct": 67.41,
+            "trading_zone": "منطقة حيادية للمراقبة (بين الدعم والمقاومة)"
+          },
+          "availability": "stale",
+          "evidence": [
+            {
+              "source": "stock_prices",
+              "as_of": "2026-10-01",
+              "fetched_at": "2026-10-03T23:09:39.786Z",
+              "freshness": "fresh",
+              "confidence": null,
+              "claim": null
+            }
+          ]
+        }
+      ],
+      "source": "llm",
+      "validation": {
+        "ok": true,
+        "reasons": [],
+        "checked": {
+          "coverage": false,
+          "metric": false,
+          "attribution": true,
+          "context": true
+        }
+      },
+      "passed": true
+    }
+  ]
+}

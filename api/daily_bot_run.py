@@ -3388,6 +3388,16 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 _record_step("daily_market_outlook", False, str(outlook_error)[:300], 0)
                 print(f"[DAILY_OUTLOOK] Error: {outlook_error}")
         _persist_job("completed")
+        # Reports are generated only after the market job has been committed as
+        # completed; a report/provider failure never invalidates market data.
+        try:
+            from api.daily_social_reports import generate_daily_social_reports
+            social_reports = await asyncio.to_thread(
+                generate_daily_social_reports, job_run_id, steps_log, trigger, dry_run
+            )
+            print(f"[SOCIAL_REPORTS] {social_reports}")
+        except Exception as social_error:
+            print(f"[SOCIAL_REPORTS] Generation unavailable: {type(social_error).__name__}")
         print(f"\n--- Daily Bot Run Job Completed: {dt.datetime.now()} ---")
 
     except Exception as e:
