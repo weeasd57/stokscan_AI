@@ -6,9 +6,13 @@ import { getPublicMarketClient, getSupabaseServiceClient } from "../supabase/rou
 
 jest.mock("../supabase/viewer-context", () => ({ getViewerIdentity: jest.fn() }));
 jest.mock("../portfolio-performance-data", () => ({ loadPortfolioPerformance: jest.fn() }));
-jest.mock("../supabase/route-data", () => ({\n  getPublicMarketClient: jest.fn(() => ({ public: true })),\n  getSupabaseServiceClient: jest.fn(() => ({ private: true })),\n}));
+jest.mock("../supabase/route-data", () => ({
+  getPublicMarketClient: jest.fn(() => ({ public: true })),
+  getSupabaseServiceClient: jest.fn(() => ({ private: true })),
+}));
 
 beforeEach(() => jest.clearAllMocks());
+
 it("rejects guests before querying prices or private holdings", async () => {
   (getViewerIdentity as jest.Mock).mockResolvedValue({ userId: null });
   const response = await GET(new NextRequest("http://localhost/api/portfolio/performance?user_id=victim"));
@@ -18,6 +22,7 @@ it("rejects guests before querying prices or private holdings", async () => {
   expect(response.headers.get("Cache-Control")).toContain("private");
   expect(response.headers.get("Vercel-CDN-Cache-Control")).toBe("no-store");
 });
+
 it("uses the verified owner, ignoring any user_id parameter; never publicly caches the assembled report", async () => {
   (getViewerIdentity as jest.Mock).mockResolvedValue({ userId: "owner-A" });
   (loadPortfolioPerformance as jest.Mock).mockResolvedValue({ realized: 123 });
@@ -28,6 +33,7 @@ it("uses the verified owner, ignoring any user_id parameter; never publicly cach
   expect(response.headers.get("CDN-Cache-Control")).toBe("no-store");
   expect(response.headers.get("Vary")).toBe("Cookie");
 });
+
 it("fails closed and preserves private cache policy on upstream errors", async () => {
   (getViewerIdentity as jest.Mock).mockResolvedValue({ userId: "owner-A" });
   (loadPortfolioPerformance as jest.Mock).mockRejectedValue(new Error("unavailable"));
