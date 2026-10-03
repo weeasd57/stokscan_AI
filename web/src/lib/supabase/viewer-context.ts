@@ -1,4 +1,4 @@
-import { createServerClient } from "@supabase/ssr";
+import { createHash } from "node:crypto";
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { hasActiveProSubscription, paymentsEnabled } from "@/lib/ai/plan-gate";
@@ -34,9 +34,7 @@ function nowMs(): number {
 }
 
 function tokenFingerprint(token: string): string {
-  let h = 5381;
-  for (let i = 0; i < token.length; i++) h = ((h << 5) + h + token.charCodeAt(i)) | 0;
-  return `${h.toString(36)}:${token.length}:${token.slice(-8)}`;
+  return createHash("sha256").update(token).digest("base64url");
 }
 
 function prune<T extends { exp: number }>(store: Map<string, T>) {
@@ -45,35 +43,71 @@ function prune<T extends { exp: number }>(store: Map<string, T>) {
   for (const [key, value] of store) if (value.exp <= now) store.delete(key);
 }
 
-/** Cookie reader without a network hop: reads the SSR client cookies directly. */
-async function readSessionTokens(req: NextRequest): Promise<string | null> {
+function projectRefFromUrl(url: string): string | null {
+  try {
+    return new URL(url).hostname.split(".")[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function decodeBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(normalized, "base64").toString("utf8");
+}
+
+function readChunkedCookie(req: NextRequest, baseName: string): string | null {
+  const rows = req.cookies.getAll();
+  const exact = rows.find((row) => row.name === baseName);
+  if (exact) return exact.value;
+
+  const chunks = rows
+    .map((row) => {
+      const prefix = baseName + ".";
+      if (!row.name.startsWith(prefix)) return null;
+      const suffix = row.name.slice(prefix.length);
+      if (!/^\d+$/.test(suffix)) return null;
+      return { index: Number(suffix), value: row.value };
+    })
+    .filter((row): row is { index: number; value: string } => row !== null)
+    .sort((a, b) => a.index - b.index);
+
+  if (!chunks.length || chunks.some((chunk, index) => chunk.index !== index)) return null;
+  return chunks.map((chunk) => chunk.value).join("");
+}
+
+/**
+ * Read the access JWT directly from the @supabase/ssr cookie representation.
+ * Calling auth.getSession() here is unsafe for a read-only identity check:
+ * auth-js proactively refreshes near-expiry sessions, which is exactly the
+ * server-side refresh race this helper exists to avoid.
+ */
+function readSessionAccessToken(req: NextRequest): string | null {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
-    if (!supabaseUrl || !anonKey) return null;
-    const cookieStore = req.cookies;
-    // The cookie adapter only reads request cookies; getSession() here just
-    // decodes the stored session (with chunked-cookie merge) — no refresh
-    // because autoRefreshToken is disabled.
-    const client = createServerClient(supabaseUrl, anonKey, {
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        get: (name: string) => cookieStore.get(name)?.value,
-        set: () => {},
-        remove: () => {},
-      },
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-    const { data } = await client.auth.getSession();
-    return data.session?.access_token || null;
+    if (!supabaseUrl) return null;
+    const projectRef = projectRefFromUrl(supabaseUrl);
+    if (!projectRef) return null;
+
+    const encoded = readChunkedCookie(req, "sb-" + projectRef + "-auth-token");
+    if (!encoded) return null;
+
+    const json = encoded.startsWith("base64-")
+      ? decodeBase64Url(encoded.slice("base64-".length))
+      : encoded;
+    const session = JSON.parse(json);
+
+    if (typeof session?.access_token === "string") return session.access_token;
+    // Compatibility with legacy token-array cookie shapes.
+    if (Array.isArray(session) && typeof session[0] === "string") return session[0];
+    return null;
   } catch {
     return null;
   }
 }
 
 /** Verify the cookie session belongs to a real user — at most once per TTL. */
-async function resolveIdentity(req: NextRequest): Promise<string | null> {
-  const token = await readSessionTokens(req);
+async function resolveIdentityToken(token: string | null): Promise<string | null> {
   if (!token) return null;
 
   const key = tokenFingerprint(token);
@@ -90,7 +124,9 @@ async function resolveIdentity(req: NextRequest): Promise<string | null> {
       auth: { persistSession: false, autoRefreshToken: false, storageKey: "viewer-context" },
       global: { headers: { Authorization: `Bearer ${token}` } },
     });
-    const { data, error } = await client.auth.getUser();
+    // Pass the JWT explicitly. This verifies the token at /auth/v1/user
+    // without loading or rotating a cookie-backed refresh session.
+    const { data, error } = await client.auth.getUser(token);
     const userId = !error && data.user ? data.user.id : null;
     prune(identityCache);
     identityCache.set(key, { userId, exp: now + IDENTITY_TTL_SEC * 1000 });
@@ -130,10 +166,37 @@ async function resolvePro(userId: string | null): Promise<boolean> {
   }
 }
 
-export interface ViewerContext {
+export interface ViewerIdentity {
   authenticated: boolean;
-  pro: boolean;
   userId: string | null;
+}
+
+export interface ViewerAuth extends ViewerIdentity {
+  accessToken: string | null;
+}
+
+export interface ViewerContext extends ViewerIdentity {
+  pro: boolean;
+}
+
+/**
+ * Verified identity plus the request's access JWT for server-to-server calls
+ * that must forward the user's credential. The token is never refreshed here.
+ */
+export async function getViewerAuth(req: NextRequest): Promise<ViewerAuth> {
+  const accessToken = readSessionAccessToken(req);
+  const userId = await resolveIdentityToken(accessToken);
+  if (!userId) return { authenticated: false, userId: null, accessToken: null };
+  return { authenticated: true, userId, accessToken };
+}
+
+/**
+ * Verified identity only, without a plan lookup. Use this for high-traffic
+ * reads that already load their own user-scoped entitlement data.
+ */
+export async function getViewerIdentity(req: NextRequest): Promise<ViewerIdentity> {
+  const { authenticated, userId } = await getViewerAuth(req);
+  return { authenticated, userId };
 }
 
 /**
@@ -142,7 +205,7 @@ export interface ViewerContext {
  * still re-check in the database.
  */
 export async function getViewerContext(req: NextRequest): Promise<ViewerContext> {
-  const userId = await resolveIdentity(req);
+  const { userId } = await getViewerIdentity(req);
   if (!userId) return { authenticated: false, pro: false, userId: null };
   const pro = await resolvePro(userId);
   return { authenticated: true, pro, userId };
