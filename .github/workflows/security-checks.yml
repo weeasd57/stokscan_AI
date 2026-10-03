@@ -32,7 +32,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci --ignore-scripts
       - run: npm audit --audit-level=low
-      - run: npm test -- --runInBand src/lib/__tests__/security-routes.test.js src/lib/__tests__/supabase-server.test.ts src/lib/__tests__/auth-context-refresh.test.tsx src/lib/__tests__/admin-proxy-security.test.ts src/lib/__tests__/admin-auth-security.test.ts src/lib/__tests__/public-market-security.test.ts src/lib/__tests__/portfolio-performance-route.test.ts src/lib/__tests__/telegram-pro-route.test.ts src/lib/supabase/__tests__/viewer-context.test.ts
+      - run: npm test -- --runInBand src/lib/__tests__/security-routes.test.js src/lib/__tests__/supabase-server.test.ts src/lib/__tests__/auth-context-refresh.test.tsx src/lib/__tests__/activity-events-route.test.ts src/lib/__tests__/admin-proxy-security.test.ts src/lib/__tests__/admin-auth-security.test.ts src/lib/__tests__/public-market-security.test.ts src/lib/__tests__/portfolio-performance-route.test.ts src/lib/__tests__/telegram-pro-route.test.ts src/lib/supabase/__tests__/viewer-context.test.ts
       - run: npm run build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://build-only.invalid
