@@ -42,9 +42,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (mounted) setLoading(false);
       });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (!mounted) return;
       setSession(nextSession);
-      setUser(nextSession?.user ?? null);
+      const nextUser = nextSession?.user ?? null;
+      setUser((currentUser) => {
+        // Credential rotation must not look like an identity change. Keeping
+        // the same User object prevents every user-dependent provider/effect
+        // from refetching after TOKEN_REFRESHED.
+        if (
+          event === "TOKEN_REFRESHED" &&
+          currentUser &&
+          nextUser &&
+          currentUser.id === nextUser.id
+        ) {
+          return currentUser;
+        }
+        return nextUser;
+      });
       setLoading(false);
     });
 
