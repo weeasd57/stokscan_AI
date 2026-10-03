@@ -20,7 +20,9 @@ it("awaits Next 15 cookies and preserves cookie reads/writes", async () => {
   const store = { get: jest.fn(() => ({ value: "session" })), set: jest.fn(), delete: jest.fn() };
   (cookies as jest.Mock).mockResolvedValue(store);
   await createSupabaseServerClient();
-  const adapter = (createServerClient as jest.Mock).mock.calls[0][2].cookies;
+  const options = (createServerClient as jest.Mock).mock.calls[0][2];
+  expect(options.auth).toEqual({ persistSession: false, autoRefreshToken: false });
+  const adapter = options.cookies;
   expect(adapter.get("session-cookie")).toBe("session");
   adapter.set("session-cookie", "refreshed", { httpOnly: true });
   expect(store.set).toHaveBeenCalledWith({ name: "session-cookie", value: "refreshed", httpOnly: true });
