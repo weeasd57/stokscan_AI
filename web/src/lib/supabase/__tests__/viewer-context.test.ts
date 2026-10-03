@@ -2,12 +2,6 @@ let mockSubscriptionRows: Array<{ plan_id: string; status: string; current_perio
 let mockSubscriptionError: unknown = null;
 let mockSubscriptionLookups = 0;
 
-jest.mock("@supabase/ssr", () => ({
-  createServerClient: () => ({
-    auth: { getSession: async () => ({ data: { session: { access_token: "test-token" } } }) },
-  }),
-}));
-
 jest.mock("@supabase/supabase-js", () => ({
   createClient: (_url: string, _key: string, options: any) => {
     if (options?.global?.headers?.Authorization) {
@@ -26,7 +20,14 @@ jest.mock("@supabase/supabase-js", () => ({
   },
 }));
 
-const request = { cookies: { getAll: () => [], get: () => undefined } } as any;
+const sessionCookie = "base64-" + Buffer.from(
+  JSON.stringify({ access_token: "test-token", refresh_token: "refresh-token" }),
+).toString("base64url");
+const request = {
+  cookies: {
+    getAll: () => [{ name: "sb-example-auth-token", value: sessionCookie }],
+  },
+} as any;
 
 describe("viewer plan freshness", () => {
   const oldEnv = { ...process.env };
