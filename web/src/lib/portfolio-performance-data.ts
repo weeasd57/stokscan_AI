@@ -10,7 +10,7 @@ export async function loadDailyHistory(market: any, symbol: string): Promise<Dai
 }
 
 export async function loadPortfolioPerformance(privateClient: any, market: any, userId: string) {
-  // Cookie client + explicit owner predicate + RLS. These rows never use marketCachedFetch.
+  // Caller supplies a verified private client; explicit owner predicates keep all user rows scoped. These rows never use marketCachedFetch.
   const { data: positions, error } = await privateClient.from("positions")
     .select("id,symbol,quantity,entry_price,status").eq("user_id", userId).eq("status", "open").limit(101);
   if (error) throw new Error("Portfolio holdings unavailable");
