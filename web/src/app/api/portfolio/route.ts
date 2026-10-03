@@ -1,18 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getSupabaseServiceClient } from "@/lib/supabase/route-data";
+import { getViewerContext } from "@/lib/supabase/viewer-context";
 
 // GET /api/portfolio — current user's holdings + cash + live valuation + market symbols list
-export async function GET() {
+export async function GET(req: NextRequest) {
     try {
-        const supabase = await createSupabaseServerClient();
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-        if (authError || !user) {
+        // Portfolio hydration runs on every profile visit. Resolve identity
+        // through the refresh-free viewer context so parallel GETs cannot race
+        // the same refresh token on the server.
+        const { userId } = await getViewerContext(req);
+        if (!userId) {
             return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
+        const supabase = getSupabaseServiceClient({ cacheMarketData: true });
 
         const { getPortfolioSnapshot } = await import("@/lib/ai/portfolio-tools");
-        const snapshot = await getPortfolioSnapshot(supabase, user.id);
-        const { data: planRows } = await supabase.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", user.id).limit(10);
+        const snapshot = await getPortfolioSnapshot(supabase, userId);
+        const { data: planRows } = await supabase.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", userId).limit(10);
         const { hasActiveProSubscription, planLimits } = await import("@/lib/ai/plan-gate");
         const pro = hasActiveProSubscription(planRows || []);
         const portfolioLimit = planLimits(pro ? "pro" : "free").portfolio_stocks;
