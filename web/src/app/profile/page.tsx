@@ -21,6 +21,8 @@ export default function ProfilePage() {
   const { invite: proInvite, loading: inviteLoading, error: inviteError, refresh: refreshProInvite } = useTelegramPro();
   const isAr = language === "ar";
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const userId = user?.id ?? null;
+  const lastProfileRefreshAtRef = useRef(0);
 
   const [username, setUsername] = useState<string | null>(null);
   const [telegramLinked, setTelegramLinked] = useState(false);
@@ -64,12 +66,12 @@ export default function ProfilePage() {
         if (qJson.ok) setQuotaData(qJson);
       }
     } catch {}
-  }, [supabase, user]);
+  }, [supabase, userId]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     void reloadProfile();
-  }, [reloadProfile, user]);
+  }, [reloadProfile, userId]);
 
   useEffect(() => {
     if (!userId) return;
