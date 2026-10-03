@@ -58,9 +58,7 @@ async function readSessionTokens(req: NextRequest): Promise<string | null> {
     const client = createServerClient(supabaseUrl, anonKey, {
       cookies: {
         getAll: () => cookieStore.getAll(),
-        get: (name: string) => cookieStore.get(name)?.value,
-        set: () => {},
-        remove: () => {},
+        setAll: () => {},
       },
       auth: { persistSession: false, autoRefreshToken: false },
     });
@@ -90,7 +88,9 @@ async function resolveIdentity(req: NextRequest): Promise<string | null> {
       auth: { persistSession: false, autoRefreshToken: false, storageKey: "viewer-context" },
       global: { headers: { Authorization: `Bearer ${token}` } },
     });
-    const { data, error } = await client.auth.getUser();
+    // Pass the JWT explicitly. This verifies the token at /auth/v1/user
+    // without loading or rotating a cookie-backed refresh session.
+    const { data, error } = await client.auth.getUser(token);
     const userId = !error && data.user ? data.user.id : null;
     prune(identityCache);
     identityCache.set(key, { userId, exp: now + IDENTITY_TTL_SEC * 1000 });
