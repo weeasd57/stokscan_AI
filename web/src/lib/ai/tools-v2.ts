@@ -1077,7 +1077,7 @@ export async function executeStructuredTools(
                 if (/(?:ذرو[ةه]\s*البيع|تشبع\s*(?:بيعي|البيع)|oversold|rsi\s*(?:اقل|أقل|تحت|دون|<=|<)?\s*(?:30|35))/i.test(norm)) preset = "rsi_oversold";
                 else if (/(?:اختراق\s*حجم|انفجار\s*حجم|فوليوم\s*(?:عالي|انفجاري|غير\s*عادي)|volume\s*breakout)/i.test(norm)) preset = "volume_breakout";
                 else if (/(?:اختراق\s*الاتجاه|متوسط\s*200|موفينج\s*200|ema\s*200|sma\s*200|فوق\s*(?:متوسط\s*)?200\s*يوم)/i.test(norm)) preset = "sma_200_breakout";
-                else if (/(?:[اأ]موال\s*ذكي[ةه]|تدفق\s*(?:ال)?[اأ]موال|سيول[ةه]\s*ذكي[ةه]|smart\s*money|cmf)/i.test(norm)) preset = "smart_money_flow";
+                else if (/(?:[اأ]موال\s*ذكي[ةه]|تدفق\s*(?:ال)?[اأ]موال|سيول[ةه]\s*ذكي[ةه]|smart\s*money|cmf|[اأ]قوى\s+زخم|زخم\s+فني|الزخم\s+الفني|زخم|الزخم|momentum)/i.test(norm)) preset = "smart_money_flow";
                 else if (/(?:دايفرجنس\s*(?:ايجابي|إيجابي|صعودي)|تباعد\s*(?:صعودي|ايجابي)|bullish\s*divergence|دايفرجنس.{0,15}ايجابي)/i.test(norm)) preset = "rsi_bullish_divergence";
                 else if (/(?:دايفرجنس\s*(?:سلبي|هبوطي)|تباعد\s*(?:هبوطي|سلبي)|bearish\s*divergence|تنبيه\s*تباعد|دايفرجنس.{0,15}(?:سلبي|هبوطي))/i.test(norm)) preset = "bearish_divergence_alert";
             }

@@ -85,7 +85,7 @@ export function evidenceViolations(reply: string, message: string, results: Tool
         const retrievalDate = newsEventDate({ date: result.data_time });
         const clauses = normalized.split(/[\n؛.!؟]/);
         if (retrievalDate && !actualDates.includes(retrievalDate) && clauses.some(clause => clause.includes(retrievalDate)
-            && !/^#|^\||\bجدول\b|\bتصدير\b/i.test(clause.trim())
+            && !/^#|^\||\bجدول\b|\bتصدير\b|الأحداث|المالية|المؤثرة|توزيعات|أسهم|اكتتاب|discovered_at|published_at/i.test(clause.trim())
             && /تاريخ|نشر|اعلان|حدث|اكتتاب|توزيع|مجانيه|راس المال/.test(clause)
             && !/جلب|استرجاع|فحص|تحديث البيانات/.test(clause))) {
             reasons.push("تاريخ جلب أداة أحداث الشركات ليس تاريخ نشر أو تنفيذ؛ اذكر published_at وaction_date كلٌّ باسمه أو وضّح غيابه.");
@@ -120,7 +120,7 @@ export function evidenceViolations(reply: string, message: string, results: Tool
             const date = String(stock.data_time || "").slice(0, 10);
             const textHasDate = date && reply.includes(date);
             const textHasCloseLabel = /إغلاق|اغلاق|سعر مسجل|بيانات مسجلة|بيانات مسجله|يومي|غير لحظي/.test(normalized);
-            if (date && !textHasDate && quoteClauses.some(clause => !clause.includes(date))) reasons.push(`${symbol}: اذكر تاريخ آخر إغلاق ${date} مع سعره صراحة في الرد.`);
+            if (date && quoteClauses.some(clause => !clause.includes(date))) reasons.push(`${symbol}: اذكر تاريخ آخر إغلاق ${date} مع سعره صراحة في الرد.`);
             if (!textHasCloseLabel && quoteClauses.some(clause => !/إغلاق|اغلاق|سعر مسجل|بيانات مسجلة|بيانات مسجله/.test(clause))) reasons.push(`${symbol}: السعر المسجل إغلاق يومي؛ وضّح نوعه بجانب السعر.`);
             const affirmativeLive = quoteClauses.map(clause => clause.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه")).some(line => /بيانات تداول مباشره|(?:السعر|سعر|يتداول).{0,18}(?:لحظي|مباشر)/.test(line)
                 && !/ليس|ليست|غير|لا يتوفر|لا تتوفر|مش/.test(line));

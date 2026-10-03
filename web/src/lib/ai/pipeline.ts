@@ -975,7 +975,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     }
 
     // Technical Scanner Template 5: Smart Money Flow
-    const isSmartMoney = explicitSymbols.length === 0 && /(?:[اأ]موال\s*ذكي[ةه]|تدفق\s*(?:ال)?[اأ]موال|سيول[ةه]\s*ذكي[ةه]|smart\s*money|cmf)/i.test(normalized);
+    const isSmartMoney = explicitSymbols.length === 0 && /(?:[اأ]موال\s*ذكي[ةه]|تدفق\s*(?:ال)?[اأ]موال|سيول[ةه]\s*ذكي[ةه]|smart\s*money|cmf|أقوى\s+زخم|اقوى\s+زخم|زخم\s+فني|الزخم\s+الفني|زخم|الزخم|momentum)/i.test(normalized);
     if (isSmartMoney) {
         return {
             intent: "technical_scan",
@@ -1943,9 +1943,13 @@ async function* runPipelineCore(
     // category across short follow-ups instead of letting an old stock alias
     // turn a market question into a single-company analysis.
     if (!hasImages && isNileExchangeQuestion(userMessage, history)) {
-        const asksForPicks = /(احسن|افضل|رشح|اشتري|اقوي|رتب|مين|اللي\s+فيه)/i.test(normalizeArabicIntent(userMessage));
+        const normUserMsg = normalizeArabicIntent(userMessage);
+        const asksForPicks = /(احسن|افضل|رشح|اشتري|اقوي|رتب|مين|اللي\s+فيه)/i.test(normUserMsg);
+        const asksForDiff = /(الفرق|فرق|شرح|ايه الفرق|إيه الفرق|ماهو|ما هو|إيه هية|ايه هية|معلومات|عن بورصة النيل|ما هي)/i.test(normUserMsg);
         const response = asksForPicks
             ? "تقصد بورصة النيل للشركات الصغيرة والمتوسطة. لا تتوفر لدي حالياً قائمة تداول موثقة ومحدثة لأسهمها كلها لترتيب الأفضل فيها، لذلك لا أقدر أرشح سهماً منها بثقة. لو عندك رمز شركة محددة فيها، ابعته وأحلل بياناتها المتاحة."
+            : asksForDiff
+            ? "البورصة المصرية تنقسم إلى السوق الرئيسي وبورصة النيل (سوق الشركات الصغيرة والمتوسطة):\n\n1. **السوق الرئيسي (Main Market):** مخصص للشركات الكبيرة والمتوسطة ذات رؤوس الأموال الضخمة، وتطبق عليه شروط إفصاح وحوكمة صارمة، وحجم التداول والسيولة فيه مرتفعان.\n2. **بورصة النيل (Nile Exchange - NILEX):** مخصص للشركات الناشئة والصغيرة والمتوسطة ذات متطلبات إدراج ورأس مال أقل، وتكون نسبة التذبذب والسيولة فيه مختلفة ومخاطر الاستثمار في أسهمه أعلى لقلة التداول وإفصاحاتها المحدودة.\n\nإذا كان لديك رمز شركة محددة في أي من السوقين تريد تحليل بياناتها الفنية (مثل NIPH)، يسعدني مساعدتك!"
             : "بورصة النيل سوق للشركات الصغيرة والمتوسطة. تقصد شرح السوق ومخاطره، ولا مقارنة أسهم معينة مدرجة فيه؟ لو عندك رموز أسهم محددة ابعتها لي.";
         await updateSessionState(supabase, sessionId, userId, { current_symbol: null, last_symbols: [], summary: userMessage, current_sector: null });
         await updateSessionSummary(supabase, sessionId, userId, { current_symbols: [], last_topic: "nile_exchange", last_reference_symbol: null, last_reference_source: null, last_reference_at: null });
