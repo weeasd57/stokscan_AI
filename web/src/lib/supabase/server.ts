@@ -28,22 +28,27 @@ export const createSupabaseServerClient = async (request?: NextRequest) => {
 
   return createServerClient(supabaseUrl, anonKey, {
     cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value
+      getAll() {
+        return cookieStore.getAll()
       },
-      set(name: string, value: string, options: any) {
+      setAll(cookiesToSet) {
         try {
-          if ("set" in cookieStore) {
-            cookieStore.set({ name, value, ...options })
+          for (const { name, value, options } of cookiesToSet) {
+            if (request) {
+              // A request-backed client can make a rotated cookie visible to
+              // downstream code in this request, but cannot attach it to an
+              // arbitrary route response. High-traffic read routes therefore
+              // use viewer-context and never refresh server-side.
+              request.cookies.set(name, value)
+            } else {
+              ;(cookieStore as any).set(name, value, options)
+            }
           }
-        } catch {}
-      },
-      remove(name: string, options: any) {
-        try {
-          if ("delete" in cookieStore) {
-            cookieStore.delete({ name, ...options })
-          }
-        } catch {}
+        } catch {
+          // Server Components cannot always mutate cookies. Route handlers and
+          // Server Actions can; callers that require persistence own response
+          // cookie handling.
+        }
       },
     },
   })
