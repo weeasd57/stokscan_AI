@@ -1,4 +1,3 @@
-import { createServerClient } from "@supabase/ssr";
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { hasActiveProSubscription, paymentsEnabled } from "@/lib/ai/plan-gate";
@@ -45,25 +44,64 @@ function prune<T extends { exp: number }>(store: Map<string, T>) {
   for (const [key, value] of store) if (value.exp <= now) store.delete(key);
 }
 
-/** Cookie reader without a network hop: reads the SSR client cookies directly. */
-async function readSessionTokens(req: NextRequest): Promise<string | null> {
+function projectRefFromUrl(url: string): string | null {
+  try {
+    return new URL(url).hostname.split(".")[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function decodeBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  return Buffer.from(normalized, "base64").toString("utf8");
+}
+
+function readChunkedCookie(req: NextRequest, baseName: string): string | null {
+  const rows = req.cookies.getAll();
+  const exact = rows.find((row) => row.name === baseName);
+  if (exact) return exact.value;
+
+  const chunks = rows
+    .map((row) => {
+      const prefix = baseName + ".";
+      if (!row.name.startsWith(prefix)) return null;
+      const suffix = row.name.slice(prefix.length);
+      if (!/^\d+$/.test(suffix)) return null;
+      return { index: Number(suffix), value: row.value };
+    })
+    .filter((row): row is { index: number; value: string } => row !== null)
+    .sort((a, b) => a.index - b.index);
+
+  if (!chunks.length || chunks.some((chunk, index) => chunk.index !== index)) return null;
+  return chunks.map((chunk) => chunk.value).join("");
+}
+
+/**
+ * Read the access JWT directly from the @supabase/ssr cookie representation.
+ * Calling auth.getSession() here is unsafe for a read-only identity check:
+ * auth-js proactively refreshes near-expiry sessions, which is exactly the
+ * server-side refresh race this helper exists to avoid.
+ */
+function readSessionAccessToken(req: NextRequest): string | null {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
-    if (!supabaseUrl || !anonKey) return null;
-    const cookieStore = req.cookies;
-    // The cookie adapter only reads request cookies; getSession() here just
-    // decodes the stored session (with chunked-cookie merge) — no refresh
-    // because autoRefreshToken is disabled.
-    const client = createServerClient(supabaseUrl, anonKey, {
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: () => {},
-      },
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-    const { data } = await client.auth.getSession();
-    return data.session?.access_token || null;
+    if (!supabaseUrl) return null;
+    const projectRef = projectRefFromUrl(supabaseUrl);
+    if (!projectRef) return null;
+
+    const encoded = readChunkedCookie(req, "sb-" + projectRef + "-auth-token");
+    if (!encoded) return null;
+
+    const json = encoded.startsWith("base64-")
+      ? decodeBase64Url(encoded.slice("base64-".length))
+      : encoded;
+    const session = JSON.parse(json);
+
+    if (typeof session?.access_token === "string") return session.access_token;
+    // Compatibility with legacy token-array cookie shapes.
+    if (Array.isArray(session) && typeof session[0] === "string") return session[0];
+    return null;
   } catch {
     return null;
   }
@@ -71,7 +109,7 @@ async function readSessionTokens(req: NextRequest): Promise<string | null> {
 
 /** Verify the cookie session belongs to a real user — at most once per TTL. */
 async function resolveIdentity(req: NextRequest): Promise<string | null> {
-  const token = await readSessionTokens(req);
+  const token = readSessionAccessToken(req);
   if (!token) return null;
 
   const key = tokenFingerprint(token);
