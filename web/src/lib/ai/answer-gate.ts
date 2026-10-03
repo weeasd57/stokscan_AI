@@ -168,10 +168,8 @@ export function runAnswerGate(input: AnswerGateInput): AnswerGateResult {
         && !result.error && result.data?.ok === true && Array.isArray(result.data?.positions));
     const deniesHoldings = /(?:محفظت[كهي]|المحفظه|المراكز|الاسهم\s+(?:اللي\s+)?(?:عندك|معاك|تملكها)).{0,45}(?:فاضيه|فارغه|مش\s+مسجل|غير\s+مسجل|لا\s+توجد|مفيش)|(?:لا\s+توجد|مفيش|مافيش|مش\s+مسجل).{0,45}(?:محفظه|مراكز|اسهم\s+(?:عندك|معاك)|عندك\s+اسهم)/i.test(reply.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه"));
     checked.context = true;
-    if (deniesHoldings && (!snapshot || snapshot.data.positions.length > 0)) {
-        reasons.push(snapshot
-            ? "الرد يقول إن المحفظة فارغة بينما أداة المحفظة أثبتت وجود مراكز مفتوحة. اذكر المراكز الفعلية ولا تنفِ ملكيتها."
-            : "الرد ينفي وجود محفظة رغم أن حالة المراكز لم تُفحص. لا تحول غياب نتيجة الأداة إلى محفظة فارغة.");
+    if (deniesHoldings && snapshot && snapshot.data.positions.length > 0) {
+        reasons.push("الرد يقول إن المحفظة فارغة بينما أداة المحفظة أثبتت وجود مراكز مفتوحة. اذكر المراكز الفعلية ولا تنفِ ملكيتها.");
     }
     if (plan.entities.portfolio_operation === "view" && plan.intent !== "portfolio_management" && !snapshot) {
         reasons.push("الطلب يتطلب مراكز المستخدم الفعلية، لكن أداة المحفظة لم تُرجع لقطة موثقة. لا تقدم تحليلاً شخصياً للمحفظة.");
