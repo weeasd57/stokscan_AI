@@ -439,6 +439,7 @@ export function buildV2FinalMessages(
                     }
                 }
             });
+            sections.push(liveDataLines.join("\n"));
         }
 
         if (historicalResults.length > 0) {
@@ -3081,7 +3082,17 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
 
         const omitted = stocks.length > 10 ? `تم عرض ملخص أول 10 أسهم فقط؛ الجدول المنظم يحتوي على جميع الأسهم المتاحة (${stocks.length}).` : null;
         const opinionLines = stocks.length <= 3 ? stocks.map(result => buildStockOpinion(result, levelResults)) : [];
-        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), ...lines, ...levelLines, levelFallback, ...opinionLines, ...(fairValueRequest ? buildTechnicalValuationLines(stocks, levelResults) : []), omitted, "هذه قراءة استرشادية للبيانات المؤرخة أعلاه، والقرار الاستثماري يعود لك."].filter(Boolean).join("\n");
+        const asksBollinger = /bollinger|بولينجر|بولنجر|بولينغر/i.test(userMessage);
+        const bollingerLines = asksBollinger ? stocks.slice(0, 3).map(result => {
+            const d = result.data;
+            const upper = Number(d.bb_upper), lower = Number(d.bb_lower), price = Number(d.price ?? d.close);
+            if (!Number.isFinite(upper) || !Number.isFinite(lower) || !Number.isFinite(price) || upper <= 0 || lower <= 0) {
+                return `${d.symbol}: بيانات Bollinger غير متاحة في آخر لقطة، فلا أستطيع الجزم بلمس أي حد.`;
+            }
+            const position = price <= lower ? "عند الحد السفلي أو تحته" : price >= upper ? "عند الحد العلوي أو فوقه" : "داخل النطاق بين الحدين";
+            return `${d.symbol} — Bollinger: الحد العلوي ${upper.toFixed(2)} والسفلي ${lower.toFixed(2)} والسعر ${price.toFixed(2)}؛ السعر ${position} (قراءة آخر إغلاق، لا تثبت لمساً خلال الجلسة).`;
+        }) : [];
+        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), ...lines, ...bollingerLines, ...levelLines, levelFallback, ...opinionLines, ...(fairValueRequest ? buildTechnicalValuationLines(stocks, levelResults) : []), omitted, "هذه قراءة استرشادية للبيانات المؤرخة أعلاه، والقرار الاستثماري يعود لك."].filter(Boolean).join("\n");
 
     }
 
