@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 REPORT_KINDS = ('stock', 'accumulation', 'market', 'follow_up')
 
 
-def generate_daily_social_reports(job_run_id, steps, trigger='scheduled', dry_run=False, opener=None):
+def generate_daily_social_reports(job_run_id, steps, trigger='scheduled', dry_run=False, opener=None, client=None):
     date = datetime.now(ZoneInfo('Africa/Cairo'))
     latest = {s.get('step'): s.get('status') for s in steps}
     if dry_run or trigger != 'scheduled' or date.weekday() in (4, 5):
@@ -41,4 +41,8 @@ def generate_daily_social_reports(job_run_id, steps, trigger='scheduled', dry_ru
         except Exception as error:
             # Never retry an ambiguous timeout: the server may still be generating.
             results[kind] = {'status': 'failed', 'error': type(error).__name__}
-    return {'date': date.date().isoformat(), 'reports': results}
+    images = {}
+    if client is not None:
+        from api.social_report_images import attach_report_images
+        images = attach_report_images(client, date.date().isoformat(), job_run_id)
+    return {'date': date.date().isoformat(), 'reports': results, 'images': images}

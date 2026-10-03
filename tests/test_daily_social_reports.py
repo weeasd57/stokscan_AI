@@ -55,3 +55,12 @@ def test_provider_failure_does_not_retry_or_stop_other_reports():
         result = generate_daily_social_reports('job-id', STEPS, opener=opener)
     assert calls == list(REPORT_KINDS)
     assert all(r['status'] == 'failed' for r in result['reports'].values())
+
+
+def test_real_daily_hook_attaches_images_without_additional_llm_calls():
+    client = object()
+    with patch.dict('os.environ', {'REVALIDATE_SECRET': 'test-only'}), \
+         patch('api.social_report_images.attach_report_images', return_value={'stock': 'ready'}) as attach:
+        result = generate_daily_social_reports('job-id', STEPS, opener=lambda *args, **kwargs: Response(), client=client)
+    attach.assert_called_once_with(client, '2026-10-04', 'job-id')
+    assert result['images']['stock'] == 'ready'

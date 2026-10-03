@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
   const date = req.nextUrl.searchParams.get('date');
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
   const { data, error } = await getSupabaseServiceClient().from('daily_social_reports')
-    .select('session_date,kind,symbol,status,question,content,validation,created_at').eq('session_date', date);
+    .select('session_date,kind,symbol,status,question,content,validation,created_at,image_url,image_status,image_error,social_title,social_hashtags,social_caption').eq('session_date', date);
   if (error) return NextResponse.json({ error: 'Unable to read reports' }, { status: 500 });
   return NextResponse.json({ reports: data }, { headers: { 'Cache-Control': 'private, no-store' } });
 }

@@ -61,10 +61,13 @@ export async function generateDailyReport(client: any, kind: ReportKind, date: s
     if (dates && (dates.egx30 !== date || dates.egx100 !== date)) throw new Error('Market indices are stale');
   }
   if (kind === 'accumulation') {
-    evidence = evidence.map(r => r.tool === 'get_accumulation_stocks' ? { ...r,
-      symbols: r.symbols.filter(s => liquidSymbols.includes(s)), data: { ...r.data,
-        stocks: (r.data?.stocks || []).filter((s: any) => liquidSymbols.includes(s.symbol)),
-        coverage: 'high_liquidity_subset', description_ar: 'عينة الأسهم مرتفعة السيولة فقط؛ لا تمثل السوق كله' } } : r);
+    evidence = evidence.map(r => {
+      if (r.tool !== 'get_accumulation_stocks') return r;
+      const stocks = (r.data?.stocks || []).filter((s: any) => liquidSymbols.includes(s.symbol));
+      return { ...r, symbols: stocks.map((s: any) => s.symbol), data: { ...r.data,
+        stocks, matches: stocks, scan_rows: stocks, matched_count: stocks.length,
+        coverage: 'high_liquidity_subset', description_ar: 'عينة الأسهم مرتفعة السيولة فقط؛ لا تمثل السوق كله' } };
+    });
   }
   const history = previous ? [{ role: 'assistant', content: `تقرير جلسة ${previous.session_date}:\n${previous.content}` }] : [];
   const previousFacts = previous ? [{ context_id: `previous-${previous.session_date}`, source: 'daily_social_reports',

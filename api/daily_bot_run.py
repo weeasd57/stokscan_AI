@@ -3393,7 +3393,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         try:
             from api.daily_social_reports import generate_daily_social_reports
             social_reports = await asyncio.to_thread(
-                generate_daily_social_reports, job_run_id, steps_log, trigger, dry_run
+                generate_daily_social_reports, job_run_id, steps_log, trigger, dry_run, client=supabase
             )
             print(f"[SOCIAL_REPORTS] {social_reports}")
         except Exception as social_error:
