@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useAuth } from "@/contexts/AuthContext";
@@ -15,12 +15,12 @@ import FoundingMemberBanner from "./components/FoundingMemberBanner";
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user, loading, ensureFreshSession } = useAuth();
+  const { user, loading } = useAuth();
   const { t, language } = useLanguage();
   const { watchlist, updateSymbol, removeSymbol } = useWatchlist();
   const { invite: proInvite, loading: inviteLoading, error: inviteError, refresh: refreshProInvite } = useTelegramPro();
   const isAr = language === "ar";
-  const supabase = useMemo(() => createSupabaseBrowserClient(), []);\n  const userId = user?.id ?? null;\n  const lastProfileRefreshAtRef = useRef(0);
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
   const [username, setUsername] = useState<string | null>(null);
   const [telegramLinked, setTelegramLinked] = useState(false);
@@ -45,12 +45,11 @@ export default function ProfilePage() {
   }, [loading, router, user]);
 
   const reloadProfile = useCallback(async () => {
-    if (!userId) return;
-    lastProfileRefreshAtRef.current = Date.now();
+    if (!user) return;
     const { data: profileRow } = await supabase
       .from("profiles")
       .select("username, display_name, telegram_chat_id")
-      .eq("id", userId)
+      .eq("id", user.id)
       .maybeSingle();
     if (profileRow) {
       setUsername((profileRow as any).username || (profileRow as any).display_name || null);
@@ -72,19 +71,13 @@ export default function ProfilePage() {
   }, [reloadProfile, user]);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!user) return;
     const refreshWhenVisible = () => {
-      if (document.visibilityState !== "visible") return;
-      const now = Date.now();
-      if (now - lastProfileRefreshAtRef.current < 60_000) return;
-      lastProfileRefreshAtRef.current = now;
-      void ensureFreshSession().then((fresh) => {
-        if (fresh) void reloadProfile();
-      });
+      if (document.visibilityState === "visible") void reloadProfile();
     };
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => document.removeEventListener("visibilitychange", refreshWhenVisible);
-  }, [ensureFreshSession, reloadProfile, userId]);
+  }, [reloadProfile, user]);
 
   // Auto-scroll smoothly to portfolio section if hash is #portfolio
   useEffect(() => {
