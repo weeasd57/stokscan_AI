@@ -130,10 +130,23 @@ async function resolvePro(userId: string | null): Promise<boolean> {
   }
 }
 
-export interface ViewerContext {
+export interface ViewerIdentity {
   authenticated: boolean;
-  pro: boolean;
   userId: string | null;
+}
+
+export interface ViewerContext extends ViewerIdentity {
+  pro: boolean;
+}
+
+/**
+ * Verified identity only, without a plan lookup. Use this for high-traffic
+ * reads that already load their own user-scoped entitlement data.
+ */
+export async function getViewerIdentity(req: NextRequest): Promise<ViewerIdentity> {
+  const userId = await resolveIdentity(req);
+  if (!userId) return { authenticated: false, userId: null };
+  return { authenticated: true, userId };
 }
 
 /**
@@ -142,7 +155,7 @@ export interface ViewerContext {
  * still re-check in the database.
  */
 export async function getViewerContext(req: NextRequest): Promise<ViewerContext> {
-  const userId = await resolveIdentity(req);
+  const { userId } = await getViewerIdentity(req);
   if (!userId) return { authenticated: false, pro: false, userId: null };
   const pro = await resolvePro(userId);
   return { authenticated: true, pro, userId };
