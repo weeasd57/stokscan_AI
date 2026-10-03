@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getViewerContext } from "@/lib/supabase/viewer-context";
-import { getPublicMarketClient } from "@/lib/supabase/route-data";
+import { getViewerIdentity } from "@/lib/supabase/viewer-context";
+import { getPublicMarketClient, getSupabaseServiceClient } from "@/lib/supabase/route-data";
 import { loadPortfolioPerformance } from "@/lib/portfolio-performance-data";
 
 export const dynamic = "force-dynamic";
@@ -15,9 +14,9 @@ const headers = {
 
 export async function GET(req: NextRequest) {
   try {
-    const { userId } = await getViewerContext(req);
+    const { userId } = await getViewerIdentity(req);
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers });
-    const report = await loadPortfolioPerformance(await createSupabaseServerClient(), getPublicMarketClient(), userId);
+    const report = await loadPortfolioPerformance(getSupabaseServiceClient(), getPublicMarketClient(), userId);
     return NextResponse.json(report, { headers });
   } catch (error) {
     console.error("[portfolio/performance] report unavailable", error);
