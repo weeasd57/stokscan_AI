@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useAuth } from "@/contexts/AuthContext";
@@ -21,6 +21,8 @@ export default function ProfilePage() {
   const { invite: proInvite, loading: inviteLoading, error: inviteError, refresh: refreshProInvite } = useTelegramPro();
   const isAr = language === "ar";
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+  const userId = user?.id ?? null;
+  const lastProfileRefreshAtRef = useRef(0);
 
   const [username, setUsername] = useState<string | null>(null);
   const [telegramLinked, setTelegramLinked] = useState(false);
@@ -45,11 +47,12 @@ export default function ProfilePage() {
   }, [loading, router, user]);
 
   const reloadProfile = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
+    lastProfileRefreshAtRef.current = Date.now();
     const { data: profileRow } = await supabase
       .from("profiles")
       .select("username, display_name, telegram_chat_id")
-      .eq("id", user.id)
+      .eq("id", userId)
       .maybeSingle();
     if (profileRow) {
       setUsername((profileRow as any).username || (profileRow as any).display_name || null);
@@ -63,21 +66,23 @@ export default function ProfilePage() {
         if (qJson.ok) setQuotaData(qJson);
       }
     } catch {}
-  }, [supabase, user]);
+  }, [supabase, userId]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     void reloadProfile();
-  }, [reloadProfile, user]);
+  }, [reloadProfile, userId]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
     const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void reloadProfile();
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastProfileRefreshAtRef.current < 60_000) return;
+      void reloadProfile();
     };
     document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => document.removeEventListener("visibilitychange", refreshWhenVisible);
-  }, [reloadProfile, user]);
+  }, [reloadProfile, userId]);
 
   // Auto-scroll smoothly to portfolio section if hash is #portfolio
   useEffect(() => {
