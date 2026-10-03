@@ -106,7 +106,7 @@ it("keeps the user identity stable when only the auth token refreshes", async ()
     );
   });
 
-  await waitFor(() => expect(screen.getByTestId("user-email")).toHaveTextContent("updated@example.com"));
+  await waitFor(() => expect(screen.getByTestId("user-email").textContent).toBe("updated@example.com"));
   expect(userEffectRuns).toBe(2);
 });
 
