@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { hasActiveProSubscription, paymentsEnabled } from "@/lib/ai/plan-gate";
@@ -33,9 +34,7 @@ function nowMs(): number {
 }
 
 function tokenFingerprint(token: string): string {
-  let h = 5381;
-  for (let i = 0; i < token.length; i++) h = ((h << 5) + h + token.charCodeAt(i)) | 0;
-  return `${h.toString(36)}:${token.length}:${token.slice(-8)}`;
+  return createHash("sha256").update(token).digest("base64url");
 }
 
 function prune<T extends { exp: number }>(store: Map<string, T>) {
