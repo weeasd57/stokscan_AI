@@ -1,3 +1,5 @@
+/** @jest-environment jsdom */
+
 import React, { useEffect } from "react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { AuthProvider, useAuth } from "../../contexts/AuthContext";
