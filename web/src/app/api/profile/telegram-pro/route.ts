@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServiceClient } from "@/lib/supabase/route-data";
+import { getViewerAuth } from "@/lib/supabase/viewer-context";
 import { createProTelegramInvite } from "@/lib/telegramProInvite";
 
 export const dynamic = "force-dynamic";
@@ -115,18 +115,15 @@ async function recoverInviteFromPaymentService(
   }
 }
 
-export async function GET() {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: NextRequest) {
+  const { userId, accessToken } = await getViewerAuth(request);
+  if (!userId || !accessToken) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const service = getSupabaseServiceClient();
   const { data: subscription, error: subscriptionError } = await service
     .from("subscriptions")
     .select("plan_id,status,current_period_end")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .eq("plan_id", "pro")
     .eq("status", "active")
     .order("current_period_end", { ascending: false })
@@ -142,20 +139,17 @@ export async function GET() {
   }
 
   const subscriptionEnd = String(subscription.current_period_end);
-  let saved = await loadSavedInvite(service, user.id, subscriptionEnd);
+  let saved = await loadSavedInvite(service, userId, subscriptionEnd);
 
   if (!isInviteValid(saved)) {
     // The payment service owns the persisted invite and has the same Telegram
     // credentials as the approval flow. Prefer it, so a profile refresh does
     // not create a second invite when the browser-facing service is degraded.
-    const { data: { session } } = await supabase.auth.getSession();
-    const recoveredInvite = session?.access_token
-      ? await recoverInviteFromPaymentService(service, user.id, session.access_token)
-      : "";
-    const directInvite = recoveredInvite ? "" : await createProTelegramInvite(user.id, subscriptionEnd).catch(() => "");
+    const recoveredInvite = await recoverInviteFromPaymentService(service, userId, accessToken);
+    const directInvite = recoveredInvite ? "" : await createProTelegramInvite(userId, subscriptionEnd).catch(() => "");
     const inviteLink = recoveredInvite || directInvite;
     if (inviteLink) {
-      await persistInvite(service, user.id, inviteLink, subscriptionEnd);
+      await persistInvite(service, userId, inviteLink, subscriptionEnd);
       saved = { invite_link: inviteLink, invite_expires_at: subscriptionEnd };
     } else {
       console.warn("[telegram-pro] Could not issue a VIP invite for an active subscription; check bot channel permissions and Telegram configuration on the web and payment services.");
