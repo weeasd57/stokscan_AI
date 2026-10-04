@@ -1037,6 +1037,7 @@ export async function GET(req: NextRequest) {
                 .from("ai_chat_sessions")
                 .select("id, title, created_at, updated_at")
                 .eq("user_id", userId)
+                .or("is_deleted_by_user.is.null,is_deleted_by_user.eq.false")
                 .order("updated_at", { ascending: false });
 
             const today = new Date().toISOString().split("T")[0];
@@ -1172,14 +1173,15 @@ export async function DELETE(req: NextRequest) {
             return NextResponse.json({ detail: "session_id required" }, { status: 400 });
         }
 
-        // Delete messages, fact-snapshots (saved stocks/summary/intention in memory),
-        // and the session record itself. Order matters: messages & facts first, then
-        // the session so foreign-key constraints (if any) are satisfied.
-        await Promise.all([
-            supabase.from("ai_chat_messages").delete().eq("session_id", sessionId).eq("user_id", user.id),
-            supabase.from("ai_chat_facts").delete().eq("session_id", sessionId).eq("user_id", user.id),
-        ]);
-        await supabase.from("ai_chat_sessions").delete().eq("id", sessionId).eq("user_id", user.id);
+        // Soft delete: Mark session as deleted by user, preserving all messages for admin
+        await supabase
+            .from("ai_chat_sessions")
+            .update({
+                is_deleted_by_user: true,
+                deleted_at: new Date().toISOString()
+            })
+            .eq("id", sessionId)
+            .eq("user_id", user.id);
 
         return NextResponse.json({ success: true });
     } catch (e: any) {

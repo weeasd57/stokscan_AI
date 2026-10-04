@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
         const limit = Math.min(5000, Math.max(100, Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 1000));
 
         // Run data fetching in parallel for maximum speed
-        const [authRes, profilesRes, legacyLogsRes, chatMsgsRes, subscriptionsRes] = await Promise.allSettled([
+        const [authRes, profilesRes, legacyLogsRes, chatMsgsRes, subscriptionsRes, sessionsRes] = await Promise.allSettled([
             // 1. Fetch user emails from auth.admin API
             supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }).catch((e: any) => {
                 console.warn("Could not list auth users:", e);
@@ -35,7 +35,11 @@ export async function GET(req: NextRequest) {
             supabase.from("subscriptions")
                 .select("user_id, plan_id, status, current_period_end")
                 .eq("plan_id", "pro")
-                .eq("status", "active")
+                .eq("status", "active"),
+            // 6. Fetch all session metadata (including soft deleted flag and titles)
+            supabase.from("ai_chat_sessions")
+                .select("id, user_id, title, is_deleted_by_user, deleted_at, created_at, updated_at")
+                .limit(3000)
         ]);
 
         // Build User Email Map
@@ -52,6 +56,20 @@ export async function GET(req: NextRequest) {
             (profilesRes.value as any).data.forEach((p: any) => {
                 const name = p.display_name || p.username;
                 if (p.id && name) profileMap.set(p.id, name);
+            });
+        }
+
+        // Build Session Meta Map
+        const sessionMetaMap = new Map<string, { title: string; is_deleted_by_user: boolean; deleted_at: string | null }>();
+        if (sessionsRes.status === "fulfilled" && (sessionsRes.value as any)?.data) {
+            (sessionsRes.value as any).data.forEach((s: any) => {
+                if (s.id) {
+                    sessionMetaMap.set(s.id, {
+                        title: s.title || "محادثة",
+                        is_deleted_by_user: Boolean(s.is_deleted_by_user),
+                        deleted_at: s.deleted_at || null,
+                    });
+                }
             });
         }
 
@@ -185,9 +203,13 @@ export async function GET(req: NextRequest) {
                         const cleanMessage = sanitizeUiLabel(msg.content || "");
                         const cleanReply = replyContent ? stripEnvironmentLeak(replyContent) : "";
 
+                        const sessionInfo = msg.session_id ? sessionMetaMap.get(msg.session_id) : null;
                         logsMap.set(`msg_${msg.id}`, {
                             id: msg.id,
                             session_id: msg.session_id,
+                            session_title: sessionInfo?.title || "محادثة عامة",
+                            is_deleted_by_user: Boolean(sessionInfo?.is_deleted_by_user),
+                            deleted_at: sessionInfo?.deleted_at || null,
                             user_id: effectiveUserId,
                             user_name: userName,
                             telegram_chat_id: null,
@@ -212,9 +234,13 @@ export async function GET(req: NextRequest) {
                         const cleanReply = msg.content ? stripEnvironmentLeak(msg.content) : "";
                         const meta = msg.metadata || null;
 
+                        const asstSessionInfo = msg.session_id ? sessionMetaMap.get(msg.session_id) : null;
                         logsMap.set(`msg_asst_${msg.id}`, {
                             id: msg.id,
                             session_id: msg.session_id,
+                            session_title: asstSessionInfo?.title || "محادثة عامة",
+                            is_deleted_by_user: Boolean(asstSessionInfo?.is_deleted_by_user),
+                            deleted_at: asstSessionInfo?.deleted_at || null,
                             user_id: effectiveUserId,
                             user_name: userName,
                             telegram_chat_id: null,
