@@ -20,6 +20,13 @@ export async function generateMetadata({ params }: Props) {
     alternates: { canonical: `https://egxbots.com${reportUrl(r)}` } };
 }
 const value = (n: unknown) => typeof n === 'number' && Number.isFinite(n) ? n.toLocaleString('en-US', { maximumFractionDigits: 4 }) : 'غير متاح';
+function VerifiedSummary({ report: r }: { report: PublicReport }) {
+  const d = r.evidence.find(e => e.tool === (r.kind === 'market' ? 'get_market' : 'get_accumulation_stocks'))?.data;
+  if (!d) return <p>تفاصيل الملخص غير متاحة.</p>;
+  if (r.kind === 'market') return <p className="leading-8">يسجل التقرير بيانات مؤشري EGX30 وEGX100 كما كانت محفوظة عند إعداد تقرير جلسة {r.session_date}. يعرض الجدول أدناه قيمة كل مؤشر وتاريخ مصدره، مع فصل تاريخ سعر الصرف عن تاريخ جلسة الأسهم. هذه إغلاقات مسجلة وليست أسعارًا لحظية، ولا تكفي حركة المؤشرات وحدها لاستنتاج اتجاه كل أسهم السوق.</p>;
+  const stocks = Array.isArray(d.stocks) ? d.stocks : [];
+  return <p className="leading-8">تضم عينة التقرير {stocks.length} أسهم من مسح التجميع للأسهم مرتفعة السيولة لجلسة {r.session_date}. يوضح الجدول درجة التجميع والحجم النسبي وعدد جلسات استمرار الإشارة لكل سهم، مع رابط لصفحة بياناته. العدد يصف العينة المنشورة فقط ولا يمثل إجمالي أسهم التجميع في البورصة. ارتفاع الحجم أو درجة التجميع لا يثبت دخول سيولة مؤسسية.</p>;
+}
 function Evidence({ report: r }: { report: PublicReport }) {
   const e = r.evidence.find(e => e.tool === (r.kind === 'market' ? 'get_market' : 'get_accumulation_stocks'));
   const d = e?.data;
@@ -42,7 +49,7 @@ export default async function ReportPage({ params }: Props) {
     <Link href="/reports" className="mb-5 inline-block text-sm underline">كل التقارير اليومية</Link>
     <BrandedPageHeader eyebrow="EGX BOTS RESEARCH" title={title} description="تحليل آلي تعليمي مبني على البيانات المحفوظة للجلسة؛ ليس توصية شراء أو بيع." />
     <article className="space-y-8 border border-zinc-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900 sm:p-8">
-      <section><h2 className="mb-4 text-xl font-bold">التحليل</h2><div className="whitespace-pre-wrap break-words leading-8">{r.content}</div></section>
+      <section><h2 className="mb-4 text-xl font-bold">ملخص الجلسة</h2><VerifiedSummary report={r} /></section>
       <section id="sources"><h2 className="mb-4 text-xl font-bold">الأرقام المسجلة ومصادرها</h2><Evidence report={r} /></section>
       <section id="methodology" className="border-t border-zinc-200 pt-6 text-sm leading-8 dark:border-slate-700"><h2 className="text-xl font-bold">المنهجية وحدود القراءة</h2>
         <p>أُعدّ التقرير بعد اكتمال مزامنة الأسعار وحساب المؤشرات اليومية. الأرقام أعلاه مأخوذة من الأدلة المحفوظة مع التقرير، وقد تختلف عن بيانات جلسات لاحقة.</p>
