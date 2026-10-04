@@ -51,6 +51,13 @@ path in `mediaFiles`, once. A successful response has exactly one media URL.
 Verify the returned post has media and the correct provider, then reconcile using
 `getscheduledposts`. Scheduling acceptance is not proof of successful publication.
 For TikTok verify the hosted attachment responds with image/jpeg, not image/png.
+TikTok auto-publish captions must be at most 2000 characters including the title,
+tracked link, hashtags and disclaimer. Prefer a concise summary under 1800;
+preserve session date, key facts, risks and educational disclaimer. Do not cut
+text mid-sentence or remove risk warnings to fit. Facebook retains the full report.
+Before sending, pipe the final caption into
+`python scripts/social_caption_guard.py --platform tiktok`. This checks UTF-16
+length conservatively (emoji count twice) and fails closed above 2000.
 When repairing the rejected post, replace its media (clear old media before passing
 the new local attachment), reschedule that same UUID, and never resend Facebook.
 
