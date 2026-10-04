@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import AdminAuthGuard from "./AdminAuthGuard";
 
 export const metadata: Metadata = {
-    title: "Admin Panel | EGX BOTS",
+    title: "Admin Panel",
     robots: {
         index: false,
         follow: false,

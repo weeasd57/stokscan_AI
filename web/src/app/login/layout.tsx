@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-    title: "Login | EGX BOTS",
+    title: "تسجيل الدخول | Login",
     description: "تسجيل الدخول إلى منصة EGX BOTS لمتابعة تحليلات البورصة المصرية.",
     robots: {
         index: false,
