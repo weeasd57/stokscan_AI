@@ -20,12 +20,15 @@ Validate the response MIME, PNG signature and size before attaching. This is a
 copy of the saved report image, not regeneration. Pass its absolute local path
 in `mediaFiles`. Do not also put the same image in `info.media`: the connector
 appends attachments, and doing both creates duplicate images. The local-file
-workflow was verified with real Facebook and TikTok scheduled posts on 2026-10-04.
+workflow was verified with real scheduled posts on 2026-10-04. TikTok subsequently
+rejected PNG at publication: scheduling acceptance alone does not validate format.
 
 Prepare it with `python scripts/prepare_social_attachment.py --date YYYY-MM-DD
 --url PUBLIC_IMAGE_URL`. The script restricts downloads to this project's report
 bucket and session path, validates MIME/signature/dimensions and returns JSON
-containing the absolute attachment `path`. Reuse that same file for both platforms.
+containing the absolute attachment `path`. Use `--platform facebook` for the
+original PNG and `--platform tiktok` for a real RGB JPEG of the same design.
+TikTok accepts image/jpeg or image/webp, not image/png. Never just rename PNG.
 
 Use one request per platform so retries cannot duplicate a successful platform:
 
@@ -43,10 +46,13 @@ Use one request per platform so retries cannot duplicate a successful platform:
 For TikTok use `network: tiktok`; `tiktokData.title` may use saved `social_title`.
 Do not invent privacy values; if account settings require explicit choices the
 connector cannot supply safely, report the error for the user. No music or video
-conversion is required for a photo post. Pass the downloaded PNG's absolute local
+conversion is required for a photo post. Pass the platform-specific image's absolute local
 path in `mediaFiles`, once. A successful response has exactly one media URL.
 Verify the returned post has media and the correct provider, then reconcile using
 `getscheduledposts`. Scheduling acceptance is not proof of successful publication.
+For TikTok verify the hosted attachment responds with image/jpeg, not image/png.
+When repairing the rejected post, replace its media (clear old media before passing
+the new local attachment), reschedule that same UUID, and never resend Facebook.
 
 If editing an existing post, keep its full returned content and original UUID,
 but omit automatically returned `twitterData` / `instagramData` (or other

@@ -43,3 +43,23 @@ def test_invalid_mime_and_oversized_media_are_rejected():
         prepare_attachment(URL, '2026-10-04', opener=lambda *a, **k: response(b'fake', 'text/html'))
     with pytest.raises(ValueError):
         prepare_attachment(URL, '2026-10-04', opener=lambda *a, **k: response(b'x'*(MAX_BYTES+1)))
+
+
+@pytest.mark.parametrize('mode', ['RGB', 'RGBA', 'P'])
+def test_tiktok_attachment_is_real_jpeg_with_same_dimensions(mode):
+    buffer = io.BytesIO()
+    Image.new(mode, (1200, 1200)).save(buffer, format='PNG')
+    result = prepare_attachment(URL, '2026-10-04', platform='tiktok',
+        opener=lambda *a, **k: response(buffer.getvalue()))
+    assert result['mime'] == 'image/jpeg'
+    assert Path(result['path']).suffix == '.jpg'
+    assert Path(result['path']).read_bytes().startswith(b'\xff\xd8')
+    with Image.open(result['path']) as image:
+        assert image.format == 'JPEG'
+        assert image.mode == 'RGB'
+        assert image.size == (1200, 1200)
+
+
+def test_unknown_platform_is_rejected_before_download():
+    with pytest.raises(ValueError, match='Unsupported platform'):
+        prepare_attachment(URL, '2026-10-04', platform='unknown')

@@ -29,7 +29,9 @@ def validate_url(url, session_date):
     return urlunsplit(parsed)
 
 
-def prepare_attachment(url, session_date, opener=None):
+def prepare_attachment(url, session_date, opener=None, *, platform='facebook'):
+    if platform not in ('facebook', 'tiktok'):
+        raise ValueError('Unsupported platform')
     url = validate_url(url, session_date)
     with (opener or urllib.request.urlopen)(url, timeout=25) as response:
         if response.headers.get('Content-Type', '').split(';')[0] != 'image/png':
@@ -43,19 +45,34 @@ def prepare_attachment(url, session_date, opener=None):
         if image.format != 'PNG' or image.size != (1200, 1200):
             raise ValueError('Unexpected report dimensions')
         image.verify()
+    if platform == 'tiktok':
+        with Image.open(io.BytesIO(data)) as image:
+            rgba = image.convert('RGBA')
+            background = Image.new('RGBA', image.size, '#050816')
+            background.alpha_composite(rgba)
+            buffer = io.BytesIO()
+            background.convert('RGB').save(buffer, format='JPEG', quality=95,
+                                           subsampling=0, optimize=True)
+            data = buffer.getvalue()
+        if len(data) > MAX_BYTES:
+            raise ValueError('Oversized JPEG')
+    mime = 'image/jpeg' if platform == 'tiktok' else 'image/png'
+    extension = 'jpg' if platform == 'tiktok' else 'png'
     folder = Path(tempfile.mkdtemp(prefix='egxbots-social-'))
-    output = folder / f'{session_date}-report.png'
+    output = folder / f'{session_date}-report.{extension}'
     output.write_bytes(data)
     return {'path': str(output.resolve()), 'sha256': hashlib.sha256(data).hexdigest(),
-            'bytes': len(data), 'session_date': session_date}
+            'bytes': len(data), 'session_date': session_date, 'mime': mime,
+            'platform': platform}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--url', required=True)
     parser.add_argument('--date', required=True)
+    parser.add_argument('--platform', choices=('facebook', 'tiktok'), default='facebook')
     args = parser.parse_args()
-    print(json.dumps(prepare_attachment(args.url, args.date)))
+    print(json.dumps(prepare_attachment(args.url, args.date, platform=args.platform)))
 
 
 if __name__ == '__main__':
