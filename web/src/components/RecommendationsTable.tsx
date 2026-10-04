@@ -468,17 +468,12 @@ function RecommendationsTableContent({ isLandingPage = false, limit = Infinity, 
         setCalendarRefreshToken(value => value + 1);
     }, [loadRecommendations, isLandingPage]);
 
-    // Outdated warning retry logic
+    // Outdated warning state on error
     useEffect(() => {
         if (recsError) {
             setIsOutdated(true);
-            const retryTimeout = setTimeout(() => {
-                loadRecommendations(isLandingPage);
-            }, 60 * 1000);
-
-            return () => clearTimeout(retryTimeout);
         }
-    }, [recsError, loadRecommendations, isLandingPage]);
+    }, [recsError]);
 
     // Close dialog on ESC key
     useEffect(() => {
