@@ -6,6 +6,9 @@ jest.mock("../web-search", () => ({ searchWeb: jest.fn().mockResolvedValue([]) }
 jest.mock("../execution", () => ({ getExecutionSignal: () => undefined }));
 
 describe("classifyCorporateAction", () => {
+    it("treats توزيعات مجانية as bonus shares, not cash dividends", () => {
+        expect(classifyCorporateAction("أوراسكوم للتنمية تعلن موعد آخر حق لمشتري السهم في التوزيعات المجانية")?.type).toBe("bonus_shares");
+    });
     it("classifies rights issues (Arabic)", () => {
         const result = classifyCorporateAction("اعتماد حقوق اكتتاب البنك التجاري الدولي لزيادة رأس المال");
         expect(result?.type).toBe("rights_issue");

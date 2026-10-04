@@ -39,7 +39,13 @@ export type FactField =
     | "profit_pct"
     | "profit_value"
     | "quantity"
-    | "entry_price";
+    | "entry_price"
+    | "target_price"
+    | "stop_loss"
+    | "exit_price"
+    | "distance_from_support_pct"
+    | "distance_from_resistance_pct"
+    | "position_pct";
 
 export type FactUnit = "egp" | "percent" | "ratio" | "points" | "count" | "unitless" | "shares";
 
@@ -90,6 +96,12 @@ const FIELD_UNITS: Record<FactField, FactUnit> = {
     profit_value: "egp",
     quantity: "shares",
     entry_price: "egp",
+    target_price: "egp",
+    stop_loss: "egp",
+    exit_price: "egp",
+    distance_from_support_pct: "percent",
+    distance_from_resistance_pct: "percent",
+    position_pct: "percent",
 };
 
 const VALUE_KEYS: Array<{ key: string; field: FactField }> = [
@@ -124,10 +136,17 @@ const VALUE_KEYS: Array<{ key: string; field: FactField }> = [
     { key: "premium_pct", field: "premium_pct" },
     { key: "quantity", field: "quantity" },
     { key: "entry_price", field: "entry_price" },
+    { key: "target_price", field: "target_price" },
+    { key: "stop_loss", field: "stop_loss" },
+    { key: "exit_price", field: "exit_price" },
+    { key: "profit_loss_pct", field: "profit_pct" },
     { key: "market_value", field: "market_value" },
     { key: "cost_basis", field: "cost_basis" },
     { key: "profit_pct", field: "profit_pct" },
     { key: "profit_value", field: "profit_value" },
+    { key: "distance_from_support_pct", field: "distance_from_support_pct" },
+    { key: "distance_from_resistance_pct", field: "distance_from_resistance_pct" },
+    { key: "position_pct", field: "position_pct" },
 ];
 
 function toNumber(value: unknown): number | null {
@@ -183,7 +202,18 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
     const ingestObject = (symbol: string | null, data: any, meta: { as_of: string | null; source: string; tool: string }) => {
         if (!data || typeof data !== "object") return;
         for (const { key, field } of VALUE_KEYS) {
-            if (data[key] != null) push(symbol, field, data[key], meta);
+            if (data[key] != null) {
+                const quoteBased = ["close", "distance_from_support_pct", "distance_from_resistance_pct", "position_pct"].includes(field);
+                let factMeta = data.quote_basis && quoteBased ? { ...meta, as_of: data.quote_basis.as_of || null,
+                    source: data.quote_basis.source || meta.source } : meta;
+                const dateKey = Object.prototype.hasOwnProperty.call(data.metric_dates || {}, key) ? key
+                    : key.endsWith("_num") && Object.prototype.hasOwnProperty.call(data.metric_dates || {}, key.slice(0, -4)) ? key.slice(0, -4) : field;
+                if (Object.prototype.hasOwnProperty.call(data.metric_dates || {}, dateKey)) {
+                    const observedDate = data.metric_dates[dateKey];
+                    factMeta = { ...factMeta, as_of: observedDate && Number.isFinite(Date.parse(observedDate)) ? observedDate : null };
+                }
+                push(symbol, field, data[key], factMeta);
+            }
         }
         if (data.highest_250_sessions?.price != null) {
             push(symbol, "highest_price", data.highest_250_sessions.price, meta);
@@ -194,14 +224,21 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
 
     for (const result of toolResults) {
         const meta = {
-            as_of: result?.data_time ? String(result.data_time).slice(0, 10) : null,
+            as_of: result?.data_time && Number.isFinite(Date.parse(result.data_time)) ? String(result.data_time) : null,
             source: result?.source || "unknown",
             tool: result?.tool || "unknown",
         };
         const data = result?.data;
         if (!data || typeof data !== "object") continue;
 
-        if (data.symbol) ingestObject(normalizeSymbol(data.symbol), data, meta);
+        if (data.symbol) {
+            ingestObject(normalizeSymbol(data.symbol), data, meta);
+            if (data.recommendation?.has_recommendation) {
+                const recDate = data.recommendation.created_at;
+                ingestObject(normalizeSymbol(data.symbol), data.recommendation, { ...meta,
+                    as_of: recDate && Number.isFinite(Date.parse(recDate)) ? recDate : null });
+            }
+        }
         if (Array.isArray(data.stocks)) {
             for (const stock of data.stocks) {
                 if (stock?.symbol) ingestObject(normalizeSymbol(stock.symbol), stock, meta);
@@ -209,24 +246,28 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
         }
         if (Array.isArray(data.scan_rows)) {
             for (const row of data.scan_rows) {
-                if (row?.symbol) ingestObject(normalizeSymbol(row.symbol), row, meta);
+                if (row?.symbol) ingestObject(normalizeSymbol(row.symbol), row, { ...meta, as_of: row.as_of ?? meta.as_of, source: row.source || meta.source });
             }
         }
         if (Array.isArray(data.comparisons)) {
             for (const row of data.comparisons) {
-                if (row?.symbol) ingestObject(normalizeSymbol(row.symbol), row, meta);
+                if (row?.symbol) ingestObject(normalizeSymbol(row.symbol), row, { ...meta,
+                    as_of: Object.prototype.hasOwnProperty.call(row, "as_of") ? row.as_of : meta.as_of,
+                    source: row.source || meta.source });
             }
         }
         if (result?.tool === "get_comparison") {
             for (const key of Object.keys(data)) {
                 const upper = normalizeSymbol(key);
-                if (!upper || upper === "COMPARISONS") continue;
+                if (!upper || !/^[A-Z]{2,6}$/.test(upper) || ["SYM1", "SYM2"].includes(upper)) continue;
                 const nested = data[key];
                 if (nested && typeof nested === "object") {
-                    ingestObject(upper, nested, meta);
-                    if (nested.price && typeof nested.price === "object") ingestObject(upper, nested.price, meta);
-                    if (nested.tech && typeof nested.tech === "object") ingestObject(upper, nested.tech, meta);
-                    if (nested.info && typeof nested.info === "object") ingestObject(upper, nested.info, meta);
+                    const nestedDate = Object.prototype.hasOwnProperty.call(nested, "as_of") ? nested.as_of : nested.price?.date || nested.tech?.date || meta.as_of;
+                    const nestedMeta = { ...meta, as_of: nestedDate && Number.isFinite(Date.parse(nestedDate)) ? nestedDate : null };
+                    ingestObject(upper, nested, nestedMeta);
+                    if (nested.price && typeof nested.price === "object") ingestObject(upper, nested.price, nestedMeta);
+                    if (nested.tech && typeof nested.tech === "object") ingestObject(upper, nested.tech, nestedMeta);
+                    if (nested.info && typeof nested.info === "object") ingestObject(upper, nested.info, nestedMeta);
                 }
             }
         }

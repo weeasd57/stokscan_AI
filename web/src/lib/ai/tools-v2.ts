@@ -38,9 +38,7 @@ export function formatRecDuration(dateStr: string): string {
     if (diffWeeks === 1) return `منذ أسبوع (${dateFormatted})`;
     if (diffWeeks === 2) return `منذ أسبوعين (${dateFormatted})`;
     if (diffWeeks <= 4) return `منذ ${diffWeeks} أسابيع (${dateFormatted})`;
-    const diffMonths = Math.floor(diffDays / 30);
-    if (diffMonths === 1) return `منذ شهر (${dateFormatted})`;
-    return `منذ ${diffMonths} أشهر (${dateFormatted})`;
+    return `منذ ${diffDays} يوماً (${dateFormatted})`;
 }
 
 export function getWeekDateRanges(baseDate = new Date()) {
@@ -1307,13 +1305,16 @@ export async function executeStructuredTools(
                         const { data } = await query.order("date", { ascending: false }).limit(5);
                         if (!data || data.length === 0) return { data: null };
                         const latest = { ...data[0] };
+                        latest.metric_dates = Object.fromEntries(Object.keys(latest).map(key => [key, latest.date || null]));
                         if (latest.king_ai_score == null || latest.egx_ai_score == null) {
                             for (let i = 1; i < data.length; i++) {
                                 if (latest.king_ai_score == null && data[i].king_ai_score != null) {
                                     latest.king_ai_score = data[i].king_ai_score;
+                                    latest.metric_dates.king_ai_score = data[i].date || null;
                                 }
                                 if (latest.egx_ai_score == null && data[i].egx_ai_score != null) {
                                     latest.egx_ai_score = data[i].egx_ai_score;
+                                    latest.metric_dates.egx_ai_score = data[i].date || null;
                                 }
                             }
                         }
@@ -1358,8 +1359,16 @@ export async function executeStructuredTools(
                         if (liveRes.success && liveRes.data && liveRes.data.close > 0) {
                             const ld = liveRes.data;
                             const existingTech = techsMap.get(upperSym) || {};
+                            const metricDates = { ...existingTech.metric_dates,
+                                price: ld.updated_at, close: ld.updated_at, open: ld.updated_at, high: ld.updated_at,
+                                low: ld.updated_at, change_pct: ld.updated_at, change_abs: ld.updated_at };
+                            for (const key of ["rsi_14", "macd", "macd_signal", "ema_50", "ema_200", "sma_50", "sma_200", "bb_upper", "bb_lower", "stoch_k", "stoch_d", "volume"] as const) {
+                                metricDates[key] = ld[key] != null ? ld.updated_at : existingTech.metric_dates?.[key] || existingTech.date || null;
+                            }
+                            metricDates.vol_ratio = metricDates.volume;
                             techsMap.set(upperSym, {
                                 ...existingTech,
+                                metric_dates: metricDates,
                                 symbol: upperSym,
                                 close: ld.close,
                                 open: ld.open,
@@ -1587,6 +1596,9 @@ export async function executeStructuredTools(
                                 session_open: sessionIsOpen,
                                 king_ai_score: techData?.king_ai_score ?? null,
                                 egx_ai_score: techData?.egx_ai_score ?? null,
+                                metric_dates: { ...techData?.metric_dates, acc_score: scanData?.scan_date || null,
+                                    vol_ratio: techData?.metric_dates?.volume || techData?.date || null,
+                                    dist_score: scanData?.scan_date || null, wyckoff_phase: scanData?.scan_date || null },
                                 wyckoff_phase: wyckoffPhase,
                                 wyckoff_status: scanData && (wyckoffPhase != null || accScore != null || distScore != null) ? "observed" : "unavailable",
                                 wyckoff_as_of: scanData?.scan_date || null,
@@ -2557,7 +2569,15 @@ export async function executeStructuredTools(
         try {
             // Support comparison of 2 to 6 symbols from the DB (not just the first 2)
             const compareSymbols = symbols.length >= 2 ? symbols.slice(0, 6) : [];
-            if (compareSymbols.length >= 2) {
+            const quotes = compareSymbols.map((symbol: string) => results.find(r => r.tool === "get_stock"
+                && !r.error && String(r.data?.symbol).toUpperCase() === symbol.toUpperCase() && Number(r.data?.price) > 0));
+            if (compareSymbols.length >= 2 && quotes.every(Boolean)) {
+                results.push({ tool: "get_comparison", source: "database", data_time: quotes[0]!.data_time,
+                    symbols: compareSymbols, data_type: "historical", data: { comparisons: quotes.map(q => ({
+                        symbol: q!.data.symbol, name: q!.data.name, price: q!.data.price,
+                        as_of: q!.data_time, source: q!.source, quote_kind: q!.data.is_live_intraday ? "live_intraday" : "daily_close",
+                    })) } });
+            } else if (compareSymbols.length >= 2) {
                 const upperSymbols = compareSymbols.map((s: string) => s.toUpperCase());
 
                 // Fetch technical data for ALL symbols in a single batch query

@@ -1,4 +1,4 @@
-import { summarizeNewsEvidence } from "./news-evidence";
+import { summarizeNewsEvidence, summarizeToolNewsEvidence } from "./news-evidence";
 import { IntentPlan, VisionContext, ToolResult, FactSnapshot, SessionState } from "./types";
 import { getSyncSymbolOfficialNameMap } from "./planner";
 import { AI_CONFIG } from "./config";
@@ -21,7 +21,7 @@ function isLiveStockResult(result: ToolResult | undefined): boolean {
 }
 
 function stockPriceLabel(result: ToolResult, value: unknown = result.data?.price): string {
-    if (isLiveStockResult(result)) return `السعر اللحظي ${value} جنيه`;
+    if (isLiveStockResult(result)) return `السعر اللحظي ${value} جنيه بتاريخ ${result.data_time}`;
     const date = result.data_time ? ` بتاريخ ${String(result.data_time).slice(0, 10)}` : "";
     return `آخر إغلاق مسجل ${value} جنيه${date}`;
 }
@@ -245,6 +245,7 @@ export function buildV2FinalMessages(
     correctionPrompt?: string
 ): { role: string; content: any }[] {
     const sections: string[] = [evidencePolicyPrompt(toolResults)];
+    sections.push("=== ANSWER SCOPE & CONTEXT ===\nابدأ بإجابة مباشرة لسؤال المستخدم. السؤال القصير أو سؤال الدخول يحتاج جواباً موجزاً؛ توسع فقط عند طلب التفاصيل. اخفِ أسماء الحقول والكود الداخلي (NONE, action_date, platform_recommendation, model_consensus). كل حساب للمسافة يستخدم quote_basis.price ووقته، بينما مستويات الدعم والمقاومة لها levels_as_of مستقل. لا تثبت لقطة المؤشرات تقاطعاً جديداً أو زمن اختراق. الحالة المحايدة المسجلة في وايكوف ليست غياب بيانات. فروق درجات ML بالنقاط ليست دلالة إحصائية؛ لا تفسر سبب اختلاف النموذجين من غير بيانات تفسير. إذا وجدت صورة غطِّ أسهمها والسهم المكتوب في السؤال، وميّز بين الصورة ومحفظة الحساب المسجلة؛ غياب الكميات يمنع حساب التكلفة والعائد الكلي ولا يعني محفظة فارغة.");
     const guidanceIntent = plan.guidance_intent;
 
     if (sessionState && (sessionState.investment_budget || sessionState.investment_horizon || sessionState.risk_tolerance || sessionState.preferred_sectors?.length || sessionState.experience_level)) {
@@ -691,14 +692,18 @@ export function buildV2FinalMessages(
     const isPortfolioContext = plan.entities.portfolio_operation === "view"
         || /(?:محفظ|مراكز)/i.test(normalizeArabicIntent(userMessage))
         || (Array.isArray(plan.entities.symbols) && plan.entities.symbols.length >= 2);
-    const lengthRule = plan.intent === "technical_scan"
+    const asksDetail = /تفصيل|بالتفصيل|شامل|متكامل|كل المؤشرات/i.test(userMessage);
+    const asksEntry = /اشتري|اشترى|انري|ادخل|أدخل|دخول|اخرج|أخرج|ابيع|أبيع|احتفظ/i.test(normalizeArabicIntent(userMessage));
+    const lengthRule = asksEntry && !asksDetail
+        ? "ابدأ بموقف واضح: مراقبة أو دخول مشروط أو تعذر التقييم، ثم السبب وشروط التفعيل والإلغاء من الأرقام الموثقة. استخدم 3–5 أسطر؛ لا تكرر التقرير الكامل، ولا تحول علاقة حالية إلى تقاطع مؤكد."
+        : plan.intent === "technical_scan"
         ? "اعرض قائمة الأسهم ونتائج المسح الفني دائمًا في جدول ماركداون (Markdown Table) منسق ومكتمل الأعمدة بدلاً من القوائم المنقطة أو الأسطر الطويلة لتفادي تداخل النصوص واللغات."
         : isPortfolioContext
-        ? "قدّم تقريراً شاملاً ومنظماً للمحفظة والمراكز: ابدأ بنظرة عامة على الأداء والمراكز، ثم فصّل التحليل الفني ومستويات الدعم والمقاومة والزخم لكل سهم مسجل في البيانات، واختم بإدارة المخاطر والتوجيهات العملية."
+        ? "ابدأ بتقييم مختصر، ثم جدول يغطي كل سهم ومصدره وتاريخه وشروط المراقبة. لو توجد صورة فميّز بياناتها عن الحساب، ولا تحسب عائداً بلا كميات وتكلفة. توسع فقط إذا طلب المستخدم التفاصيل."
         : isFollowUp
         ? "المستخدم يطرح سؤال متابعة محدد عن سهم تمت مناقشته وتحليله في الرسائل السابقة. أجب عن السؤال المحدد مباشرة وبوضوح وبشكل تنفيذي ومركّز (مثل شروط وتوقيت الدخول، مستويات التفعيل السعرية، نسبة العائد إلى المخاطرة، المؤشرات التأكيدية، أو مستويات وقف الخسارة والمستهدف بدقة). يُمنع منعاً باتاً تكرار التقرير التعريفي الكامل للسهم أو إعادة سرد فقرات RSI وMACD ونماذج وايكوف بحذافيرها من جديد!"
         : (plan.intent === "stock_analysis" || (Array.isArray(plan.entities.symbols) && plan.entities.symbols.length === 1))
-        ? "قدّم تحليلاً فنياً ومالياً متكاملاً وشاملاً للسهم يغطي السعر، المؤشرات الفنية، مستويات الدعم والمقاومة، تقييمات نماذج الذكاء الاصطناعي (KING AI و EGX AI)، مرحلة وايكوف، والأحداث المؤثرة بأسلوب تحليلي محادثي احترافي متكامل."
+        ? asksDetail ? "قدّم التحليل التفصيلي المطلوب بالأرقام وتواريخ مصادرها." : "قدّم قراءة موجزة في حدود 150–220 كلمة: موقف السهم أولاً، السعر وتاريخه، الزخم والحجم، الدعم والمقاومة، درجات النموذجين ووايكوف إن توفرت، وشروط المراقبة."
         : "أجب مباشرة وبقدر التفصيل الذي يحتاجه السؤال؛ اجمع الأرقام المتصلة في جمل طبيعية ولا تحوّل كل حقل إلى سطر ثابت (إلا في حالة القوائم أو نتائج الفلاتر فاستخدم الجداول دائماً).";
 
     const systemPrompt = `أنت الخبير والمحلل الفني الاحترافي للبورصة المصرية (EGX Bots). اليوم: ${today}.
@@ -724,14 +729,14 @@ export function buildV2FinalMessages(
    - اذكر الجانب الفني لكل سهم وموقعه الموضوعي باختصار شديد. في حالة الاستعلام عن وجود توصيات أو صفقات بالاسم، اعرض تفاصيل التوصية المتوفرة (سعر الدخول، الهدف، وقف الخسارة، ونسبة العائد الفعلي)؛ خلاف ذلك اذكر الجانب الفني دون تقديم أوامر شراء صريحة.
 5. قواعد عرض تقييمات نماذج الذكاء الاصطناعي (ML Scores):
    - يمتلك النظام تقييمين يعتمدان على الذكاء الاصطناعي وتعلم الآلة لكل سهم: KING AI Score و EGX AI Score (يتم تمثيلهما كنسبة مئوية، مثلاً 58.3% أو 0.0% أو غير متوفر).
-   - يجب عليك في نهاية تحليلك لأي سهم، وبعد ذكر رأيك الفني والمالي التقليدي، أن تضيف فقرة مستقلة تمامًا في نهاية الرد بعنوان "**الرأي الإحصائي للذكاء الاصطناعي (ML Scores)**".
-    - اذكر فيها بوضوح تقييم KING AI ونموذج EGX AI للسهم وفسرهما للعميل. وضح أن النسبة تمثل درجة ثقة الموديل في إيجابية الاتجاه وفق تعريف النموذج، وليست توصية مستقلة بالشراء أو التجنب. لا تستنتج قراراً من النقطة وحدها، واربطها دائماً ببقية الأدلة الفنية والمالية.
-   - 📊 قاعدة فارق نقاط ML (ML Score Delta): عند مقارنة سهمين أو أكثر، يجب أن تذكر الفرق الدقيق بين نقاط KING AI و EGX AI لكل أزواج الأسهم (مثال: 'الموديل الأول يتفوق على الموديل الثاني بفارق نقاط معين'). إذا كان الفرق ≤ 1.0 نقطة، صرّح صراحة أن الفرق 'ضيق / غير إحصائيًا ولا يلزم دلالة ضعيفة' ولا يُعتبر فرقاً معنوياً. لا تقل أبداً 'تفوق كبير' أو 'ميزة واضحة' إذا كان الفرق ≤ 1.0 نقطة.
-    - 📊 قاعدة توافق النماذج (Model Consensus): عند عرض ML Scores، أضف قسماً 'رأي النماذات' يحتوي على:
+   - اعرض درجات النموذجين عند سؤال المستخدم عنها أو عند طلب تحليل كامل. في سؤال الدخول القصير تكفي خلاصة الأدلة ذات الصلة، ولا تضف فقرة نماذج مستقلة إلزامية.
+    - النسبة درجة نموذج مسجلة بتاريخ metric_dates وليست احتمال نجاح مُعايراً أو توصية مستقلة. لا تستنتج قراراً من النقطة وحدها.
+   - فارق درجات ML فرق حسابي بالنقاط فقط. لا تجزم بوجود دلالة إحصائية أو غيابها دون اختبار موثق. التقارب لا يثبت تساوي الأداء، والفرق لا يثبت تفوق نموذج.
+    - عند عرض رأي النماذج وتوافقها، لخّصه داخل حدود الإجابة المطلوبة:
       • تفسير كل نموذج بناءاً على النسبة: 70%+ = 'إيجابي قوي'، 55-70% = 'إيجابي متوسط'، 45-55% = 'محايد'، 30-45% = 'متحفظ'، <30% = 'سلبي'.
-      • 'اتفاق النموذب': انسخ قيمة model_consensus من DERIVED_FLAGS حرفيًا (الفرق بالنقاط + التصنيف). ممنوع إعادة حسابها بنفسك أو تعديل التصنيف.
+      • استخدم الفرق والتصنيف المسجلين في DERIVED_FLAGS، وقدمهما بلغة طبيعية دون أسماء حقول داخلية.
       • استنتج 'القرار الفني العام' من تصنيف model_consensus مع الأخذ بعين الاعتبار باقي التحليل الفني: لا تعتمد على توافق النماذج وحده لاتخاذ قرار شراء. اتفاق قوي (الفرق ≤ 3 نقاط بنفس الاتجاه) مع مؤشرات فنية أخرى إيجابية = 'مراجعة'. اتفاق متوسط = 'مراقبة'. اتفاق ضعيف، اختلاف كبير، أو اتفاق منخفض جداً = 'انتظار'.
-      - لا تنسَ: النماذات قد تتباين، وهذا شائع. اشرح للمستخدم لماذى قد تختلف النماذات.
+      - سبب اختلاف النموذجين لهذه الحالة غير متاح في الدرجات وحدها؛ صرّح بذلك. شرح احتمالات عامة مشروطة مسموح، دون نسبتها فعلياً لتدريب النموذجين أو مداهما الزمني.
 6. تنسيق القوائم والجداول (Formatting Guideline):
    - عندما يُطلب منك عرض قائمة أسهم أو نتائج مسح فني أو فلاتر أو مقارنات متعددة، اعرضها دائماً في جدول ماركداون (Markdown Table) منسق ومكتمل الأعمدة بدلاً من القوائم المنقطة أو الأسطر الطويلة. هذا يمنع تداخل النصوص واللغات ويجعل العرض احترافياً ونظيفاً ونظيفاً جداً في واجهة المستخدم.
 7. التعامل مع الأسهم والشركات غير المدرجة بقاعدة البيانات الرئيسية (Unlisted/SME Stocks):
@@ -1655,7 +1660,7 @@ export function buildFastConversationalAdvisorResponse(
     // not fall back to the generic stock-analysis paragraph used in the prior turn.
     const isStockLiquidityAnalysis = hasSpecificSymbols
         && /(?:تحليل|حلل|شوف|اقرا|اقرأ)?\s*(?:السيوله|السيولة|سيوله|سيولة)|(?:حجم|احجام|أحجام)\s*(?:التداول)?/i.test(normMsg);
-    if (isStockLiquidityAnalysis) {
+    if (isStockLiquidityAnalysis && plan.entities.symbols.length === 1) {
         const stockResult = toolResults.find(result => result.tool === "get_stock" && result.data?.symbol);
         if (stockResult?.data) {
             const data = stockResult.data;
@@ -2256,7 +2261,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             // Let the deterministic level response explain the action instead
             // of falling through to a generic advice response.
         } else {
-        return null; // Yield to LLM for customized expert response
+        // LLM generation runs first. Its outage fallback must still answer a
+        // stock opinion from fetched indicators, rather than only list news.
+        if (!toolResults.some(result => result.tool === "get_stock" && result.data?.price != null)) return null;
         }
     }
     if (/^\s*كمل\s*[؟?!.]*\s*$/i.test(userMessage) && toolResults.length === 0) {
@@ -2531,10 +2538,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             }
         }
         if (compoundNews) {
-            // A web fallback and the other requested components need the
-            // normal responder to synthesize all sources together.
-            if (toolResults.some(result => result.tool === "search_web" && result.data?.results?.length)) return null;
-            const evidence = summarizeNewsEvidence(compoundNews.data);
+            // This renderer is also the provider-outage fallback. Preserve all
+            // requested components when web search supplemented DB headlines.
+            const evidence = summarizeToolNewsEvidence(toolResults);
             const requestedDay = plan.entities.requested_date || (/(?:اليوم|النهارده|today)/i.test(normMsg) ? evidence.today : null);
             const headlines = evidence.articles.filter(article =>
                 (!requestedDay || article.event_date === requestedDay)
@@ -2826,15 +2832,16 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     if (comparison?.data) {
         let entries: any[] = [];
         let symbolsList: string[] = comparison.symbols || [];
-        if (comparison.data.sym1 && comparison.data.sym2) {
-            entries = [comparison.data.sym1, comparison.data.sym2];
-        } else if (Array.isArray(comparison.data.comparisons)) {
+        if (Array.isArray(comparison.data.comparisons)) {
             entries = comparison.data.comparisons.map((c: any) => ({
                 info: { symbol: c.symbol, name: c.name },
                 price: { close: c.price },
-                tech: { change_pct: c.change_pct, rsi_14: c.rsi_14, volume_ratio: c.vol_ratio }
+                tech: { change_pct: c.change_pct, rsi_14: c.rsi_14, volume_ratio: c.vol_ratio },
+                as_of: Object.prototype.hasOwnProperty.call(c, "as_of") ? c.as_of : comparison.data_time, quote_kind: c.quote_kind || "daily_close"
             }));
             symbolsList = comparison.data.comparisons.map((c: any) => c.symbol);
+        } else if (comparison.data.sym1 && comparison.data.sym2) {
+            entries = [comparison.data.sym1, comparison.data.sym2];
         } else {
             const keys = Object.keys(comparison.data).filter(k => k !== "sym1" && k !== "sym2" && k !== "comparisons");
             if (keys.length >= 2) {
@@ -2854,16 +2861,19 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
                 const ratio = entry.tech?.volume_ratio ?? (entry.tech?.volume && entry.tech?.vol_sma20 && Number(entry.tech.vol_sma20) > 0 ? Number(entry.tech.volume) / Number(entry.tech.vol_sma20) : null);
                 const ratioStr = ratio != null && Number(ratio) > 0 ? `${Number(ratio).toFixed(2)}x من المتوسط` : "غير متاح";
 
+                const kind = entry.quote_kind === "live_intraday" ? "سعر لحظي" : "إغلاق مسجل";
+                const observedDate = Object.prototype.hasOwnProperty.call(entry, "as_of") ? entry.as_of : entry.price?.date || entry.tech?.date || comparison.data_time;
+                const asOf = observedDate && Number.isFinite(Date.parse(observedDate)) ? observedDate : "غير موثق";
                 if (isLiquidityFocus) {
-                    return `- **${symbol}**: نسبة السيولة وحجم التداول **${ratioStr}**، السعر ${price}، التغير ${change}، RSI ${rsi}.`;
+                    return `- **${symbol}**: نسبة الحجم **${ratioStr}**، ${kind} ${price} بتاريخ ${asOf}، التغير ${change}، RSI ${rsi}.`;
                 }
-                return `- **${symbol}**: السعر ${price}، التغير ${change}، RSI ${rsi}، نسبة السيولة ${ratioStr}.`;
+                return `- **${symbol}**: ${kind} ${price} بتاريخ ${asOf}، التغير ${change}، RSI ${rsi}، نسبة الحجم ${ratioStr}.`;
             };
             const dateLabel = plan.entities.requested_date
                 ? `مقارنة مباشرة من البيانات المتاحة بتاريخ ${plan.entities.requested_date}:`
                 : isLiquidityFocus
                     ? "مقارنة السيولة وأحجام التداول المعتمدة بين السهمين:"
-                    : "مقارنة مباشرة من أحدث بيانات متاحة:";
+                    : "مقارنة مباشرة مع بيان تاريخ ونوع سعر كل سهم:";
             const missing = entries
                 .map((entry, index) => ({ entry, symbol: symbolsList[index] || `سهم ${index + 1}` }))
                 .filter(({ entry }) => !entry.price && !entry.tech)

@@ -98,6 +98,8 @@ def test_daily_evaluator_closes_using_hf_archive_when_supabase_has_no_prices(
     from api import daily_bot_run
     import api.hf_history_cache as history
     import api.recommendation_events as events
+    import api.recommendation_data as data
+    monkeypatch.setattr(data, "repair_history", lambda client, rec, current, today: (current, {"status": "failed"}))
 
     recommendation = dict(id="rec-1", symbol="TEST", exchange="EGX", status="open",
         entry_price=100, target_price=110, stop_loss=95, last_close=100,

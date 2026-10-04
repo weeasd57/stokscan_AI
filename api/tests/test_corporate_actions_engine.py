@@ -41,6 +41,14 @@ AMER_TITLE = "عامر جروب تقرر توزيع أسهم مجانية على
 
 
 class TestClassification:
+    @pytest.mark.parametrize("title", [
+        "أوراسكوم للتنمية تعلن موعد آخر حق لمشتري السهم في التوزيعات المجانية",
+        "ORHD announces stock dividend",
+        "الشركة تقرر توزيع أسهم مجانية",
+    ])
+    def test_bonus_distribution_is_not_cash_dividend(self, title):
+        assert classify_corporate_action(title)["action_type"] == "bonus_shares"
+
     def test_edita_headline_is_a_bonus_share_action(self):
         result = classify_corporate_action(EDITA_TITLE)
         assert result is not None

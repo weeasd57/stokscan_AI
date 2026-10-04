@@ -86,7 +86,7 @@ export function evidenceViolations(reply: string, message: string, results: Tool
         const clauses = normalized.split(/[\n؛.!؟]/);
         if (retrievalDate && !actualDates.includes(retrievalDate) && clauses.some(clause => clause.includes(retrievalDate)
             && !/^#|^\||\bجدول\b|\bتصدير\b|الأحداث|المالية|المؤثرة|توزيعات|أسهم|اكتتاب|discovered_at|published_at/i.test(clause.trim())
-            && /تاريخ|نشر|اعلان|حدث|اكتتاب|توزيع|مجانيه|راس المال/.test(clause)
+            && /نشر|اعلان|حدث|اكتتاب|توزيع|مجانيه|راس المال|تنفيذ|استحقاق/.test(clause)
             && !/جلب|استرجاع|فحص|تحديث البيانات/.test(clause))) {
             reasons.push("تاريخ جلب أداة أحداث الشركات ليس تاريخ نشر أو تنفيذ؛ اذكر published_at وaction_date كلٌّ باسمه أو وضّح غيابه.");
         }
@@ -154,6 +154,16 @@ export function evidenceViolations(reply: string, message: string, results: Tool
 
 export function safeEvidenceResponse(message: string, results: ToolResult[]): string {
     const sections: string[] = [];
+    const image = results.find(r => r.tool === "image_context")?.data;
+    if (image?.symbols?.length) {
+        sections.push(image.image_type === "portfolio"
+            ? "قراءة المحفظة من الصورة المرفقة؛ هذه بيانات ظاهرة في الصورة وليست محفظة الحساب المحفوظة."
+            : "قراءة البيانات الظاهرة في الصورة المرفقة؛ نوعها لا يثبت ملكية الأسهم في الحساب.");
+        for (const item of image.symbols) {
+            sections.push(`- ${item.symbol}: الكمية ${item.visible_values?.quantity ?? "غير مقروءة"}؛ السعر الظاهر ${item.visible_values?.price ?? "غير مقروء"}؛ التغير الظاهر ${item.visible_values?.change_pct == null ? "غير مقروء" : `${item.visible_values.change_pct}%`}.`);
+        }
+        sections.push("لا أحسب تكلفة الشراء أو الربح الكلي عند غياب الكميات أو متوسطات الشراء.");
+    }
     const todayNews = isTodayNewsRequest(message);
     const newsSummary = summarizeToolNewsEvidence(results);
     if (todayNews && !newsSummary.today_count) sections.push(`لم أجد خبراً موثقاً اليوم (${newsSummary.today}) في المصادر المتاحة؛ هذا لا يؤكد عدم صدور أخبار.`);
@@ -175,7 +185,9 @@ export function safeEvidenceResponse(message: string, results: ToolResult[]): st
     for (const actionResult of results.filter(r => r.tool === "get_corporate_actions" && !r.error)) {
         const actions = Array.isArray(actionResult.data?.corporate_actions) ? actionResult.data.corporate_actions : [];
         if (actions.length) sections.push(["أحداث الشركات الموثقة:", ...actions.slice(0, 20).map((action: any) => {
-            const kind = action.action_type === "bonus_shares" ? "أسهم مجانية" : action.action_type || "نوع الحدث غير محدد";
+            const kind = action.action_type_ar || ({ bonus_shares: "أسهم مجانية", dividend: "توزيعات نقدية",
+                capital_increase: "زيادة رأس المال", rights_issue: "حقوق اكتتاب", stock_split: "تجزئة الأسهم",
+                capital_decrease: "تخفيض رأس المال" } as Record<string, string>)[action.action_type] || "حدث مالي";
             const dates = corporateActionDates(action);
             return `- ${action.symbol || "الشركة"}: ${kind}؛ ${action.title || action.headline || "التفاصيل التنفيذية غير متاحة"}؛ تاريخ نشر الخبر ${dates.published_date || "غير موثق"}؛ تاريخ تنفيذ الإجراء ${dates.action_date || "غير موثق"}.`;
         })].join("\n"));

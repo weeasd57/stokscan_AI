@@ -1,4 +1,5 @@
 import { ToolResult } from "./types";
+import { synchronizeMarketSnapshot } from "./market-snapshot";
 
 type ToolOutputLike = {
     results: ToolResult[];
@@ -22,7 +23,7 @@ export function attachEvidenceContract<T extends ToolOutputLike>(tools: T): Omit
     const fetchedAt = new Date().toISOString();
     return {
         ...tools,
-        results: tools.results.map((result: ToolResult) => {
+        results: synchronizeMarketSnapshot(tools.results).map((result: ToolResult) => {
             const hasData = result.data != null
                 && (Array.isArray(result.data)
                         ? result.data.length > 0

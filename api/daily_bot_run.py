@@ -914,6 +914,7 @@ def _send_telegram_exit(
     created_at: str = "",
     *,
     exit_reason: Optional[str] = None,
+    closed_on: Optional[str] = None,
     event_id: Optional[str] = None,
     claim_token: Optional[str] = None,
     event_client: Any = None,
@@ -943,20 +944,25 @@ def _send_telegram_exit(
         if created_at:
             try:
                 start = dt.datetime.fromisoformat(str(created_at).replace("Z", ""))
-                days_held = max((dt.datetime.utcnow() - start).days, 0)
+                end = dt.datetime.fromisoformat(closed_on) if closed_on else dt.datetime.utcnow()
+                days_held = max((end - start).days, 0)
                 if days_held > 0:
                     duration_line = f"⏱️ *مدة الصفقة:* `{days_held}` يوم\n"
             except Exception:
                 pass
 
+        actual_day = closed_on or dt.datetime.now(dt.timezone.utc).date().isoformat()
+        late_notice = (f"⚠️ *تصحيح متابعة متأخر:* تحقق شرط الإغلاق في جلسة `{actual_day}`؛ هذا إشعار تصحيح اليوم، وليس خروجًا جديدًا اليوم.\n"
+                       if closed_on and closed_on < dt.datetime.now(dt.timezone.utc).date().isoformat() else "")
         msg = (
             f"{emoji} *إغلاق توصية / Trade Closed* 🏁\n"
+            f"{late_notice}"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"💎 *السهم:* `{symbol}.{exchange}`\n"
             f"📌 *النتيجة:* {status_text_ar} ({status_text_en})\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📈 *سعر الدخول:* `{entry_price:.2f}` EGP\n"
-            f"🏁 *سعر الخروج:* `{exit_price:.2f}` EGP\n"
+            f"📈 *سعر الدخول:* `{entry_price:.6g}` EGP\n"
+            f"🏁 *سعر الخروج:* `{exit_price:.6g}` EGP\n"
             f"📊 *العائد قبل التكاليف:* `{pl_sign}{pl_pct:.2f}%`\n"
             f"{duration_line}"
             f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -995,6 +1001,7 @@ def retry_pending_recommendation_telegram_events(limit: int = 10) -> int:
             delivered = _send_telegram_exit(
                 symbol, exchange, entry, exit_price, pl_pct, status, old_values.get("created_at", ""),
                 exit_reason=((new_values.get("rich_details") or {}).get("evaluation") or {}).get("exit_reason"),
+                closed_on=((new_values.get("rich_details") or {}).get("evaluation") or {}).get("closed_on"),
                 event_id=event_id, claim_token=claim_token, event_client=supabase,
             )
         elif event_type == "target_or_stop_adjusted":
@@ -1009,6 +1016,9 @@ def retry_pending_recommendation_telegram_events(limit: int = 10) -> int:
                 "current_price": event.get("price_at_event"),
                 "pl_pct": new_values.get("profit_loss_pct") or old_values.get("profit_loss_pct"),
             }
+            saved_adjustments = new_values.get("adjustments") or []
+            if isinstance(saved_adjustments, list) and saved_adjustments:
+                adjustment.update(saved_adjustments[-1])
             delivered = _send_telegram_adjustment(
                 symbol, exchange, adjustment,
                 event_id=event_id, claim_token=claim_token, event_client=supabase,
@@ -1325,9 +1335,9 @@ def _mark_daily_cache_payload(cache_key: str, payload: Dict[str, Any]) -> None:
 
 
 def _send_market_buy_hold(gate: Dict[str, Any], market_date: str) -> bool:
-    if not gate.get("blocked"):
+    if not gate.get("blocked") and not gate.get("no_buy_reason"):
         return True
-    enabled = os.getenv("TELEGRAM_MARKET_HOLD_ALERTS_ENABLED", "false").strip().lower()
+    enabled = os.getenv("TELEGRAM_MARKET_HOLD_ALERTS_ENABLED", "true").strip().lower()
     if enabled not in {"1", "true", "yes", "on"}:
         print("[MARKET_GATE] Buy-hold Telegram notice disabled pending approval of the message format.")
         return False
@@ -1340,7 +1350,7 @@ def _send_market_buy_hold(gate: Dict[str, Any], market_date: str) -> bool:
     deliveries = payload.setdefault("deliveries", {})
     day_delivery = deliveries.setdefault(market_date, {})
 
-    reason = str(gate.get("reason") or "قاطع الأمان الفني أوقف توصيات الشراء الجديدة.")
+    reason = str(gate.get("no_buy_reason") or gate.get("reason") or "قاطع الأمان الفني أوقف توصيات الشراء الجديدة.")
     close, sma50, gap = gate.get("latest_close"), gate.get("sma50"), gate.get("percent_vs_sma50")
     details = []
     if close is not None and sma50 is not None:
@@ -1355,6 +1365,8 @@ def _send_market_buy_hold(gate: Dict[str, Any], market_date: str) -> bool:
     if not day_delivery.get("vip"):
         day_delivery["vip"] = bool(_notify_vip_telegram(message, "market_buy_hold"))
         _mark_daily_cache_payload(cache_key, payload)
+    if int(gate.get("active_recommendations") or 0) > 0:
+        message += "\n\nالتوصيات القائمة وتحديثاتها التفصيلية متاحة في قناة VIP: " + get_web_origin() + "/pricing"
     if not day_delivery.get("free"):
         day_delivery["free"] = bool(_notify_free_telegram(message, "market_buy_hold"))
         _mark_daily_cache_payload(cache_key, payload)
@@ -1435,7 +1447,15 @@ def _send_daily_market_outlook(market_date: str, gate: Dict[str, Any], recommend
 
 
 
-def evaluate_old_recommendations(batch_id=None):
+def _profit_protection_policy():
+    from zoneinfo import ZoneInfo
+    return dict(version="atr_profit_protection_v1",
+                effective_from=os.getenv("PUBLIC_PROFIT_PROTECTION_EFFECTIVE_FROM", dt.datetime.now(ZoneInfo("Africa/Cairo")).date().isoformat()),
+                atr_window=14, atr_multiple=2, trend_atr_multiple=2.5,
+                minimum_distance_pct=3, trigger_pct=5)
+
+
+def evaluate_old_recommendations(batch_id=None, return_report=False):
     """
     Evaluate public EGX recommendations using the versioned bar policy.
     Legacy rows preserve their published barriers and do not receive a newly
@@ -1450,9 +1470,31 @@ def evaluate_old_recommendations(batch_id=None):
         query = query.eq("batch_id", batch_id)
     res = query.execute()
     open_recs = res.data
+    report = dict(total=len(open_recs or []), evaluated=0, updated=0, closed=0,
+                  adjusted=0, unchanged=0, blocked=0, errors=0, blocked_symbols=[])
+    from zoneinfo import ZoneInfo
+    today = dt.datetime.now(ZoneInfo("Africa/Cairo")).date().isoformat()
+
+    def save_review(rec, details, reason):
+        lifecycle = dict(details.get("evaluation") or {})
+        lifecycle.setdefault("initial_review_cursor", str(rec.get("updated_at") or rec["created_at"])[:10])
+        details = {**details, "evaluation": lifecycle,
+                   "data_health": dict(reason=reason, checked_on=today)}
+        try:
+            supabase.table("scan_results").update({"rich_details": details}).eq("id", rec["id"]).eq("status", "open").eq("updated_at", rec.get("updated_at")).execute()
+        except Exception as error:
+            report["errors"] += 1
+            print(f"[EVALUATE] Health checkpoint failed for {rec['symbol']}: {type(error).__name__}")
+
+    def block(rec, reason, details=None):
+        report["blocked"] += 1
+        report["blocked_symbols"].append(dict(symbol=rec["symbol"], reason=reason))
+        save_review(rec, details or (rec.get("rich_details") if isinstance(rec.get("rich_details"), dict) else {}), reason)
+        print(f"[EVALUATE] {rec['symbol']}: needs review ({reason}); barriers/cursor preserved.")
+
     if not open_recs:
         print("[EVALUATE] No open recommendations to evaluate.")
-        return 0
+        return report if return_report else 0
 
     # Build one shared market/sector snapshot for all open recommendations.
     # Missing or misaligned data fails closed and never invents a risk exit.
@@ -1496,9 +1538,10 @@ def evaluate_old_recommendations(batch_id=None):
     archive = load_history_snapshot("EGX")
     symbols = {str(row["symbol"]).upper() for row in open_recs}
     first_entry = min(str(row["created_at"])[:10] for row in open_recs)
+    history_start = (dt.date.fromisoformat(first_entry) - dt.timedelta(days=60)).isoformat()
     archived_by_symbol = (
         {symbol: frame for symbol, frame in archive.loc[
-            archive["symbol"].isin(symbols) & (archive["date"] >= first_entry)
+            archive["symbol"].isin(symbols) & (archive["date"] >= history_start)
         ].groupby("symbol")}
         if not archive.empty else {}
     )
@@ -1513,10 +1556,12 @@ def evaluate_old_recommendations(batch_id=None):
         entry_val = rec.get("entry_price")
         if entry_val is None:
             print(f"[EVALUATE] Entry price missing for {symbol}.{exchange}. Skipping.")
+            block(rec, "missing_entry_price")
             continue
 
         entry_price = float(entry_val)
         if entry_price <= 0.0:
+            block(rec, "invalid_entry_price")
             continue
 
         target_price = float(rec["target_price"]) if rec.get("target_price") is not None else None
@@ -1529,19 +1574,31 @@ def evaluate_old_recommendations(batch_id=None):
             .select("symbol,exchange,date,open,high,low,close,volume")
             .eq("symbol", symbol)
             .eq("exchange", exchange)
-            .gte("date", created_at_date)
+            .gte("date", (dt.date.fromisoformat(created_at_date) - dt.timedelta(days=60)).isoformat())
             .order("date", desc=False)
             .execute()
         )
 
         archived = archived_by_symbol.get(str(symbol).upper())
         merged_prices = merge_snapshot_with_live(archived, p_res.data)
-        if not merged_prices.empty:
-            merged_prices = merged_prices.loc[merged_prices["date"] >= pd.Timestamp(created_at_date)]
+        from api.recommendation_policy import evaluate_bars, resolve_signal_reference
+        details = rec.get("rich_details") if isinstance(rec.get("rich_details"), dict) else {}
+        price_date = (details.get("entry_snapshot") or {}).get("price_date")
+        def as_bars(frame):
+            return frame.assign(date=frame["date"].dt.strftime("%Y-%m-%d")).to_dict("records") if not frame.empty else []
+        reference = resolve_signal_reference(entry_price, as_bars(merged_prices), created_at_date, price_date)
+        if not reference["ok"] or merged_prices.empty or merged_prices.date.max() < pd.Timestamp(created_at_date):
+            from api.recommendation_data import repair_history
+            merged_prices, repair = repair_history(supabase, rec, merged_prices, today)
+            if repair.get("status") != "verified":
+                block(rec, "history_repair_failed", details)
+                continue
+            reference = resolve_signal_reference(entry_price, as_bars(merged_prices), created_at_date, price_date)
         prices = merged_prices.assign(
             date=merged_prices["date"].dt.strftime("%Y-%m-%d")
         ).to_dict("records") if not merged_prices.empty else []
         if not prices:
+            block(rec, "missing_price_history", details)
             continue
 
         # 🚫 Handle delisted/suspended stocks by closing them
@@ -1564,21 +1621,23 @@ def evaluate_old_recommendations(batch_id=None):
                 pass
 
 
-        from api.recommendation_policy import evaluate_bars, price_basis_matches
-        signal_bar = next((bar for bar in prices if bar["date"] == created_at_date), None)
-        if not signal_bar or not price_basis_matches(entry_price, signal_bar.get("close")):
-            print(f"[EVALUATE] {symbol}: missing or incompatible signal-day price; leaving recommendation open for data review.")
+        if not reference["ok"]:
+            block(rec, reference["reason"], details)
             continue
-        details = rec.get("rich_details") if isinstance(rec.get("rich_details"), dict) else {}
         lifecycle = dict(details.get("evaluation") or {})
+        lifecycle["signal_reference"] = reference
         policy = dict(details.get("recommendation_policy") or {})
+        management = dict(details.get("management_policy") or {})
+        if not management and os.getenv("PUBLIC_PROFIT_PROTECTION_ENABLED", "false").lower() in {"1", "true", "yes", "on"}:
+            management = _profit_protection_policy()
+            details = {**details, "management_policy": management}
         # Legacy rows have no independent bar cursor. Bootstrap once from their
         # last review, without rewriting old exits using today's raised stop.
         legacy_cursor = min(
             str(rec.get("updated_at") or rec.get("created_at"))[:10],
             str(latest_price_date)[:10],
         )
-        cursor = str(lifecycle.get("last_evaluated_date") or legacy_cursor)
+        cursor = str(lifecycle.get("last_evaluated_date") or lifecycle.get("initial_review_cursor") or legacy_cursor)
         try:
             if latest_close <= 0:
                 outcome = {"status": "open"}
@@ -1592,62 +1651,21 @@ def evaluate_old_recommendations(batch_id=None):
                     recommendation_sector=sector_by_symbol.get(str(symbol).upper()),
                     recommendation_symbol=str(symbol).upper(),
                     weak_symbols_by_date=weak_symbols_by_date,
+                    profit_protection=management,
                 )
         except (ValueError, TypeError) as error:
             print(f"[EVALUATE] Invalid data for {symbol}: {error}; leaving checkpoint unchanged.")
+            block(rec, "invalid_ohlc", details)
             continue
         if is_delisted_or_stale and outcome["status"] == "open":
-            print(f"[EVALUATE] Closing stale/delisted recommendation for {symbol}.{exchange} — {reason}")
-            try:
-                stale_update = {
-                    "status": "stale",
-                    "exit_price": latest_close if latest_close > 0 else None,
-                    "updated_at": dt.datetime.utcnow().isoformat()
-                }
-                stale_result = (
-                    supabase.table("scan_results")
-                    .update(stale_update)
-                    .eq("id", rec["id"])
-                    .eq("status", "open")
-                    .eq("updated_at", rec.get("updated_at"))
-                    .execute()
-                )
-                stale_verify = supabase.table("scan_results").select("id").eq("id", rec["id"]).eq("status", "stale").eq("updated_at", stale_update["updated_at"]).execute()
-                if getattr(stale_verify, "data", None):
-                    from api.recommendation_events import record_event, update_telegram_delivery, claim_event_delivery, event_values
-                    event_rec = record_event(
-                        supabase,
-                        rec["id"],
-                        "recommendation_stale",
-                        old_values=event_values(rec),
-                        new_values=stale_update,
-                        price_at_event=latest_close if latest_close > 0 else None,
-                    )
-                    if not event_rec:
-                        _rollback_recommendation_change(rec["id"], "stale", rec, stale_update.get("updated_at"))
-                        continue
-                    if event_rec and event_rec.get("id") and _telegram_recommendation_writes_enabled():
-                        claim_token = claim_event_delivery(supabase, event_rec["id"])
-                        if claim_token:
-                            delivered = _send_telegram_exit(
-                                symbol,
-                                exchange,
-                                entry_price,
-                                latest_close if latest_close > 0 else entry_price,
-                                ((latest_close - entry_price) / entry_price * 100) if entry_price else 0,
-                                "stale",
-                                created_at=created_at_date,
-                                event_id=event_rec["id"],
-                                claim_token=claim_token,
-                                event_client=supabase,
-                            )
-                            update_telegram_delivery(supabase, event_rec["id"], success=delivered, claim_token=claim_token)
-                else:
-                    print(f"[EVALUATE] Stale recommendation {symbol} was already changed; skipping event.")
-            except Exception as upd_err:
-                print(f"[EVALUATE] Failed to close stale recommendation for {symbol}: {upd_err}")
+            # Lack of fresh quotes does not prove an executable sale or delisting.
+            block(rec, "stale_price_history", details)
             continue
+        report["evaluated"] += 1
         if outcome["last_close"] is None:
+            report["unchanged"] += 1
+            health = "no_trading_volume" if prices[-1].get("volume") == 0 else "no_new_trading_session"
+            save_review(rec, {**details, "evaluation": lifecycle}, health)
             continue
         status = outcome["status"]
         exit_price = outcome["exit_price"]
@@ -1675,7 +1693,8 @@ def evaluate_old_recommendations(batch_id=None):
             lifecycle["exit_reason_ar"] = "تراجع سيولة القطاع مع هبوط مؤشري EGX30 وEGX100"
             lifecycle["exit_reason_en"] = "Sector liquidity outflow during broad EGX30/EGX100 drawdown"
             lifecycle["sector_risk"] = outcome["sector_risk"]
-        details = {**details, "evaluation": lifecycle}
+        details = {**details, "evaluation": lifecycle,
+                   "data_health": dict(reason="verified" if float(prices[-1].get("volume") or 0) > 0 else "no_trading_volume", checked_on=today)}
 
         # ── UPDATE DATABASE ──
         all_adjustments = existing_adjustments + new_adjustments
@@ -1764,6 +1783,7 @@ def evaluate_old_recommendations(batch_id=None):
                             delivered = _send_telegram_exit(
                                 symbol, exchange, entry_price, exit_price, pl_pct, status,
                                 exit_reason=outcome["exit_reason"],
+                                closed_on=outcome["closed_on"],
                                 created_at=created_at_date, event_id=event_rec["id"],
                                 claim_token=claim_token, event_client=supabase,
                             )
@@ -1808,7 +1828,15 @@ def evaluate_old_recommendations(batch_id=None):
         print(f"[EVALUATE] {symbol}: status={status}, return={pl_pct:.2f}%, trend={trend_strength}, adjustments={len(new_adjustments)}")
         if update_applied:
             updated_count += 1
-    return updated_count
+            report["updated"] += 1
+            report["closed"] += int(found_event)
+            report["adjusted"] += int(bool(new_adjustments) and not found_event)
+        else:
+            report["errors"] += 1
+    report["date"] = today
+    _mark_daily_cache_payload("recommendation_evaluation_summary", report)
+    print(f"[EVALUATE_SUMMARY] {json.dumps(report, ensure_ascii=False)}")
+    return report if return_report else updated_count
 
 
 def _split_symbol_exchange(raw_symbol: str, default_exchange: str = "EGX") -> Tuple[str, str, str]:
@@ -2245,6 +2273,15 @@ async def generate_daily_recommendations(
     from typing import Optional
     from zoneinfo import ZoneInfo
 
+    audit = {"date": dt.datetime.now(ZoneInfo("Africa/Cairo")).date().isoformat(), "candidates": [], "council_rejected": []}
+    def no_buy(code, reason):
+        audit.update(reason_code=code, reason=reason)
+        if run_context is not None:
+            run_context["no_buy_reason"] = reason
+        _mark_daily_cache_payload("recommendation_decision_audit", audit)
+        print(f"[RECOMMENDATION_DECISION] {json.dumps(audit, ensure_ascii=False)}")
+        return 0
+
     daily_limit = max(1, min(5, int(os.getenv("PUBLIC_RECOMMENDATION_DAILY_LIMIT", "1"))))
     rolling_limit = max(1, min(30, int(os.getenv("PUBLIC_RECOMMENDATION_ROLLING_LIMIT", "20"))))
     open_limit = max(1, min(20, int(os.getenv("PUBLIC_RECOMMENDATION_OPEN_LIMIT", "10"))))
@@ -2265,16 +2302,16 @@ async def generate_daily_recommendations(
         open_count = governed().eq("status", "open").execute().count or 0
         if daily_count >= daily_limit or rolling_count >= rolling_limit or open_count >= open_limit:
             print(f"[RECOMMENDATIONS] Capacity reached: day={daily_count}/{daily_limit}, rolling={rolling_count}/{rolling_limit}, open={open_count}/{open_limit}.")
-            return 0
+            return no_buy("capacity", f"تم بلوغ الحد المسموح للتوصيات: يومي {daily_count}/{daily_limit}، شهري {rolling_count}/{rolling_limit}، مفتوح {open_count}/{open_limit}.")
     except Exception as capacity_error:
         print(f"[RECOMMENDATIONS] Capacity check unavailable: {capacity_error}")
-        return 0
+        return no_buy("capacity_check_unavailable", "تعذر التحقق من سعة التوصيات؛ تم إيقاف الشراء احترازيًا لخطأ تقني، وليس بسبب تقييم سلبي للسوق.")
     market_gate = should_reject_new_buys()
     if market_gate.get("blocked"):
         if run_context is not None:
             run_context.update(market_gate)
         print(f"[RECOMMENDATIONS] Broad-market gate blocked new BUYs: {market_gate.get('reason')}")
-        return 0
+        return no_buy("market_gate", market_gate.get("reason") or "قاطع أمان السوق منع شراء جديد.")
     resolved_model = "model_EGX.bin"
     
     # ── Load EGX30 index data unconditionally for trend check and adaptive selection ──
@@ -2390,9 +2427,11 @@ async def generate_daily_recommendations(
     )
     
     results = scan_resp.get("results", [])
+    from api.recommendation_policy import candidate_assessment
+    audit.update(model=resolved_model, candidates=[{**candidate_assessment(item), "council_score": item.get("council_score")} for item in results])
     if not results:
         print("[RECOMMENDATIONS] ML scan returned no BUY recommendations.")
-        return 0
+        return no_buy("no_ml_signals", "لم يرصد الموديل إشارات شراء تستوفي حد الجودة المطلوب اليوم.")
         
     print(f"[RECOMMENDATIONS] ML scan found {len(results)} BUY signals.")
 
@@ -2421,23 +2460,25 @@ async def generate_daily_recommendations(
             if score >= council_threshold:
                 filtered_results.append(item)
             else:
+                audit["council_rejected"].append(dict(symbol=item.get("symbol"), score=round(score, 1), threshold=council_threshold))
                 print(f"[RECOMMENDATIONS] Filtered out {item.get('symbol')} due to low council score: {score:.1f}% < {council_threshold:.1f}%")
         
         print(f"[RECOMMENDATIONS] Council filtering: {len(results)} -> {len(filtered_results)} candidates remaining.")
         results = filtered_results
         if not results:
             print("[RECOMMENDATIONS] No candidates passed council consensus filtering.")
-            return 0
+            return no_buy("council_rejection", f"كل المرشحين دون نسبة توافق مجلس النماذج المطلوبة ({council_threshold:.1f}%).")
 
     # Validate NEW setups only; a raised stop above entry on an existing trade
     # can be legitimate profit protection and is not an invalid historical setup.
     from api.recommendation_policy import valid_candidate, POLICY_VERSION
     valid_results = [item for item in results if valid_candidate(item)]
+    audit["structure_checks"] = [candidate_assessment(item) for item in results]
     print(f"[RECOMMENDATIONS] Valid entry/stop/target and R:R >= 1.5: {len(valid_results)} / {len(results)}")
     results = valid_results
     if not results:
         print("[RECOMMENDATIONS] No candidates passed trade-structure quality filters.")
-        return 0
+        return no_buy("trade_structure", f"رُفض {len(audit['council_rejected'])} مرشح بسبب ضعف توافق النماذج؛ والمرشحون الباقون لم يستوفوا ترتيب الدخول/الوقف/الهدف أو العائد إلى المخاطرة 1.5 على الأقل.")
 
     # Sector gate: do not publish a new BUY into broad distribution.  Keep the
     # sector snapshot on every accepted row so the entry decision is auditable.
@@ -2455,7 +2496,7 @@ async def generate_daily_recommendations(
         aligned = bool(sectors.get("date") and sectors.get("date") == market_snapshot.get("date"))
         if not aligned:
             print("[RECOMMENDATIONS] Sector snapshot is missing or not aligned with the market session; pausing new recommendations.")
-            return 0
+            return no_buy("sector_data_not_aligned", "بيانات سيولة القطاعات لا تطابق جلسة المؤشرات؛ تم تأجيل الشراء لحين تأكيد البيانات.")
         for item in results:
             symbol = str(item.get("symbol") or "").upper()
             exchange = str(item.get("exchange") or "EGX")
@@ -2478,10 +2519,10 @@ async def generate_daily_recommendations(
         results = filtered_results
     except Exception as sector_gate_error:
         print(f"[RECOMMENDATIONS] Sector gate unavailable; pausing new recommendations: {sector_gate_error}")
-        return 0
+        return no_buy("sector_check_unavailable", "تعذر تأكيد اتجاه سيولة القطاع؛ تم تأجيل إصدار شراء جديد احترازيًا.")
     if not results:
         print("[RECOMMENDATIONS] No candidates remained after sector-flow filtering.")
-        return 0
+        return no_buy("sector_filter", "لم يجتز المرشحون فحص سيولة القطاعات، أو لا تتوفر بيانات قطاع مؤكدة لهم.")
     
     # Calculate risk_adjusted_return for all candidates and adjust with news sentiment
     _init_supabase()
@@ -2568,6 +2609,7 @@ async def generate_daily_recommendations(
             "features": res_item.get("features", []),  # Stored as jsonb
             "rich_details": {
                 "recommendation_policy": {"version": POLICY_VERSION, "max_sessions": max_sessions, "trail_pct": None},
+                "management_policy": _profit_protection_policy() if os.getenv("PUBLIC_PROFIT_PROTECTION_ENABLED", "false").lower() in {"1", "true", "yes", "on"} else {},
                 "entry_snapshot": {
                     "target_price": res_item.get("target_price"), "stop_loss": res_item.get("stop_loss"),
                     "price_date": res_item.get("date"), "feature_names": res_item.get("feature_names", []),
@@ -2577,7 +2619,7 @@ async def generate_daily_recommendations(
                     "sector_context": res_item.get("sector_context") or {},
                     "execution": "published_close_reference_not_broker_fill",
                 },
-                "evaluation": {"last_evaluated_date": dt.datetime.now(dt.timezone.utc).date().isoformat()},
+                "evaluation": {"last_evaluated_date": str(res_item.get("date") or dt.datetime.now(dt.timezone.utc).date().isoformat())[:10]},
             },
             "created_at": dt.datetime.utcnow().isoformat(),
             "updated_at": dt.datetime.utcnow().isoformat()
@@ -2625,6 +2667,8 @@ async def generate_daily_recommendations(
     print(
         f"[RECOMMENDATIONS] Batch result: {len(persisted_recommendations)} new rows ready for publication."
     )
+    audit.update(published=len(persisted_recommendations), reason_code="published" if persisted_recommendations else "publication_not_accepted")
+    _mark_daily_cache_payload("recommendation_decision_audit", audit)
 
     # Notify Stocks Score subscribers with beautiful detailed summary card
     try:
@@ -2635,7 +2679,7 @@ async def generate_daily_recommendations(
         # publish a Telegram row the website cannot read from the database.
         if not persisted_recommendations:
             print("[RECOMMENDATIONS] No new recommendations persisted to scan_results; skipping Telegram card.")
-            return 0
+            return no_buy("publication_not_accepted", "لم يعتمد مخزن التوصيات نشر المرشحين بسبب السعة/فترة التهدئة/تكرار السهم أو تعذر الحفظ؛ لم يُنشأ شراء جديد.")
 
         telegram_message = _build_daily_recommendations_message(
             persisted_recommendations,
@@ -3184,8 +3228,9 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         print("\n>>> STEP 4: Evaluating old recommendations...")
         _start_step("evaluate_recommendations", "Evaluating open/old recommendations")
         try:
-            evaluate_old_recommendations()
-            _record_step("evaluate_recommendations", True, "Evaluated open recommendations", 0)
+            evaluation = evaluate_old_recommendations(return_report=True)
+            _record_step("evaluate_recommendations", not (evaluation["blocked"] or evaluation["errors"]),
+                         json.dumps(evaluation, ensure_ascii=False), evaluation["evaluated"])
         except Exception as e:
             _record_step("evaluate_recommendations", False, str(e)[:200], 0)
             print(f"[EVALUATE] Error: {e}")
@@ -3217,9 +3262,14 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         try:
             market_gate = should_reject_new_buys()
             market_gate_context = dict(market_gate or {})
+            if 'evaluation' in locals():
+                market_gate_context["active_recommendations"] = max(0, evaluation["total"] - evaluation["closed"])
             if market_gate.get("blocked"):
                 msg = f"Skipped - {market_gate.get('reason')}"
                 print(f"[MARKET_GATE] {msg}")
+                _mark_daily_cache_payload("recommendation_decision_audit", dict(
+                    date=dt.datetime.now(ZoneInfo("Africa/Cairo")).date().isoformat(),
+                    reason_code="market_gate", reason=market_gate.get("reason"), published=0))
                 _record_step("generate_recommendations", True, msg[:200], 0)
             else:
                 generated_count = await generate_daily_recommendations(
@@ -3227,8 +3277,10 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                     bulk_cache_ttl_seconds=daily_bulk_cache_ttl,
                     run_context=market_gate_context,
                 )
-                _record_step("generate_recommendations", True, f"Generated {generated_count} recommendations using {model_filter or 'default'}", int(generated_count or 0))
-            if market_gate_context.get("blocked"):
+                decision_details = market_gate_context.get("no_buy_reason") or f"Generated {generated_count} recommendations using {model_filter or 'default'}"
+                _record_step("generate_recommendations", True, decision_details[:1000], int(generated_count or 0))
+            if not generated_count:
+                market_gate_context.setdefault("no_buy_reason", "لم يجتز أي مرشح جميع ضوابط النماذج والمخاطر والسيولة اليوم.")
                 _send_market_buy_hold(
                     market_gate_context,
                     dt.datetime.now(ZoneInfo("Africa/Cairo")).date().isoformat(),
@@ -3236,6 +3288,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         except Exception as e:
             _record_step("generate_recommendations", False, str(e)[:200], 0)
             print(f"[RECOMMENDATIONS] Error: {e}")
+            _send_market_buy_hold({"no_buy_reason": "تعذر استكمال فحص المرشحين بسبب خطأ تقني؛ لم تُنشأ توصيات شراء، ولا يعني ذلك ضعفًا مؤكدًا في السوق."}, dt.datetime.now(ZoneInfo("Africa/Cairo")).date().isoformat())
 
         # 6. Run Historical Similarity Scan
         print("\n>>> STEP 6: Running Historical Similarity market scan...")

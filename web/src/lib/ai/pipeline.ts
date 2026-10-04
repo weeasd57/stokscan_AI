@@ -97,6 +97,18 @@ async function executeHybridAdditionalTools(
 function applyHybridDomainInvariants(message: string, plan: IntentPlan): IntentPlan {
     const text = normalizeArabicIntent(message);
     const symbols = plan.entities.symbols || [];
+    const unscopedForecast = symbols.length === 0 && /متوقع|توقع|هيرتفع|يرتفع/.test(text)
+        && /اسبوع|جلسات/.test(text) && !/زخم|سيول|تجميع|القيمه|اداء|تاريخي/.test(text);
+    const missingStockScope = symbols.length === 0 && ["stock_analysis", "levels_analysis", "risk_analysis", "comparison", "follow_up"].includes(plan.intent)
+        && plan.tools.some(tool => ["get_stock", "get_stock_levels", "get_comparison"].includes(tool))
+        && !plan.tools.some(tool => ["get_market", "get_sector", "get_sector_liquidity", "get_sector_list", "get_price_history", "get_fair_value_scan", "get_technical_scan", "get_accumulation_stocks", "get_distribution_stocks"].includes(tool));
+    if (unscopedForecast || missingStockScope) {
+        return { ...plan, intent: "clarification", tools: [], clarification_needed: true,
+            needs_live_data: false, needs_historical_data: false,
+            clarification_options: unscopedForecast
+                ? ["توقع أسبوعي لسهم محدد", "أسهم للمراقبة حسب الزخم الحالي", "أداء الأسبوع السابق"]
+                : ["حدد السهم المطلوب", "تحليل السوق كله"] };
+    }
     const explicitSector = /(?:قطاع|القطاع)\s+(?:ال)?(بنوك|بنك|خدمات مالية)/i.test(text)
         ? "بنوك"
         : /(?:قطاع|القطاع)\s+(?:ال)?(ادويه|أدوية|صحه|صحية)/i.test(text)
@@ -113,8 +125,9 @@ function applyHybridDomainInvariants(message: string, plan: IntentPlan): IntentP
     if (symbols.length >= 2 && /(?:قارن|مقارن|مفاضل)/i.test(text)) {
         const tools = new Set(plan.tools);
         tools.add("get_comparison");
+        tools.add("get_stock");
         if (/(?:خبر|أخبار|اخبار)/i.test(text)) tools.add("get_news");
-        return { ...plan, intent: "comparison", tools: Array.from(tools) };
+        return { ...plan, intent: "comparison", tools: Array.from(tools), needs_live_data: true };
     }
     if (/(?:تجميع|وايكوف|accumulation)/i.test(text) && plan.entities.sector) {
         return { ...plan, intent: "accumulation_distribution", tools: Array.from(new Set([...plan.tools, "get_accumulation_stocks"])), entities: { ...plan.entities, sector: plan.entities.sector || explicitSector, scan_direction: "accumulation" } };
@@ -336,7 +349,7 @@ export function extractExplicitSymbols(message: string): string[] {
     // These are product/platform labels frequently used in Arabic investor questions,
     const excluded = new Set([
         "EGX", "NEWS", "TODAY", "LAST", "WEEK", "FROM", "BETWEEN", "RSI", "MACD", "VWAP", "CLOUD", "THNDR", "ALSH",
-        "OTC", "BUY", "SELL", "HOLD", "USD", "EGP", "EPS", "ROE", "ROA", "ROI", "NAV", "GDP", "CBE", "FRA", "IPO", "API", "AI",
+        "OTC", "BUY", "SELL", "HOLD", "USD", "EGP", "EPS", "ROE", "ROA", "ROI", "NAV", "GDP", "CBE", "FRA", "IPO", "API", "AI", "KING", "ML", "ADX", "SMA", "EMA",
         "WHEN", "WILL", "REACH", "RESISTANCE", "SUPPORT", "IS", "GOING", "TO", "BREAK", "OUT", "IT", "THE", "HOW", "LONG", "CAN", "COULD", "SHOULD"
     ]);
     const latinTokens = message.match(/\b[A-Za-z][A-Za-z0-9]{1,9}\b/g) || [];
@@ -1845,6 +1858,8 @@ export interface PipelineOptions {
     mockToolsResults?: StructuredToolOutput;
     /** Test seam for exercising downstream intent resolution without a planner service. */
     mockPlannerResult?: PlannerResult;
+    /** Offline vision fixture for regression tests; production always analyzes the image. */
+    mockVisionResult?: VisionContext;
 }
 
 export async function* runPipelineStream(
@@ -1858,20 +1873,35 @@ export async function* runPipelineStream(
         executionSupabase(supabase), apiKeys, userId, sessionId, messageId, requestedModel, options);
     let publicationPlan: IntentPlan | null = null;
     let publicationTools: StructuredToolOutput | null = null;
+    let publicationVision: VisionContext | null = null;
+    const publicationGateInput = (reply: string) => ({ reply,
+        plan: publicationPlan || { intent: "general_chat", confidence: 1,
+            entities: { symbols: [], sector: null, timeframe: "unspecified", reference: null }, tools: [],
+            clarification_needed: false, needs_vision_context: Boolean(publicationVision), needs_history: false,
+            needs_live_data: false, needs_historical_data: false, resolved_from: { symbol: null, message_id: null } } as IntentPlan,
+        toolResults: publicationTools?.results || [], userMessage, history, vision: publicationVision,
+        facts: buildFactRecords(publicationTools?.results || []) });
     try {
         while (true) {
             const next = await scope.run(() => awaitExecution(core.next()));
             if (next.done) return;
             if (next.value.type === "plan") publicationPlan = next.value.data;
             if (next.value.type === "tools_data") publicationTools = next.value.data;
+            if (next.value.type === "vision_result") publicationVision = next.value.data;
             // Publish only the canonical, validated response. A persistence error
             // or interrupted provider must never append an error to partial text.
             if (next.value.type === "token") continue;
             if (next.value.type === "done") {
-                if (publicationPlan && publicationTools) {
-                    const gateInput = { reply: String(next.value.data.response || ""), plan: publicationPlan,
-                        toolResults: publicationTools.results, userMessage, history,
-                        facts: buildFactRecords(publicationTools.results) };
+                publicationPlan ||= { intent: "general_chat", confidence: 1,
+                    entities: { symbols: [], sector: null, timeframe: "unspecified", reference: null }, tools: [],
+                    clarification_needed: false, needs_vision_context: Boolean(publicationVision), needs_history: false, needs_live_data: false,
+                    needs_historical_data: false, resolved_from: { symbol: null, message_id: null } };
+                publicationTools ||= { results: [], formattedText: "" };
+                if (publicationVision) publicationTools = { ...publicationTools, results: [...publicationTools.results,
+                    { tool: "image_context", source: "user_image", data_time: publicationVision.analyzed_at,
+                        data_type: "image-derived", symbols: publicationVision.symbols.map(s => s.symbol), data: publicationVision }] };
+                {
+                    const gateInput = publicationGateInput(String(next.value.data.response || ""));
                     const gate = runAnswerGate(gateInput);
                     let finalPassed = gate.ok;
                     if (!gate.ok) {
@@ -1880,7 +1910,7 @@ export async function* runPipelineStream(
                         // preserving other parts of compound requests when possible.
                         if ((apiKeys.length || getDeepSeekApiKey()) && remainingExecutionMs() > 12000) {
                             try {
-                                const candidate = await scope.run(() => generateV2Response(userMessage, publicationPlan!, null,
+                                const candidate = await scope.run(() => generateV2Response(userMessage, publicationPlan!, publicationVision,
                                     publicationTools!.results, [], history,
                                     { symbol: sessionState.current_symbol, message_id: null, confidence: 1 },
                                     apiKeys, requestedModel, sessionState,
@@ -1904,8 +1934,12 @@ export async function* runPipelineStream(
     } catch (error) {
         if (options.signal?.aborted) return;
         const response = "تعذر إكمال التحليل في الوقت المتاح. جرّب إعادة السؤال؛ لم أعرض رداً جزئياً أو أستبدل سؤالك ببيانات سهم سابق.";
+        // Failure responses carry the same review record. Missing requested data
+        // can fail coverage here; do not claim an analysis passed when it timed out.
+        const failureGate = runAnswerGate(publicationGateInput(response));
         yield { type: "token", data: response };
         yield { type: "done", data: { response, degraded: true,
+            publication_review: { passed: failureGate.ok, repaired: false, final_passed: failureGate.ok, reasons: failureGate.reasons },
             session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: sessionState.summary },
             tables: [] } };
     } finally {
@@ -2324,7 +2358,8 @@ async function* runPipelineCore(
         yield { type: "status", data: { status: "vision", message: "تحليل الصور..." } };
         const allVisions: VisionContext[] = [];
         for (const img of images) {
-            const visionResult = await analyzeImage(img, userMessage, apiKeys, messageId);
+            const visionResult = options.mockVisionResult ? { vision: options.mockVisionResult, error: null }
+                : await analyzeImage(img, userMessage, apiKeys, messageId);
             if (visionResult.vision) {
                 allVisions.push(visionResult.vision);
             }
@@ -2345,13 +2380,13 @@ async function* runPipelineCore(
                 vision.confidence = allVisions.reduce((sum, v) => sum + v.confidence, 0) / allVisions.length;
             }
 
-            vision = await reconcileVisionWithMarket(vision, supabase);
+            if (!options.mockVisionResult) vision = await reconcileVisionWithMarket(vision, supabase);
             yield { type: "vision_result", data: vision };
             // When an image contains stock symbols, extract them, persist them to session,
             // and let the pipeline continue to analyze them directly like standard stock queries!
             if (vision.symbols.length > 0) {
                 const extractedSymbols = vision.symbols.map(s => s.symbol).filter(Boolean);
-                sessionState.current_symbol = extractedSymbols[0];
+                sessionState.current_symbol = extractedSymbols.length === 1 ? extractedSymbols[0] : null;
                 sessionState.last_symbols = extractedSymbols;
                 await updateSessionSummary(supabase, sessionId, userId, {
                     current_symbols: extractedSymbols,
@@ -2400,7 +2435,7 @@ async function* runPipelineCore(
     yield { type: "status", data: { status: "memory", message: "استرجاع السياق..." } };
     memory = await retrieveRelevantMemory(userMessage, sessionSummary, sessionState, history, supabase, userId, sessionId);
     yield { type: "memory_result", data: memory };
-    if (memory.resolved_references.requires_clarification && extractExplicitSymbols(userMessage).length === 0) {
+    if (!hasImages && memory.resolved_references.requires_clarification && extractExplicitSymbols(userMessage).length === 0) {
         const candidates = memory.resolved_references.candidates || [];
         const clarificationPlan: IntentPlan = { intent: "clarification", confidence: 1,
             entities: { symbols: [], sector: null, timeframe: "current", reference: null }, tools: [], clarification_needed: true,
@@ -2495,7 +2530,7 @@ async function* runPipelineCore(
             intent: "stock_analysis",
             confidence: 1,
             entities: {
-                symbols: imageSymbols,
+                symbols: Array.from(new Set([...imageSymbols, ...extractExplicitSymbols(userMessage)])),
                 sector: null,
                 wants_table: true,
                 timeframe: "current",
@@ -2590,12 +2625,19 @@ async function* runPipelineCore(
         ? sessionState.last_symbols
         : plannerResolvedSymbols;
     const groupReferenceSymbols = resolveGroupReferenceSymbols(userMessage, antecedentSymbols);
+    const explicitComparison = /قارن|مقارن|مفاضل|السهمين|الاتنين|compare/i.test(userMessage);
+    const referenceCandidates = new Set([...(sessionState.last_symbols || []),
+        ...(sessionState.current_symbol ? [sessionState.current_symbol] : []),
+        ...(memory?.resolved_references?.symbol ? [memory.resolved_references.symbol] : []),
+        ...(vision?.symbols || []).map(s => s.symbol)]);
     const unionSymbols = explicitSymbols.length > 0
-        ? Array.from(new Set([...explicitSymbols, ...plannerResolvedSymbols]))
+        ? Array.from(new Set([...explicitSymbols, ...(explicitComparison && explicitSymbols.length === 1
+            ? plannerResolvedSymbols.filter(s => referenceCandidates.has(s)) : [])]))
         : plannerResolvedSymbols;
     let mergedSymbols = mergeVisionSymbols(unionSymbols, vision, explicitSymbols.length);
     mergedSymbols = clearsStockContext(plannerResult) 
         ? explicitSymbols 
+        : hasImages && imageSymbols.length > 0 ? mergedSymbols
         : scopeImplicitSingleStockRequest(userMessage, explicitSymbols, mergedSymbols, sessionState.current_symbol, memory?.resolved_references?.symbol || null);
     const riskFollowUp = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage);
     if (riskFollowUp && mergedSymbols.length === 0) {
@@ -2688,6 +2730,12 @@ async function* runPipelineCore(
         : fairValueScanRequest
             ? { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true }
             : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols, sessionState);
+    if (imageSymbols.length > 0) {
+        enforced.intent = "stock_analysis";
+        enforced.tools = ["get_stock", "get_stock_levels"];
+        enforced.replaceTools = true;
+        mergedSymbols = Array.from(new Set([...imageSymbols, ...explicitSymbols]));
+    }
     if (portfolioAnalysisSymbols.length > 0) {
         // Never let the portfolio fast-path override a full analysis request.
         enforced.intent = "stock_analysis";
@@ -2839,7 +2887,7 @@ async function* runPipelineCore(
     // intent while merging context (the old symptom was a 20s "financial
     // report" for the simple "اعرض محفظتي" request).
     const directPortfolioOperation = detectPortfolioIntent(userMessage);
-    if (directPortfolioOperation && portfolioAnalysisSymbols.length === 0) {
+    if (directPortfolioOperation && !hasImages && portfolioAnalysisSymbols.length === 0) {
         plan.intent = "portfolio_management";
         plan.entities.portfolio_operation = directPortfolioOperation;
         plan.tools = ["manage_portfolio"];
@@ -2847,6 +2895,12 @@ async function* runPipelineCore(
         plan.needs_historical_data = false;
     }
     Object.assign(plan, applyHybridDomainInvariants(userMessage, plan));
+    if (!hasImages && explicitSymbols.length === 1 && !explicitComparison && plan.intent === "comparison") {
+        plan.intent = "stock_analysis";
+        plan.tools = Array.from(new Set([...plan.tools.filter(t => t !== "get_comparison"), "get_stock", "get_stock_levels"]));
+        plan.entities.symbols = explicitSymbols;
+        plan.needs_live_data = true;
+    }
 
     yield { type: "plan", data: plan };
 
@@ -2901,6 +2955,9 @@ async function* runPipelineCore(
         yield { type: "done", data: { response, session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: userMessage }, tables: [] } };
         return;
     }
+    // Every successful tool path must reach the publication reviewer, including
+    // transactional portfolio responses that return before the LLM stage.
+    yield { type: "tools_data", data: tools };
     if (plan.intent === "portfolio_management") {
         const portfolioResult = tools.results.find(result => result.tool === "manage_portfolio");
         if (portfolioResult) {

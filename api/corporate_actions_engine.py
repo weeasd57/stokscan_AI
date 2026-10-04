@@ -190,6 +190,12 @@ def classify_corporate_action(title: str) -> Optional[Dict[str, Any]]:
         return None
     normalized = _normalize_arabic(title)
     for action_type, label_ar, patterns, base_conf in _COMPILED_PATTERNS:
+        if action_type == "dividend" and re.search(
+            r"stock\s+dividend|اسهم?\s*مجاني|منح[هة]?\s*(?:اسهم|سهم)|توزيعات?\s*(?:ال)?مجاني", normalized, re.I
+        ):
+            continue
+        if action_type == "bonus_shares" and re.search(r"توزيعات?\s*(?:ال)?مجاني[هة]", normalized):
+            return {"action_type": action_type, "action_type_ar": label_ar, "confidence": base_conf, "details": _extract_details(title) or None}
         for pattern in patterns:
             if pattern.search(normalized) or pattern.search(title.lower()):
                 details = _extract_details(title)

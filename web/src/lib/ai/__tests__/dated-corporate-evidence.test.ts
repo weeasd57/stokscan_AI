@@ -30,6 +30,7 @@ describe("dated news independent of planner selection", () => {
         expect(reply).toContain("تاريخ تنفيذ الإجراء غير موثق");
         expect(reply).not.toContain("2026-10-03");
         expect(evidenceViolations("KORA: إعلان زيادة رأس المال بتاريخ 2026-10-03", "حدث KORA", [actions])).not.toEqual([]);
+        expect(evidenceViolations("KORA: آخر إغلاق مسجل 27 جنيه بتاريخ 2026-10-03", "تحليل KORA", [actions])).toEqual([]);
     });
     test("an execution today is not a publication today, Cairo publication is", () => {
         expect(summarizeToolNewsEvidence([{ ...actions, data: { corporate_actions: [{ title: "اكتتاب", action_date: "2026-10-03" }] } }]).today_count).toBe(0);

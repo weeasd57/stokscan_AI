@@ -84,9 +84,9 @@ describe("LIVE chatbot user scenario: portfolio, filters, stocks, images", () =>
             const randomPrompts = safeOldPrompts.sort(() => Math.random() - 0.5).slice(0, 5);
             for (const message of randomPrompts) await ask("random_historical_user_prompt", message);
 
-            const desktop = path.join(require("os").homedir(), "Desktop");
-            const imageOne = dataUrl(path.join(desktop, "b0d66447-8fab-40cd-af32-c8103b959040.jpg"));
-            const imageTwo = dataUrl(path.join(desktop, "778034194_122134681455205551_5688978777921724987_n.jpg"));
+            const projectRoot = path.resolve(__dirname, "../../../..");
+            const imageOne = dataUrl(process.env.LIVE_CHAT_IMAGE_ONE || path.join(projectRoot, "img1.jpg"));
+            const imageTwo = dataUrl(process.env.LIVE_CHAT_IMAGE_TWO || path.join(projectRoot, "img2.jpg"));
             await ask("image_1", "اقرأ صورة المحفظة دي", [imageOne]);
             await ask("image_1_confirmation", "دي محفظتي", []);
             await ask("image_2", "اقرأ صورة المحفظة الثانية دي", [imageTwo]);

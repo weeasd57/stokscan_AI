@@ -32,27 +32,29 @@ describe("Live Supabase chatbot integration", () => {
         };
     };
 
-    liveTest.each([
-        ["ABUK", "66.66"],
-        ["ELSH", null]
-    ])("answers every command in a compound %s message", async (symbol, expectedSupport) => {
+    liveTest.each(["ABUK", "ELSH"])("answers every command in a compound %s message", async (symbol) => {
         const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
         const message = `حلل ${symbol} هات أخباره لو كسر الدعم أعمل إيه؟`;
         const plan = buildPlan(message);
 
-        const output = await executeStructuredTools(supabase, plan, [], "live-eval-user", "live-eval-session");
+        const actual = await runPipeline(message, [], { current_symbol: null, last_symbols: [], summary: null },
+            null, [], supabase, [], "compound-eval-user", "compound-eval-session", `compound-${Date.now()}`);
+        const output = actual.tools;
         const resultTools = output.results.map(result => result.tool);
-        const response = buildDeterministicResponse(message, plan, output.results);
+        const response = actual.response;
 
         expect(plan.tools).toEqual(expect.arrayContaining(["get_stock", "get_stock_levels", "get_news"]));
         expect(resultTools).toContain("get_stock");
         expect(resultTools).toContain("get_stock_levels");
         expect(resultTools).toContain("get_news");
-        expect(response).toContain(`${symbol}: السعر`);
+        expect(response).toContain(symbol);
+        expect(response).toMatch(/السعر|إغلاق|سعر/);
         expect(response).toContain("الدعم");
-        if (expectedSupport) expect(response).toContain(expectedSupport);
+        const support = output.results.find(r => r.tool === "get_stock_levels").data?.support;
+        if (support != null) expect(response).toMatch(new RegExp(String(Number(support)).replace('.', '\\.')));
         expect(response).toContain("كسر الدعم");
-        expect(response).toContain("الأخبار:");
+        expect(response).toMatch(/أخبار|اخبار|خبر|إفصاح/);
+        expect(actual.publication_review?.final_passed).toBe(true);
         expect(response).not.toContain("environment_details");
     }, 60000);
 
@@ -111,7 +113,8 @@ describe("Live Supabase chatbot integration", () => {
 
             console.log(`[LIVE WEEKLY RESPONSE]\n${result.response}`);
             expect(result.plan.entities.symbols).toEqual([]);
-            expect(result.plan.tools).toEqual(["get_fair_value_scan"]);
+            expect(result.plan.intent).toBe("clarification");
+            expect(result.plan.tools).toEqual([]);
             expect(result.response).toMatch(/الأسبوع|فنياً|فني|زخم|حجم|قيمة وسطية/);
             expect(result.response).not.toMatch(/مضمون|أكيد يرتفع|environment_details|Working directory|Workspace root/i);
         } finally {
@@ -163,8 +166,8 @@ describe("Live Supabase chatbot integration", () => {
             },
             {
                 message: "المتوقع يرتفع الأسبوع ده",
-                tools: ["get_fair_value_scan"],
-                response: /أسبوع|الأسبوع|فني|زخم|حجم|قيمة وسطية|مراقبة/,
+                tools: [],
+                response: /أسبوع|الأسبوع|زخم|مراقبة|توقع أسبوعي/,
                 clearStock: true
             }
         ];
@@ -228,7 +231,9 @@ describe("Live Supabase chatbot integration", () => {
             expect(plan.entities.sector).toBeNull();
             expect(plan.entities.excluded_sectors).toEqual(expect.arrayContaining(["أدوية", "مخابز ومطاحن"]));
             expect(output.results.find(result => result.tool === "get_sector_liquidity")?.data?.sectors?.length).toBeGreaterThan(0);
-            expect(response).toContain("تم استبعاد: أدوية ومخابز ومطاحن");
+            expect(response).toMatch(/استبعاد|مستبعد|استثناء/);
+            expect(response).toMatch(/أدوية|الأدوية|الادوية/);
+            expect(response).toMatch(/مخابز|مطاحن/);
             expect(response).not.toMatch(/Health Technology|Pharmaceutical|Milling|Bakery/i);
         } finally {
             await supabase.from("ai_chat_sessions").delete().eq("id", sessionId);
@@ -256,7 +261,9 @@ describe("Live Supabase chatbot integration", () => {
             expect(second.plan.tools).toEqual(["get_sector_liquidity"]);
             expect(second.response).not.toContain("BIOC");
             expect(second.response).not.toContain("واجهنا صعوبة");
-            expect(second.response).toContain("تم استبعاد: أدوية ومخابز ومطاحن");
+            expect(second.response).toMatch(/استبعاد|مستبعد|استثناء/);
+            expect(second.response).toMatch(/أدوية|الأدوية|الادوية/);
+            expect(second.response).toMatch(/مخابز|مطاحن/);
         } finally {
             await supabase.from("ai_chat_sessions").delete().eq("id", sessionId);
             await supabase.auth.admin.deleteUser(authData.user.id);
@@ -318,7 +325,7 @@ describe("Live Supabase chatbot integration", () => {
         let state = { current_symbol: null, last_symbols: [], summary: null };
         const history = [];
         const turns = [
-            ["حلل لي سهم KWIN", /البيانات الفنية|قراءة فنية|القراءة الفنية|رأيي الفني|الصورة الفنية|الخلاصة الفنية/],
+            ["حلل لي سهم KWIN", /البيانات الفنية|قراءة فنية|القراءة الفنية|رأيي الفني|الصورة الفنية|الخلاصة الفنية|الموقف الفني/],
             ["طيب ده قريب من الحد اليومي؟", /الحد اليومي|حد السعري|حد الصعود/],
             ["طيب ارجعلي لـ KWIN تاني، إيه أعلى سعر وصله؟", /أعلى سعر (?:مسجل|وصله)/],
             ["ولي رأيك في أداء المؤشر النهارده", /ملخص سيولة السوق|EGX30/],

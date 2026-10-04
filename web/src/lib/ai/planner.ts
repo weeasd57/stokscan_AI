@@ -230,6 +230,7 @@ function getLevenshteinDistance(a: string, b: string): number {
 }
 
 export const LATIN_TICKER_ALIASES: Record<string, string> = {
+    "CIB": "COMI",
     "IECC": "IEEC",
     "IICC": "IEEC",
     "IEOC": "IEEC",
@@ -282,6 +283,7 @@ export function extractSymbolsFromText(
 
     const tokens = textUpper.split(/[^A-Z0-9]/).map(t => t.trim()).filter(Boolean);
     for (const token of tokens) {
+        if (["KING", "EGX", "RSI", "MACD", "SMA", "EMA", "ADX", "VWAP", "ML", "AI"].includes(token)) continue;
         if (LATIN_TICKER_ALIASES[token]) {
             found.push(LATIN_TICKER_ALIASES[token]);
         } else if (validSymbols.includes(token)) {
@@ -717,16 +719,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                         }
                         let resolvedSymbols: string[] = [];
                         if (symbolsTextExtracted.length > 0 && !isExplicitComparison) {
-                            const sessionEchoSet = new Set([
-                                ...(session.last_symbols || []),
-                                ...(session.current_symbol ? [session.current_symbol] : [])
-                            ].map(s => String(s).toUpperCase()));
                             resolvedSymbols = [...symbolsTextExtracted];
-                            for (const s of symbols) {
-                                if (!resolvedSymbols.includes(s) && !sessionEchoSet.has(s)) {
-                                    resolvedSymbols.push(s);
-                                }
-                            }
                         } else if (symbols.length > 0) {
                             resolvedSymbols = symbols;
                         } else if (!isMarketScan && !hasImages && !isTermsQuestion && !unresolvedCompanyName) {
@@ -888,7 +881,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
 
     // Check if the user message contains any 3-6 letter English word that is NOT a common technical term and NOT in validSymbols.
     // This indicates they are asking about an unknown stock (like FCMD), so we should NOT fallback to session history.
-    const COMMON_TECHNICAL_WORDS = new Set(["RSI", "MACD", "ADX", "SMA", "EMA", "BUY", "SELL", "HOLD", "PDF", "XLS", "CSV", "JSON", "API", "EGX", "OTC", "VOL", "INFO", "NEWS", "STOP", "LOSS", "RISK", "AND", "THE", "FOR", "BUT", "NOT", "YES", "OK"]);
+    const COMMON_TECHNICAL_WORDS = new Set(["KING", "ML", "AI", "RSI", "MACD", "ADX", "SMA", "EMA", "BUY", "SELL", "HOLD", "PDF", "XLS", "CSV", "JSON", "API", "EGX", "OTC", "VOL", "INFO", "NEWS", "STOP", "LOSS", "RISK", "AND", "THE", "FOR", "BUT", "NOT", "YES", "OK"]);
     const englishWords = (message.match(/[a-zA-Z]{3,6}/g) || []).map(w => w.toUpperCase());
     const hasUnknownEnglishStock = englishWords.some(w => !COMMON_TECHNICAL_WORDS.has(w) && !validSymbols.includes(w) && !w.startsWith("EGX"));
 

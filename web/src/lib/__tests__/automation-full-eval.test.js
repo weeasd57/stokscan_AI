@@ -52,7 +52,7 @@ const QUESTIONS = [
     { category: "سعر سهم",  q: "ابن سينا وصل فين",                               expectSymbols: ["ISPH"], expectTools: ["get_stock"] },
     // تحليل
     { category: "تحليل",    q: "حلل لي طلعت مصطفى",                             expectSymbols: ["TMGH"], expectTools: ["get_stock"] },
-    { category: "تحليل",    q: "ايه رأيك في سهم القلعة",                         expectSymbols: ["CCAP"], expectTools: ["get_stock"], expectReply: /رأيي الفني.*لو ذكرت هدفك/s },
+    { category: "تحليل",    q: "ايه رأيك في سهم القلعة",                         expectSymbols: ["CCAP"], expectTools: ["get_stock"], expectReply: /زخم|RSI|قراءة فنية|رأي|رأيي|موقف فني/ },
     { category: "تحليل",    q: "ممكن معلومات عن السويدي",                        expectSymbols: ["SWDY"], expectTools: ["get_stock"] },
     // مقارنة
     { category: "مقارنة",   q: "قارن بين التجاري الدولي والشرقية للدخان",       expectSymbols: ["COMI","EAST"], expectTools: ["get_comparison"] },

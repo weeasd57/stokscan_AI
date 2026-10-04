@@ -45,7 +45,7 @@ const CA_PATTERNS: CorporateActionPattern[] = [
     {
         type: "bonus_shares",
         typeAr: "أسهم مجانية (منحة)",
-        patterns: [/اسهم?\s*مجاني[هة]?/i, /منح[هة]?\s*(?:اسهم|حصص|سهم)/i, /حصص\s*مجاني[هة]?/i, /\bbonus\s+shares?\b/i, /\bfree\s+shares?\b/i, /\bstock\s+dividend\b/i],
+        patterns: [/اسهم?\s*مجاني[هة]?/i, /توزيعات?\s*(?:ال)?مجاني[هة]/i, /منح[هة]?\s*(?:اسهم|حصص|سهم)/i, /حصص\s*مجاني[هة]?/i, /\bbonus\s+shares?\b/i, /\bfree\s+shares?\b/i, /\bstock\s+dividend\b/i],
         confidence: 0.85,
     },
     {
@@ -136,7 +136,7 @@ export function classifyCorporateAction(title: string): CorporateActionClassific
     const normalized = normalizeArabicText(title);
     for (const entry of CA_PATTERNS) {
         // A stock dividend is a bonus-share event, not a cash distribution.
-        if (entry.type === "dividend" && /stock\s+dividend|اسهم?\s*مجاني|منح[هة]?\s*(?:اسهم|سهم)/i.test(normalized)) continue;
+        if (entry.type === "dividend" && /stock\s+dividend|اسهم?\s*مجاني|منح[هة]?\s*(?:اسهم|سهم)|توزيعات?\s*(?:ال)?مجاني/i.test(normalized)) continue;
         const matched = entry.patterns.some(p => p.test(normalized) || p.test(title));
         if (!matched) continue;
         const details = extractCorporateActionDetails(title);
@@ -368,10 +368,13 @@ export async function getCorporateActionsForSymbols(
             dbItems = (data as CorporateActionItem[])
                 .map(item => ({
                     ...item,
+                    ...(item.action_type === "dividend" && classifyCorporateAction(item.title)?.type === "bonus_shares"
+                        ? { action_type: "bonus_shares", action_type_ar: CA_TYPE_AR.bonus_shares } : {}),
                     // Legacy chat rows may have a discovery timestamp masquerading
                     // as publication time; the explicit unknown flag wins.
                     published_at: item.details?.published_at_unknown === true ? null : item.published_at,
-                    action_type_ar: item.action_type_ar || CA_TYPE_AR[item.action_type] || item.action_type,
+                    action_type_ar: item.action_type === "dividend" && classifyCorporateAction(item.title)?.type === "bonus_shares"
+                        ? CA_TYPE_AR.bonus_shares : item.action_type_ar || CA_TYPE_AR[item.action_type] || item.action_type,
                 }))
                 .filter(isCredibleStoredCorporateAction);
         }

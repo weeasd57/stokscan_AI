@@ -16,7 +16,8 @@
  * re-rolling the same answer.
  */
 
-import { IntentPlan, ToolResult } from "./types";
+import { IntentPlan, ToolResult, VisionContext } from "./types";
+import { checkContextEvidence } from "./context-evidence-gate";
 import { CoverageReport, checkCoverage } from "./coverage";
 import { FactRecord } from "./facts";
 import { isVerifiableDerivedMetric, splitSentences } from "./validator";
@@ -33,6 +34,7 @@ export interface AnswerGateInput {
     facts: FactRecord[];
     coverage?: CoverageReport | null;
     history?: Array<{ role: string; content: string }>;
+    vision?: VisionContext | null;
 }
 
 export interface AnswerGateResult {
@@ -74,7 +76,7 @@ function checkAttribution(reply: string, facts: FactRecord[]): string[] {
 
     const percentFields = new Set(["change_pct", "profit_pct", "premium_pct"]);
     const currencyFields = new Set([
-        "price", "close", "support", "resistance", "sma_50", "sma_200", "ema_50", "ema_200",
+        "price", "close", "support", "resistance", "sma_50", "sma_200", "ema_50", "ema_200", "target_price", "stop_loss", "exit_price",
         "bb_upper", "bb_lower", "highest_price", "market_value", "cost_basis", "profit_value", "entry_price",
     ]);
     const metricFields = (prefix: string, percentage: boolean): Set<string> | null => {
@@ -84,6 +86,10 @@ function checkAttribution(reply: string, facts: FactRecord[]): string[] {
             [/علاوه|علاوة/i, ["premium_pct"]],
         ] : [
             [/متوسط\s*(?:الشراء|الدخول)|سعر\s*الشراء/i, ["entry_price"]],
+            [/دخول\s*(?:الإشارة|الاشارة|التوصية|التوصيه)|سعر\s*الدخول/i, ["entry_price"]],
+            [/هدف|مستهدف/i, ["target_price"]],
+            [/وقف/i, ["stop_loss"]],
+            [/خروج|الخروج/i, ["exit_price"]],
             [/سعر\s*(?:حالي|الحالي|السهم|الاغلاق|الإغلاق)|اخر\s*سعر|آخر\s*سعر|الان\s*عند|الآن\s*عند/i, ["price", "close"]],
             [/دعم/i, ["support"]],
             [/مقاومه|مقاومة/i, ["resistance"]],
@@ -159,7 +165,8 @@ function checkAttribution(reply: string, facts: FactRecord[]): string[] {
  */
 export function runAnswerGate(input: AnswerGateInput): AnswerGateResult {
     const { reply, plan, toolResults, userMessage, facts } = input;
-    const reasons: string[] = [...evidenceViolations(reply, userMessage, toolResults), ...checkStructuredClaims(reply, toolResults, userMessage)];
+    const reasons: string[] = [...evidenceViolations(reply, userMessage, toolResults), ...checkStructuredClaims(reply, toolResults, userMessage),
+        ...checkContextEvidence(reply, plan, toolResults, input.vision)];
     const checked = { coverage: false, metric: false, attribution: false, context: false };
 
     // Ownership is a three-state fact: nonempty, verified empty, or unknown.
