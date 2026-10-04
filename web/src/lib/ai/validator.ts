@@ -600,14 +600,20 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
         }
 
         // C. Support Claims: specifically preceded by support keywords
-        const isSupportSpecific = new RegExp(`(?:دعم|مستوى الدعم|الدعم)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+        const isYearOrDate = (num >= 1990 && num <= 2050) || new RegExp(`\\b${escapedNum}(?:[-/]\\d{2}){1,2}\\b`).test(sentence);
+        const isLevelIndex = [1, 2, 3].includes(num) && (
+            new RegExp(`(?:دعم|مقاوم[ةه]|مستوى|نقطة)\\s*${num}\\b`, "i").test(sentence) ||
+            new RegExp(`(?:^|\\s)${num}\\s*[-.):]`).test(sentence)
+        );
+
+        const isSupportSpecific = !isYearOrDate && !isLevelIndex && new RegExp(`(?:دعم|مستوى الدعم|الدعم)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
         if (isSupportSpecific && !isPercent) {
             claims.push({ type: "support", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
         }
 
         // D. Resistance Claims: specifically preceded by resistance keywords
-        const isResistanceSpecific = new RegExp(`(?:مقاومة|مقاومه|مستوى المقاومة|المقاومة)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+        const isResistanceSpecific = !isYearOrDate && !isLevelIndex && new RegExp(`(?:مقاومة|مقاومه|مستوى المقاومة|المقاومة)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
         if (isResistanceSpecific && !isPercent) {
             claims.push({ type: "resistance", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
