@@ -94,6 +94,7 @@ export default function Footer() {
                   {t("footer.blogs")}
                 </Link>
               </li>
+              <li><Link href="/reports" className="text-sm text-zinc-500 hover:text-amber-500">تقارير السوق والتجميع · Daily reports</Link></li>
               <li>
                 <Link
                   href="/faq"

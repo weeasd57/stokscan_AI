@@ -418,75 +418,6 @@ export default function StockDetailClient({
 
   const isInWatchlist = isSaved(symbol);
 
-  // Dynamic Schema for WebApplication & FinancialProduct & FAQ
-  const jsonLd = useMemo(() => {
-    const currentPrice = Number(latestPrice?.close ?? latestTech?.close ?? 0);
-    const schemaSymbol = symbol.toUpperCase();
-    const schemaCompany = companyName;
-    const pageUrl = `https://egxbots.com/stocks/${symbol.toLowerCase()}`;
-    const rsiVal = latestTech?.rsi_14 ? Number(latestTech.rsi_14).toFixed(1) : null;
-    const adxVal = latestTech?.adx_14 ? Number(latestTech.adx_14).toFixed(1) : null;
-    const trendText = Number(latestTech?.adx_14) > 25 ? "strong trend" : "sideways consolidation";
-
-    const financialProduct = {
-      "@context": "https://schema.org",
-      "@type": "FinancialProduct",
-      "name": `${schemaCompany} (${schemaSymbol}) Stock`,
-      "tickerSymbol": schemaSymbol,
-      "description": `Live technical analysis indicators and price tracking for ${schemaCompany} (${schemaSymbol}) on the Egyptian Exchange.`,
-      "url": pageUrl,
-      "offers": {
-        "@type": "Offer",
-        "price": currentPrice,
-        "priceCurrency": currency
-      }
-    };
-
-    const webApplication = {
-      "@context": "https://schema.org",
-      "@type": "WebApplication",
-      "name": "EGX Bots AI Scanner",
-      "url": "https://egxbots.com",
-      "description": "AI-powered scanner and technical analysis tracker for EGX stocks.",
-      "applicationCategory": "BusinessApplication",
-      "operatingSystem": "All"
-    };
-
-    // FAQ Page Schema
-    const faqPage = {
-      "@context": "https://schema.org",
-      "@type": "FAQPage",
-      "mainEntity": [
-        {
-          "@type": "Question",
-          "name": language === "ar" 
-            ? `ما هو السعر الحالي لسهم ${schemaCompany} (${schemaSymbol})؟` 
-            : `What is the current stock price of ${schemaCompany} (${schemaSymbol})?`,
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": language === "ar"
-              ? `السعر الحالي لسهم ${schemaCompany} (${schemaSymbol}) هو ${currentPrice.toFixed(2)} ${currency} وفقاً لآخر تحديث للبيانات.`
-              : `The current stock price of ${schemaCompany} (${schemaSymbol}) is ${currentPrice.toFixed(2)} ${currency} based on the latest market close.`
-          }
-        },
-        {
-          "@type": "Question",
-          "name": language === "ar"
-            ? `ماذا تشير المؤشرات الفنية لسهم ${schemaSymbol}؟`
-            : `What do technical indicators show for ${schemaSymbol} stock?`,
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": language === "ar"
-              ? `يظهر مؤشر القوة النسبية RSI قيمة ${rsiVal ?? "غير متوفرة"}، بينما مؤشر ADX عند ${adxVal ?? "غير متوفر"} مما يشير إلى حالة ${trendText === "strong trend" ? "اتجاه قوي" : "تحرك عرضي"}.`
-              : `The RSI (14) indicator is at ${rsiVal ?? "N/A"} and the ADX trend strength is at ${adxVal ?? "N/A"}, indicating a ${trendText}.`
-          }
-        }
-      ]
-    };
-
-    return [financialProduct, webApplication, faqPage];
-  }, [symbol, companyName, latestPrice, latestTech, currency, language]);
-
   return (
     <div className="space-y-8 select-text">
       {/* Toast notification */}
@@ -1056,14 +987,6 @@ export default function StockDetailClient({
         </div>
       </div>
 
-      {/* Schema.org JSON-LD injection */}
-      {jsonLd.map((schema, index) => (
-        <script
-          key={index}
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
-        />
-      ))}
     </div>
   );
 }

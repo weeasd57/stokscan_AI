@@ -1,43 +1,34 @@
-# EGX BOTS - AI-Powered Egyptian Stock Exchange Analyzer
+# EGX BOTS — Egyptian Exchange research
+EGX BOTS provides Arabic/English educational stock research, technical screening,
+historical backtests and an AI assistant for Egyptian Exchange (EGX) data.
 
-> EGX BOTS (https://egxbots.com) is the premier quantitative intelligence and AI-driven stock analysis platform dedicated exclusively to the Egyptian Exchange (EGX). It combines machine learning models (AI Score 1 to 10), technical market scanning, backtested trading algorithms, sentiment tracking, and interactive Arabic/English AI financial chat.
+## Data and interpretation
+Prices and technical indicators are refreshed by the daily data job after trading.
+Daily closes are not live intraday quotes. Read each report's session and component dates.
+Coverage depends on available records and filters; no fixed stock count is guaranteed.
+Model scores and technical ratings are distinct measures, not probabilities of profit.
+Accumulation signals do not prove institutional buying. Historical results do not guarantee future returns.
+Public reports identify limited samples explicitly; do not extrapolate them to the entire market.
+Product access and prices are described on the current pricing page.
 
-## Core Capabilities
-- **AI Stock Valuation & Scoring**: Daily quantitative machine learning score from 1 (Strong Sell) to 10 (Strong Buy) across 280+ EGX listed equities.
-- **Technical Market Screener**: Live scanning of RSI, MACD, 50/200 EMA Golden Crosses, VWAP, Bollinger Bands, and liquidity volume surges in the Egyptian market.
-- **Historical Backtesting Engine**: Multi-year quantitative simulations and win-rate statistics based on the Triple Barrier Method and purged K-Fold cross validation.
-- **Macro & Market Regime**: Live tracking of EGX 30, EGX 70, USD/EGP currency cycles, and macroeconomic risk regimes.
-- **News Sentiment Pulse**: Arabic financial news ingestion, sentiment polarity scoring (-1.0 to +1.0), and corporate event impact alerts.
-- **Interactive Financial AI Assistant**: Multilingual financial assistant for chat, portfolio review, and chart image analysis.
+## Public research and sources
+- Daily report archive: https://egxbots.com/reports
+- Dated market report: https://egxbots.com/reports/{YYYY-MM-DD}/market
+- Dated accumulation report: https://egxbots.com/reports/{YYYY-MM-DD}/accumulation
+Report pages include saved evidence tables, component dates and methodology.
+Only validated reports tied to completed daily jobs are published.
+Use the report URL and session date when citing an observation.
 
-## Key Resources & URLs
-- Platform Homepage: https://egxbots.com/
-- All Listed Egyptian Stocks Directory: https://egxbots.com/stocks
-- AI Stock Scanner (Scoring & Predictions): https://egxbots.com/scanner/ai
-- Technical Market Screener: https://egxbots.com/scanner/technical
-- Market Regime & EGX30 Index Analysis: https://egxbots.com/scanner/market
-- Quantitative Strategy Simulator & Backtests: https://egxbots.com/scanner/backtests
-- Stock Comparison Matrix: https://egxbots.com/scanner/comparison
-- Financial News & Sentiment: https://egxbots.com/news
-- Market Research & Chat Case Studies: https://egxbots.com/blogs
-- Frequently Asked Questions: https://egxbots.com/faq
-- Pricing & Subscriptions: https://egxbots.com/pricing
+## Tools
+- Stocks: https://egxbots.com/stocks
+- Individual stock: https://egxbots.com/stocks/{symbol}
+- AI scanner: https://egxbots.com/scanner/ai
+- Technical scanner: https://egxbots.com/scanner/technical
+- Market: https://egxbots.com/scanner/market
+- Backtests: https://egxbots.com/scanner/backtests
+- News: https://egxbots.com/news
+- Research articles: https://egxbots.com/blogs
+- FAQ: https://egxbots.com/faq
+- Pricing: https://egxbots.com/pricing
 
-## Popular Egyptian Stocks Analyzed
-- Commercial International Bank (COMI): https://egxbots.com/stocks/comi
-- Talaat Moustafa Group Holding (TMGH): https://egxbots.com/stocks/tmgh
-- Elsewedy Electric (SWDY): https://egxbots.com/stocks/swdy
-- EFG Hermes Holding (HRHO): https://egxbots.com/stocks/hrho
-- Belton Financial Holding (BTFH): https://egxbots.com/stocks/btfh
-- Abou Kir Fertilizers (ABUK): https://egxbots.com/stocks/abuk
-- Telecom Egypt (ETEL): https://egxbots.com/stocks/etel
-- Sidi Kerir Petrochemicals (SKPC): https://egxbots.com/stocks/skpc
-- Fawry for Banking & Payment Technology (FWRY): https://egxbots.com/stocks/fwry
-- Madinet Masr Housing (MASR): https://egxbots.com/stocks/masr
-- Ezz Steel (ESRS): https://egxbots.com/stocks/esrs
-- Eastern Company (EAST): https://egxbots.com/stocks/east
-
-## Analytical Methodology
-- **Triple Barrier Labeling**: Profit targets, stop loss bounds, and discrete holding periods to prevent arbitrary classification.
-- **Leakage Prevention**: Feature shift(1) lag on all technical indicators to ensure no future information leaks into prediction time.
-- **Data Freshness**: Synchronized daily with official Egyptian Exchange trading sessions.
+Educational analysis, not personalized investment advice or a buy/sell instruction.

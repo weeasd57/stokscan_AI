@@ -45,4 +45,9 @@ def generate_daily_social_reports(job_run_id, steps, trigger='scheduled', dry_ru
     if client is not None:
         from api.social_report_images import attach_report_images
         images = attach_report_images(client, date.date().isoformat(), job_run_id)
+    # Reports are created after the general market invalidation. Refresh their
+    # own cache only after all report writes finish; never invoke an LLM here.
+    if any(r.get('status') == 'ready' for r in results.values()):
+        from api.cache_invalidation import invalidate_cache_tags
+        invalidate_cache_tags(['daily-public-reports'])
     return {'date': date.date().isoformat(), 'reports': results, 'images': images}

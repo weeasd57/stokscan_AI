@@ -4,6 +4,7 @@ export const DAILY_CACHE_TAGS = {
   news: "daily-news-data",
   recommendations: "daily-recommendations",
   symbols: "daily-symbols",
+  reports: "daily-public-reports",
 } as const;
 
 export const DAILY_CACHE_TAG_VALUES = Object.values(DAILY_CACHE_TAGS);

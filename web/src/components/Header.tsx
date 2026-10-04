@@ -216,7 +216,6 @@ export default function Header() {
     }, []);
 
     const navItems = [
-        { href: "/stocks", label: t("nav.stocks"), icon: <BarChart2 className="w-4 h-4 shrink-0" />, activePath: "/stocks", badge: "280+" },
         { href: "/scanner/backtests?tab=bots", label: t("nav.scanner.ai_trading"), icon: <Brain className="w-4 h-4 shrink-0" />, activePath: "/scanner/backtests", badge: "AI DEMO" },
         { href: "/news", label: t("nav.scanner.news"), icon: <Globe className="w-4 h-4 shrink-0" />, activePath: "/news", badge: "NEW" },
         { href: "/scanner/technical", label: t("nav.scanner.tech"), icon: <Activity className="w-4 h-4 shrink-0" />, activePath: "/scanner/technical" },

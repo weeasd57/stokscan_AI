@@ -29,6 +29,7 @@ TAG_SYMBOLS = "daily-symbols"
 # `required_all` must every succeed; `required_any` needs at least one, which
 # keeps invalidation working when a run performs only part of a pipeline.
 TAG_STEP_REQUIREMENTS: Dict[str, Dict[str, tuple]] = {
+    "daily-public-reports": {"required_all": ("social_reports_ready",), "required_any": ()},
     TAG_MARKET: {"required_all": ("sync_prices", "calculate_indicators"), "required_any": ()},
     TAG_NEWS: {"required_all": ("news_sentiment",), "required_any": ()},
     TAG_RECOMMENDATIONS: {"required_all": (), "required_any": ("generate_recommendations", "evaluate_recommendations")},

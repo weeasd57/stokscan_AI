@@ -18,7 +18,8 @@ STEPS = [{'step': s, 'status': 'success'} for s in
 
 @pytest.fixture(autouse=True)
 def trading_day():
-    with patch('api.daily_social_reports.datetime') as clock:
+    with patch('api.daily_social_reports.datetime') as clock, \
+         patch('api.cache_invalidation.invalidate_cache_tags'):
         clock.now.return_value = datetime(2026, 10, 4, 18, 0)
         yield
 
@@ -64,3 +65,17 @@ def test_real_daily_hook_attaches_images_without_additional_llm_calls():
         result = generate_daily_social_reports('job-id', STEPS, opener=lambda *args, **kwargs: Response(), client=client)
     attach.assert_called_once_with(client, '2026-10-04', 'job-id')
     assert result['images']['stock'] == 'ready'
+
+
+def test_public_report_cache_refresh_happens_after_generation():
+    with patch.dict('os.environ', {'REVALIDATE_SECRET': 'test-only'}), \
+         patch('api.cache_invalidation.invalidate_cache_tags') as invalidate:
+        generate_daily_social_reports('job-id', STEPS, opener=lambda *a, **kw: Response())
+    invalidate.assert_called_once_with(['daily-public-reports'])
+
+
+def test_failed_reports_do_not_invalidate_public_cache():
+    with patch.dict('os.environ', {'REVALIDATE_SECRET': 'test-only'}), \
+         patch('api.cache_invalidation.invalidate_cache_tags') as invalidate:
+        generate_daily_social_reports('job-id', STEPS, opener=lambda *a, **kw: (_ for _ in ()).throw(TimeoutError()))
+    invalidate.assert_not_called()
