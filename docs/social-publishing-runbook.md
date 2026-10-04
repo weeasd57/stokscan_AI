@@ -12,7 +12,20 @@ posts per day. All publication inputs must match the completed job and session.
 Verified official schemas:
 https://app.metricool.com/api/swagger.json (`ScheduledPost`, `ProviderStatus`,
 `ScheduledPostFacebookData`, `ScheduledPostTikTokData`). The connector accepts
-`blogId`, future `date`, `info` (serialized JSON), `mediaFiles` (public URLs).
+`blogId`, future `date`, `info` (serialized JSON), `mediaFiles` (local absolute
+file paths in the Codex desktop connector, NOT public URLs).
+
+Download the existing verified public PNG once into a unique temporary folder.
+Validate the response MIME, PNG signature and size before attaching. This is a
+copy of the saved report image, not regeneration. Pass its absolute local path
+in `mediaFiles`. Do not also put the same image in `info.media`: the connector
+appends attachments, and doing both creates duplicate images. The local-file
+workflow was verified with real Facebook and TikTok scheduled posts on 2026-10-04.
+
+Prepare it with `python scripts/prepare_social_attachment.py --date YYYY-MM-DD
+--url PUBLIC_IMAGE_URL`. The script restricts downloads to this project's report
+bucket and session path, validates MIME/signature/dimensions and returns JSON
+containing the absolute attachment `path`. Reuse that same file for both platforms.
 
 Use one request per platform so retries cannot duplicate a successful platform:
 
@@ -23,17 +36,22 @@ Use one request per platform so retries cannot duplicate a successful platform:
   "providers": [{"network": "facebook"}],
   "autoPublish": true,
   "draft": false,
-  "saveExternalMediaFiles": true,
-  "media": ["VERIFIED_PUBLIC_IMAGE_URL"]
+  "saveExternalMediaFiles": true
 }
 ```
 
 For TikTok use `network: tiktok`; `tiktokData.title` may use saved `social_title`.
 Do not invent privacy values; if account settings require explicit choices the
 connector cannot supply safely, report the error for the user. No music or video
-conversion is required for a photo post. Pass the image URL in `mediaFiles` too.
+conversion is required for a photo post. Pass the downloaded PNG's absolute local
+path in `mediaFiles`, once. A successful response has exactly one media URL.
 Verify the returned post has media and the correct provider, then reconcile using
 `getscheduledposts`. Scheduling acceptance is not proof of successful publication.
+
+If editing an existing post, keep its full returned content and original UUID,
+but omit automatically returned `twitterData` / `instagramData` (or other
+network-specific defaults) for networks absent from `providers`: the connector's
+validator rejects them. Updating assigns a new post ID; persist that new ID.
 
 ## Durable deduplication
 
@@ -48,8 +66,12 @@ failure. The private table is service-only; the images alone are public.
 ## Timing and tests
 
 Image preparation runs immediately after report generation on HF. Publishing is
-still a desktop heartbeat check at 17:40–21:40 hourly, Sunday–Thursday Cairo; it
-is not an HF completion webhook, and requires this desktop host to be available.
+one desktop heartbeat run at 18:30, Sunday–Thursday Cairo, scheduling one post
+per platform for 18:40 after checking HF completion. There are no hourly repeats.
+If the report isn't ready, don't publish an old report or a text-only fallback;
+notify the user of the delay. It is not an HF completion webhook, and requires
+this desktop host to be available. If the run starts after 18:40, use one nearby
+future time for that same session, never a past date or a second post.
 No historical test report (2026-10-01) may be published.
 
 Run `python -m pytest tests/test_daily_social_reports.py tests/test_social_report_images.py -q`
