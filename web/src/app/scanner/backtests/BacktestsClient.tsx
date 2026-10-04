@@ -399,7 +399,19 @@ export default function AIScannerPage() {
             }
         }
         void checkSubscription();
-        return () => { active = false; };
+        const handleUpdate = () => { void checkSubscription(); };
+        const handleStorage = (e: StorageEvent) => {
+            if (e.key === "egx_entitlements_timestamp" || e.key === "egx_pro_active") {
+                void checkSubscription();
+            }
+        };
+        window.addEventListener("egx:entitlements-updated", handleUpdate);
+        window.addEventListener("storage", handleStorage);
+        return () => {
+            active = false;
+            window.removeEventListener("egx:entitlements-updated", handleUpdate);
+            window.removeEventListener("storage", handleStorage);
+        };
     }, [user, supabase]);
     
     // States for Bots tab

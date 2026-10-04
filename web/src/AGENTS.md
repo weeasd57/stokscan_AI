@@ -2,7 +2,7 @@
 
 ## Module Boundary
 
-Next.js 14 App Router frontend. All source lives under `web/src/`.
+Next.js App Router frontend. All source lives under `web/src/`. The repository-root AGENTS.md resource policy also applies here.
 
 | Directory | Responsibility |
 |-----------|---------------|
@@ -12,14 +12,14 @@ Next.js 14 App Router frontend. All source lives under `web/src/`.
 | `src/contexts/` | Zustand-based global state providers (Auth, Theme, Language, Watchlist, Scanner, Chat) |
 | `src/lib/` | Business logic: `api.ts` (typed fetch wrappers), `ai/` (planner, pipeline, tools, final) |
 | `src/lib/ai/corporate-actions.ts` | Chat-time corporate actions (اكتتاب/توزيعات/تجزئة/منح): DB-first lookup, keyless web-search fallback with results cached back into `corporate_actions` |
-| `src/middleware.ts` | Auth enforcement (Supabase SSR cookies), locale prefix stripping, admin header injection |
+| `src/middleware.ts` | Middleware configuration; inspect current matcher and behavior before relying on it for authentication |
 
 ## Key Conventions
 
 - **Page pattern:** `page.tsx` is a thin shell; actual client component lives in `<Name>Client.tsx` alongside it.
-- **API calls:** All backend communication goes through typed wrappers in `src/lib/api.ts` using `cache: 'no-store'` and AbortSignal. Never call fetch directly from components.
+- **API calls:** Prefer existing typed wrappers and AbortSignal. Do not impose `no-store` on public daily data: reuse existing daily cache helpers and tags. Private/authenticated responses must not enter a shared public cache.
 - **State:** Zustand contexts are wrapped in `src/app/providers.tsx`. Each context lives in its own file under `src/contexts/`.
-- **Auth:** Enforced centrally in `src/middleware.ts` using Supabase SSR cookies. Do not add per-route auth checks.
+- **Auth:** Preserve server-side route authentication and entitlement checks. Do not assume middleware protects every route; inspect its matcher. Never trade authorization correctness for caching.
 - **Styling:** Tailwind CSS with CSS custom properties for theming (dark/light via class strategy). Shared tokens in `tailwind.config.ts`.
 - **i18n:** i18next with locale prefix stripping in middleware. Supports English and Arabic.
 - **Route handlers:** Mirror the backend URL structure under `src/app/api/<domain>/<resource>/route.ts`.
@@ -52,9 +52,17 @@ npm run format       # Prettier format
 ## Testing
 
 - Tests live in `src/lib/__tests__/`
-- Use Jest with jsdom
-- When changing core AI files, run `npm run test` and `npm run test:live`
+- Use the repository's Jest configuration and the environment required by the relevant test.
+- When changing core AI files, run relevant offline tests first. Do not automatically run `npm run test:live`: live provider calls require a genuine in-scope need, a bounded case and reuse of existing results.
 - When changing UI components, update or add companion test/story files
+
+## Request Budget
+
+- Prefer mount, focus/return and payment-completion refresh events to permanent quota polling. Preserve timely entitlement updates and server enforcement; user-scoped deduplication must never leak account data.
+- Retries for locked recommendations must be bounded, deduplicated and paused when hidden where appropriate. Avoid indefinite forced refresh loops.
+- Retain necessary active-job progress tracking; stop on completion and use backoff/fallback rather than overlapping requests.
+- Documentation-only edits do not require Next.js builds, browser smoke tests or live AI calls.
+- **NEVER invoke Supabase MCP `query_logs` or cloud log inspection tools** to debug frontend errors. Inspect local browser console errors, Next.js server logs, or local network inspector responses. Cloud log queries scan gigabytes of uncompressed data and exhaust the project's Log Query allowance.
 
 ## Cross-Module Dependencies
 

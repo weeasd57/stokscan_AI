@@ -110,6 +110,18 @@ export function TelegramProProvider({ children }: { children: ReactNode }) {
       return;
     }
     void loadInvite(false);
+    const handleUpdated = () => { void loadInvite(true); };
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "egx_entitlements_timestamp" || e.key === "egx_pro_active") {
+        void loadInvite(true);
+      }
+    };
+    window.addEventListener("egx:entitlements-updated", handleUpdated);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("egx:entitlements-updated", handleUpdated);
+      window.removeEventListener("storage", handleStorage);
+    };
   }, [authLoading, loadInvite, needsProInvite, userId]);
 
   const value = useMemo<TelegramProContextValue>(() => ({

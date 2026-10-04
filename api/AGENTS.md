@@ -2,7 +2,7 @@
 
 ## Module Boundary
 
-FastAPI application serving the stock analysis, backtesting, ML, chatbot, and trading subsystems. Entry point: `api/main.py` → `api.main:app`.
+FastAPI application serving the stock analysis, backtesting, ML, chatbot, and trading subsystems. Entry point: `api/main.py` → `api.main:app`. The repository-root AGENTS.md resource policy also applies here.
 
 | Directory / File | Responsibility |
 |-----------------|---------------|
@@ -76,7 +76,16 @@ python run_backtest_test.py               # Run backtest
 - Tests live in `api/tests/` and `tests/`
 - Python tests use pytest
 - When changing core files, run relevant test suites
-- Backtest tests: `python run_backtest_test.py`
+- Prefer targeted offline pytest tests. The manual job, live bot and backtest commands above can contact services or perform expensive work; do not run them as routine verification without inspecting their effects and establishing an in-scope need.
+
+## Resource Budget
+
+- Read narrowly filtered daily job status (e.g. from `daily_job_runs` table). **NEVER call Supabase MCP `query_logs` or cloud log queries** during routine diagnosis — a single broad scan consumes 5–10 GB of the monthly Log Query quota. Rely solely on local `logs/structured.json`, stdout, and error responses. Do not rerun the production daily job to diagnose its previous run.
+- Generate shared daily reports/calculations once in the daily pipeline. Publishing and UI reads consume saved validated reports, not fresh LLM calls.
+- Query only needed columns, symbols and date ranges; reuse fetched results across related calculations where safe. Avoid repeated full historical table downloads.
+- Invalidate affected Vercel tags only after the corresponding successful data stage; preserve existing failure and stale-data safeguards.
+- Keep error/security audit logging and RLS intact. Avoid verbose repeated payload logging, but do not suppress failures to save usage.
+- HF uploads should contain only required runtime changes in one batch. Agent instructions and other docs alone do not justify an HF restart/upload.
 
 ## Cross-Module Dependencies
 

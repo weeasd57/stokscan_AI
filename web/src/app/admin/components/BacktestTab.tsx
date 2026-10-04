@@ -1523,11 +1523,13 @@ export default function BacktestTab() {
 
   useEffect(() => {
     if (!taskInProgress || realtimeEventSeen.current) return undefined;
-    const fallback = window.setInterval(() => {
-      if (realtimeEventSeen.current) return;
-      void refreshRunningBacktest();
-    }, 15000);
-    return () => window.clearInterval(fallback);
+    // Single bounded fallback if Realtime WebSocket is delayed; never poll indefinitely in a loop.
+    const fallback = window.setTimeout(() => {
+      if (!realtimeEventSeen.current) {
+        void refreshRunningBacktest();
+      }
+    }, 30_000);
+    return () => window.clearTimeout(fallback);
   }, [taskInProgress, activeBacktestId, refreshRunningBacktest]);
 
   async function loadHistory() {

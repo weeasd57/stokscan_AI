@@ -54,8 +54,19 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const handleUpdated = () => { void refresh(true); };
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "egx_entitlements_timestamp" || e.key === "egx_pro_active") {
+        void refresh(true);
+      }
+    };
     window.addEventListener("portfolio-updated", handleUpdated);
-    return () => window.removeEventListener("portfolio-updated", handleUpdated);
+    window.addEventListener("egx:entitlements-updated", handleUpdated);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("portfolio-updated", handleUpdated);
+      window.removeEventListener("egx:entitlements-updated", handleUpdated);
+      window.removeEventListener("storage", handleStorage);
+    };
   }, [refresh]);
 
   return <PortfolioContext.Provider value={{ snapshot, loading, refresh }}>{children}</PortfolioContext.Provider>;

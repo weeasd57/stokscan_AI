@@ -83,6 +83,18 @@ export default function PlanQuotaCard({ refreshTrigger = 0 }: Props) {
 
   useEffect(() => {
     fetchQuota();
+    const handleUpdate = () => { void fetchQuota(false); };
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === "egx_entitlements_timestamp" || e.key === "egx_pro_active") {
+        void fetchQuota(false);
+      }
+    };
+    window.addEventListener("egx:entitlements-updated", handleUpdate);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("egx:entitlements-updated", handleUpdate);
+      window.removeEventListener("storage", handleStorage);
+    };
   }, [fetchQuota, refreshTrigger]);
 
   if (loading) {

@@ -303,28 +303,43 @@ function RecommendationsTableContent({ isLandingPage = false, limit = Infinity, 
             }
         };
         const checkOnReturn = () => {
-            if (!document.hidden && Date.now() - lastCheckAt >= 60_000) void checkPlan();
+            if (!document.hidden && Date.now() - lastCheckAt >= 30_000) void checkPlan();
         };
+        const handleEntitlementsUpdated = (event?: Event) => {
+            const custom = event as CustomEvent<{ is_pro?: boolean }> | undefined;
+            if (custom?.detail?.is_pro === true && active) {
+                setHasProAccess(true);
+            }
+            void checkPlan();
+        };
+        const handleStorageEvent = (e: StorageEvent) => {
+            if (e.key === "egx_entitlements_timestamp" || e.key === "egx_pro_active") {
+                if (e.key === "egx_pro_active" && e.newValue === "true" && active) {
+                    setHasProAccess(true);
+                }
+                void checkPlan();
+            }
+        };
+
         void checkPlan();
-        // Entitlements can change while this page stays open after checkout.
-        // Poll the private, no-store quota endpoint so a Free -> Pro upgrade
-        // updates the analytics view without a hard refresh.
-        const planRefresh = window.setInterval(() => {
-            if (!document.hidden) void checkPlan();
-        }, 15_000);
+
+        // Refresh on user return or explicit upgrade event instead of background polling.
         window.addEventListener("focus", checkOnReturn);
         document.addEventListener("visibilitychange", checkOnReturn);
+        window.addEventListener("egx:entitlements-updated", handleEntitlementsUpdated);
+        window.addEventListener("storage", handleStorageEvent);
         return () => {
             active = false;
-            window.clearInterval(planRefresh);
             window.removeEventListener("focus", checkOnReturn);
             document.removeEventListener("visibilitychange", checkOnReturn);
+            window.removeEventListener("egx:entitlements-updated", handleEntitlementsUpdated);
+            window.removeEventListener("storage", handleStorageEvent);
         };
     }, [user?.id]);
 
     // The market snapshot is cached for a day, but its redaction level is not.
     // If quota confirms Pro while the cached rows are still encrypted, reload
-    // once immediately and retry only while that mismatch remains.
+    // once immediately for the authenticated session.
     const hasEncryptedRecommendations = useMemo(
         () => recommendations.some(row => row.locked === true || row.identity_locked === true),
         [recommendations],
@@ -351,10 +366,6 @@ function RecommendationsTableContent({ isLandingPage = false, limit = Infinity, 
             proRefreshViewerRef.current = user.id;
             void loadRecommendations(isLandingPage, true, limit !== Infinity ? limit : undefined);
         }
-        const retry = window.setInterval(() => {
-            void loadRecommendations(isLandingPage, true, limit !== Infinity ? limit : undefined);
-        }, 65_000);
-        return () => window.clearInterval(retry);
     }, [user?.id, hasProAccess, hasEncryptedRecommendations, isLandingPage, limit, loadRecommendations]);
 
     // Interactive Filters (Scanner or Authenticated Landing Page)

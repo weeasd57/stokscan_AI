@@ -33,6 +33,17 @@ import { toast } from "sonner";
 
 type Step = "plans" | "payment" | "submitted";
 
+export function broadcastEntitlements(isPro: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent("egx:entitlements-updated", { detail: { is_pro: isPro } }));
+    localStorage.setItem("egx_pro_active", isPro ? "true" : "false");
+    localStorage.setItem("egx_entitlements_timestamp", String(Date.now()));
+  } catch {
+    // Graceful fallback if storage is restricted
+  }
+}
+
 export default function PricingClient() {
   const { language } = useLanguage();
   const isAr = language === "ar";
@@ -98,7 +109,10 @@ export default function PricingClient() {
           ? "failed"
           : data.status;
         setOrderStatus(settledStatus);
-        if (settledStatus === "approved") setIsPro(true);
+        if (settledStatus === "approved") {
+          setIsPro(true);
+          broadcastEntitlements(true);
+        }
         if (data.plan_id) setSelectedPlan(data.plan_id);
         setSubscriptionEnd(data.subscription?.current_period_end || null);
         setTelegramProUrl(data.telegram_pro_url || "");
@@ -176,8 +190,12 @@ export default function PricingClient() {
         if (!response.ok) return;
         const data = await response.json();
         if (!active) return;
-        setIsPro(data?.plan?.is_pro === true);
+        const proActive = data?.plan?.is_pro === true;
+        setIsPro(proActive);
         setSubscriptionEnd(data?.plan?.current_period_end || null);
+        if (proActive) {
+          broadcastEntitlements(true);
+        }
       } catch {
         // Keep the last known state on a temporary network failure.
       } finally {

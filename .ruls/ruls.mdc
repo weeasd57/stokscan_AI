@@ -57,6 +57,7 @@ alwaysApply: true
 - Use memoization (React.memo, useMemo, useCallback) where appropriate.
 - Detect and reduce memory leaks or bottlenecks.
 - Suggest performance-optimized state management strategies (e.g., selective re-rendering, atomic stores).
+- **🛑 Supabase Resource Guard:** NEVER run broad Supabase `query_logs` via MCP or CLI. Broad log queries perform massive scans (5–10 GB per scan) that exhaust the monthly 100 GB quota. Inspect local `logs/` files, error responses, and database status tables (`daily_job_runs`) directly. Avoid tight client-side network polling intervals (`setInterval < 30s`). Always use explicit column selection and `.limit()` on queries.
 
 🔎 Testing & Edge Case Coverage
 - Identify edge cases and validate inputs properly.
