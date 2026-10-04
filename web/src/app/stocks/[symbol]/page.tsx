@@ -27,7 +27,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const companyName = fund.name || fund.Name || symbol;
   const sector = fund.sector || fund.Sector || "";
 
-  const title = `تحليل وسعر سهم ${companyName} (${symbol}) بالذكاء الاصطناعي | EGX Bots`;
+  const title = `تحليل وسعر سهم ${companyName} (${symbol}) بالذكاء الاصطناعي`;
   const description = `تحليل سهم ${companyName} (${symbol}) بالذكاء الاصطناعي والسعر المباشر، تقييم AI Score، مؤشرات التحليل الفني (RSI، MACD، ADX) ونقاط الدعم والمقاومة في البورصة المصرية.`;
 
   return {

@@ -45,6 +45,7 @@ const translations: Record<string, Record<Language, string>> = {
     "nav.scanner.market": { en: "Market Analysis", ar: "اتجاه السوق والعملة" },
     "nav.scanner.compare": { en: "Comparison", ar: "المقارنة" },
     "nav.scanner.news": { en: "AI News", ar: "أخبار الـ AI" },
+    "nav.stocks": { en: "EGX Stocks Directory", ar: "دليل أسهم البورصة المصرية" },
     
     // Market Analysis Translations
     "market.title": { en: "Market Analysis", ar: "تحليل اتجاه السوق والوضع الاقتصادي" },

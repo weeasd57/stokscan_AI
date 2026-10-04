@@ -111,7 +111,7 @@ export default function BlogsPage() {
               (look-ahead bias or future data leakage) is the most common reason
               why strategies perform exceptionally well in simulations but fail
               in live trading. We have conducted a rigorous audit of the{" "}
-              <strong>Stokscan AI</strong> backtesting and model training
+              <strong>EGX Bots</strong> backtesting and model training
               systems to guarantee absolute integrity.
             </p>
 

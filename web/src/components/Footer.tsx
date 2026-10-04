@@ -32,10 +32,18 @@ export default function Footer() {
             <ul className="space-y-2">
               <li>
                 <Link
-                  href="/scanner/backtests"
+                  href="/stocks"
+                  className="text-sm font-bold text-yellow-600 dark:text-yellow-400 hover:underline transition-colors"
+                >
+                  {t("nav.stocks")}
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/scanner/ai"
                   className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors font-bold text-indigo-400/80 dark:text-indigo-400/80 light:text-indigo-600/80"
                 >
-                  {t("nav.scanner.ai_trading")}
+                  {t("nav.scanner.ai")}
                 </Link>
               </li>
               <li>
@@ -56,18 +64,18 @@ export default function Footer() {
               </li>
               <li>
                 <Link
-                  href="/scanner/backtests?tab=backtests"
+                  href="/scanner/market"
                   className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors"
                 >
-                  {t("nav.scanner.backtests")}
+                  {t("nav.scanner.market")}
                 </Link>
               </li>
               <li>
                 <Link
-                  href="/scanner/backtests?tab=similarity"
+                  href="/scanner/backtests"
                   className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors"
                 >
-                  {t("nav.scanner.similarity")}
+                  {t("nav.scanner.backtests")}
                 </Link>
               </li>
             </ul>

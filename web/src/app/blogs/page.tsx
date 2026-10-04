@@ -2,7 +2,7 @@ import { Metadata } from "next";
 import BlogsClient from "./BlogsClient";
 
 export const metadata: Metadata = {
-  title: "مدونة وتحليلات البورصة المصرية بالذكاء الاصطناعي | EGX Bots Market Blog",
+  title: "مدونة وتحليلات البورصة المصرية بالذكاء الاصطناعي",
   description: "مقالات وتحليلات معمقة لحركة الأسهم في البورصة المصرية (EGX)، مؤشرات التحليل الفني، نماذج الذكاء الاصطناعي والتعلم الآلي، وتطورات التداول المالي في السوق المصري.",
   keywords: [
     "تحليلات البورصة المصرية",

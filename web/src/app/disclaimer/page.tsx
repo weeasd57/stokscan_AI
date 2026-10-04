@@ -1,7 +1,7 @@
 import DisclaimerClient from "./DisclaimerClient";
 
 export const metadata = {
-  title: "إخلاء المسؤولية القانونية | EGX Bots - تحليل البورصة المصرية",
+  title: "إخلاء المسؤولية القانونية وتحذير المخاطر",
   description:
     "الشروط القانونية والتحذيرات وإخلاء المسؤولية القانونية لاستخدام منصة EGX Bots ونماذج الذكاء الاصطناعي وإشارات التداول الخاصة بالبورصة المصرية.",
   keywords: [

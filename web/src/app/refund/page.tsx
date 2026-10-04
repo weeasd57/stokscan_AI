@@ -1,7 +1,7 @@
 import RefundClient from "./RefundClient";
 
 export const metadata = {
-  title: "سياسة الاسترجاع | EGX Bots - تحليل البورصة المصرية",
+  title: "سياسة الاسترجاع واسترداد الأموال",
   description:
     "سياسة الاسترجاع واسترداد الأموال لاشتراكات منصة EGX Bots وكيفية طلب استرداد.",
   keywords: ["سياسة الاسترجاع", "استرداد", "الاشتراكات", "EGX Bots"],

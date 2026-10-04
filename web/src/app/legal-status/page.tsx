@@ -1,7 +1,7 @@
 import LegalStatusClient from "./LegalStatusClient";
 
 export const metadata = {
-  title: "الموقف القانوني والتنظيمي | EGX Bots - منصة تحليل البورصة المصرية",
+  title: "الموقف القانوني والتنظيمي والامتثال",
   description:
     "توضيح الموقف القانوني والتنظيمي لمنصة EGX Bots وامتثالها للقوانين والتشريعات المصرية وقانون سوق رأس المال 95 لسنة 1992 وقواعد الرقابة المالية.",
   keywords: [
