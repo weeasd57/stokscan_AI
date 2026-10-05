@@ -107,8 +107,12 @@ const FIELD_UNITS: Record<FactField, FactUnit> = {
 const VALUE_KEYS: Array<{ key: string; field: FactField }> = [
     { key: "price", field: "price" },
     { key: "close", field: "close" },
+    { key: "current_price", field: "price" },
+    { key: "valuation_price", field: "price" },
     { key: "change_pct", field: "change_pct" },
     { key: "change_pct_num", field: "change_pct" },
+    { key: "change", field: "change_pct" },
+    { key: "return_pct", field: "profit_pct" },
     { key: "rsi_14", field: "rsi" },
     { key: "rsi_14_num", field: "rsi" },
     { key: "macd", field: "macd" },
@@ -136,9 +140,13 @@ const VALUE_KEYS: Array<{ key: string; field: FactField }> = [
     { key: "premium_pct", field: "premium_pct" },
     { key: "quantity", field: "quantity" },
     { key: "entry_price", field: "entry_price" },
+    { key: "entry", field: "entry_price" },
     { key: "target_price", field: "target_price" },
+    { key: "target", field: "target_price" },
     { key: "stop_loss", field: "stop_loss" },
+    { key: "stop", field: "stop_loss" },
     { key: "exit_price", field: "exit_price" },
+    { key: "exit", field: "exit_price" },
     { key: "profit_loss_pct", field: "profit_pct" },
     { key: "market_value", field: "market_value" },
     { key: "cost_basis", field: "cost_basis" },
@@ -231,6 +239,18 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
         const data = result?.data;
         if (!data || typeof data !== "object") continue;
 
+        if (Array.isArray(data)) {
+            for (const item of data) {
+                if (item?.symbol) {
+                    const itemDate = item.signal_date || item.created_at || item.current_date || item.date || meta.as_of;
+                    const itemMeta = {
+                        ...meta,
+                        as_of: itemDate && Number.isFinite(Date.parse(itemDate)) ? String(itemDate) : meta.as_of,
+                    };
+                    ingestObject(normalizeSymbol(item.symbol), item, itemMeta);
+                }
+            }
+        }
         if (data.symbol) {
             ingestObject(normalizeSymbol(data.symbol), data, meta);
             if (data.recommendation?.has_recommendation) {
@@ -254,6 +274,31 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
                 if (row?.symbol) ingestObject(normalizeSymbol(row.symbol), row, { ...meta,
                     as_of: Object.prototype.hasOwnProperty.call(row, "as_of") ? row.as_of : meta.as_of,
                     source: row.source || meta.source });
+            }
+        }
+        if (Array.isArray(data.top_gainers)) {
+            for (const item of data.top_gainers) {
+                if (item?.symbol) ingestObject(normalizeSymbol(item.symbol), item, meta);
+            }
+        }
+        if (Array.isArray(data.top_losers)) {
+            for (const item of data.top_losers) {
+                if (item?.symbol) ingestObject(normalizeSymbol(item.symbol), item, meta);
+            }
+        }
+        if (Array.isArray(data.gainers)) {
+            for (const item of data.gainers) {
+                if (item?.symbol) ingestObject(normalizeSymbol(item.symbol), item, meta);
+            }
+        }
+        if (Array.isArray(data.losers)) {
+            for (const item of data.losers) {
+                if (item?.symbol) ingestObject(normalizeSymbol(item.symbol), item, meta);
+            }
+        }
+        if (Array.isArray(data.market_period_ranking)) {
+            for (const item of data.market_period_ranking) {
+                if (item?.symbol) ingestObject(normalizeSymbol(item.symbol), item, meta);
             }
         }
         if (result?.tool === "get_comparison") {

@@ -606,7 +606,7 @@ export default function RecommendationCalendar({
         return {
             dateStr: selectedDayDateStr,
             data: delayed ? { ...data, created: [], closed: [], adjusted: [], wins: [], losses: [], netProfitPct: 0 } : data,
-            allList,
+            allList: delayed ? [] : allList,
             filteredList,
             closedCount,
             winCount,

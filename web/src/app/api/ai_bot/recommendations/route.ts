@@ -85,9 +85,10 @@ export async function GET(req: NextRequest) {
     ]));
 
     const results = visibleData.map((row: Record<string, unknown>) => {
-      // Closed outcomes are visible immediately but keep their identity Pro-only.
-      // Only open high-return opportunities stay encrypted for Free after the delay.
+      // Closed outcomes remain encrypted for Free users only during the 15-day delay window.
+      // Once the 15-day delay passes, their identity and trade levels are released.
       const createdMs = row.created_at ? new Date(String(row.created_at)).getTime() : Number.NaN;
+      const closedAtMs = row.updated_at ? new Date(String(row.updated_at)).getTime() : createdMs;
       const isClosed = closed(row);
       const richDetails = row.rich_details && typeof row.rich_details === "object"
         ? row.rich_details as Record<string, any>
@@ -101,6 +102,7 @@ export async function GET(req: NextRequest) {
         exit_reason_en: evaluation.exit_reason_en || null,
       } : {};
       const fresh = !Number.isFinite(createdMs) || createdMs > cutoffTime;
+      const isFreshClosed = !Number.isFinite(closedAtMs) || closedAtMs > cutoffTime;
       const highReturnPro = !isClosed && isHighReturn(row);
       const locked = delayedVisibility && !isClosed && ((!authenticated || fresh) || highReturnPro);
       if (locked) {
@@ -136,7 +138,8 @@ export async function GET(req: NextRequest) {
           snapshot_cutoff: cutoff,
         };
       }
-      if (delayedVisibility && isClosed) {
+      const closedLocked = delayedVisibility && isClosed && (fresh || isFreshClosed);
+      if (closedLocked) {
         return {
           id: row.id,
           identity_locked: true,

@@ -89,11 +89,10 @@ function checkAttribution(reply: string, facts: FactRecord[]): string[] {
             [/ارتفع|صعد|هبط|انخفض|نزل|تغير|تراجع/i, ["change_pct"]],
             [/علاوه|علاوة/i, ["premium_pct"]],
         ] : [
-            [/متوسط\s*(?:الشراء|الدخول)|سعر\s*الشراء/i, ["entry_price"]],
-            [/دخول\s*(?:الإشارة|الاشارة|التوصية|التوصيه)|سعر\s*الدخول/i, ["entry_price"]],
-            [/هدف|مستهدف/i, ["target_price"]],
-            [/وقف/i, ["stop_loss"]],
-            [/خروج|الخروج/i, ["exit_price"]],
+            [/(?:متوسط|سعر)\s*الشراء|(?:(?:متوسط|سعر)\s*)?الدخول(?:\s*(?:الإشارة|الاشارة|التوصية|التوصيه))?|\bدخول\b/i, ["entry_price"]],
+            [/هدف|مستهدف|المستهدف|الهدف/i, ["target_price"]],
+            [/وقف|الوقف|وقف\s*(?:الخسارة|الخساره)/i, ["stop_loss"]],
+            [/خروج|الخروج|سعر\s*الخروج/i, ["exit_price"]],
             [/سعر\s*(?:حالي|الحالي|السهم|الاغلاق|الإغلاق)|اخر\s*سعر|آخر\s*سعر|الان\s*عند|الآن\s*عند/i, ["price", "close"]],
             [/دعم/i, ["support"]],
             [/مقاومه|مقاومة/i, ["resistance"]],
@@ -212,7 +211,7 @@ export function runAnswerGate(input: AnswerGateInput): AnswerGateResult {
     }
 
     // Rule 2 — the ranking metric the contract asked for must actually be answered.
-    if (plan.ranking_metric === "accumulation") {
+    if (plan.ranking_metric === "accumulation" && !/شريع|اسلام|إسلام|sharia/i.test(userMessage)) {
         checked.metric = true;
         const accRows = toolResults
             .filter(result => result.tool === "get_accumulation_stocks")

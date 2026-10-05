@@ -606,14 +606,28 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
             new RegExp(`(?:^|\\s)${num}\\s*[-.):]`).test(sentence)
         );
 
-        const isSupportSpecific = !isYearOrDate && !isLevelIndex && new RegExp(`(?:دعم|مستوى الدعم|الدعم)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+        const isExplicitResistancePrefix = new RegExp(`(?:مقاومة|مقاومه|مستوى المقاومة|المقاومة)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+        const isExplicitSupportPrefix = new RegExp(`(?:دعم|مستوى الدعم|الدعم)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+
+        const matchesKnownResistance = facts.resistance != null && (Math.abs(num - facts.resistance) <= 0.05 || (facts.resistance > 0 && Math.abs(num - facts.resistance) / facts.resistance <= 0.02));
+        const matchesKnownSupport = facts.support != null && (Math.abs(num - facts.support) <= 0.05 || (facts.support > 0 && Math.abs(num - facts.support) / facts.support <= 0.02));
+
+        const isSupportSpecific = !isYearOrDate && !isLevelIndex && !isExplicitResistancePrefix && !(matchesKnownResistance && !matchesKnownSupport) && (
+            isExplicitSupportPrefix ||
+            new RegExp(`\\b${escapedNum}\\b[^0-9\\n]{0,25}?(?<![و\\w])(?:كدعم|مستوى دعم)`, "i").test(sentence) ||
+            (matchesKnownSupport && /(?:دعم|كسر|يكسر|تكسر|هيكسر|تحت|دون|ارتداد|مستوى)/i.test(sentence))
+        );
         if (isSupportSpecific && !isPercent) {
             claims.push({ type: "support", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
         }
 
         // D. Resistance Claims: specifically preceded by resistance keywords
-        const isResistanceSpecific = !isYearOrDate && !isLevelIndex && new RegExp(`(?:مقاومة|مقاومه|مستوى المقاومة|المقاومة)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+        const isResistanceSpecific = !isYearOrDate && !isLevelIndex && !isExplicitSupportPrefix && !(matchesKnownSupport && !matchesKnownResistance) && (
+            isExplicitResistancePrefix ||
+            new RegExp(`\\b${escapedNum}\\b[^0-9\\n]{0,25}?(?<![و\\w])(?:كمقاومة|كمقاومه|مستوى مقاومة)`, "i").test(sentence) ||
+            (matchesKnownResistance && /(?:مقاوم|اختراق|يخترق|فوق|اعلى|أعلى|مستوى)/i.test(sentence))
+        );
         if (isResistanceSpecific && !isPercent) {
             claims.push({ type: "resistance", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
@@ -634,8 +648,11 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
         }
 
         // G. Price Claims: specifically preceded by explicit price keywords AND NOT preceded by indicators
+        const matchesKnownLevel = (facts.support != null && (Math.abs(num - facts.support) <= 0.05 || (facts.support > 0 && Math.abs(num - facts.support) / facts.support <= 0.02)))
+            || (facts.resistance != null && (Math.abs(num - facts.resistance) <= 0.05 || (facts.resistance > 0 && Math.abs(num - facts.resistance) / facts.resistance <= 0.02)));
         const isPriceSpecific = new RegExp(`(?:السعر الحالي|سعر الإغلاق|سعر الاغلاق|السعر عند|سعر عند|يتداول عند|تداول عند|أغلق عند|اغلق عند|سعر السهم|السعر هو|السعر)[^0-9\\n]{0,20}?\\b${escapedNum}\\b`, "i").test(sentence)
-            && !new RegExp(`(?:دعم|مقاومة|مقاومه|macd|ماكد|rsi|خط الإشارة|خط الاشارة|متوسط|sma|ema)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+            && !new RegExp(`(?:دعم|مقاومة|مقاومه|macd|ماكد|rsi|خط الإشارة|خط الاشارة|متوسط|sma|ema|كسر|يكسر|تكسر|هيكسر|اختراق|يخترق|وقف)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence)
+            && !(matchesKnownLevel && /(?:دعم|مقاوم|كسر|يكسر|تكسر|هيكسر|اختراق|يخترق|وقف|تحت|دون|مستوى)/i.test(sentence));
         if (isPriceSpecific && !isPercent) {
             claims.push({ type: "current_price", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
@@ -950,7 +967,10 @@ export function validateDeterministicRules(
                             Math.abs(claim.value - price) <= 0.05 + 1e-9 ||
                             (price > 0 && Math.abs(claim.value - price) / price <= 0.02)
                         );
-                        if (!isMatch) {
+                        const isKnownLevel = (facts.support != null && (Math.abs(claim.value - facts.support) <= 0.05 || (facts.support > 0 && Math.abs(claim.value - facts.support) / facts.support <= 0.02)))
+                            || (facts.resistance != null && (Math.abs(claim.value - facts.resistance) <= 0.05 || (facts.resistance > 0 && Math.abs(claim.value - facts.resistance) / facts.resistance <= 0.02)));
+                        const isLevelSentence = /(?:دعم|مقاوم|كسر|يكسر|تكسر|هيكسر|اختراق|يخترق|وقف|تراجع\s*تحت|هبوط\s*دون|تحت|دون|مستوى)/i.test(claim.sentence || sentence);
+                        if (!isMatch && !(isKnownLevel && isLevelSentence)) {
                             errors.push(`تضارب في سعر سهم ${activeSymbol}: السعر الفعلي هو ${facts.price} ولكن الرد يحتوي على ${claim.value}.`);
                         }
                     }

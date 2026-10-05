@@ -90,3 +90,45 @@ test("stream publication reviews deterministic market responses before first tok
     expect(evidenceViolations(done.response, "الشاشة اللحظية", [market])).toEqual([]);
     expect(events.filter(event => event.type === "token").map(event => event.data).join("")).toBe(done.response);
 });
+
+test("recommendation array payloads are bound to fact records and pass publication gate", () => {
+    const { buildFactRecords } = require("../facts");
+    const { runAnswerGate } = require("../answer-gate");
+    const recs: any = {
+        tool: "get_recommendations",
+        source: "scan_results",
+        data_time: "2026-09-21",
+        symbols: ["AFDI", "TRTO"],
+        data_type: "historical",
+        data: [
+            { symbol: "AFDI", signal: "BUY", entry_price: 52.11, target_price: 56.28, stop_loss: 51.19, current_price: 52.36, status: "loss", status_label: "ضربت الوقف", signal_date: "2026-09-21" },
+            { symbol: "TRTO", signal: "BUY", entry_price: 0.059, target_price: 0.07, stop_loss: 0.05, current_price: 0.068, status: "open", status_label: "نشطة (مفتوحة)", signal_date: "2026-09-21" },
+        ],
+    };
+    const facts = buildFactRecords([recs]);
+    expect(facts.some((f: any) => f.symbol === "AFDI" && f.field === "entry_price" && f.value === 52.11)).toBe(true);
+    expect(facts.some((f: any) => f.symbol === "AFDI" && f.field === "target_price" && f.value === 56.28)).toBe(true);
+    expect(facts.some((f: any) => f.symbol === "TRTO" && f.field === "entry_price" && f.value === 0.059)).toBe(true);
+
+    const reply = "توصيات المنصة:\n- AFDI: سعر الدخول 52.11 ج.م، المستهدف 56.28 ج.م، وقف الخسارة 51.19 ج.م.\n- TRTO: الدخول 0.059 جنيه، المستهدف 0.07 جنيه، وقف 0.05 جنيه.";
+    const gateResult = runAnswerGate({
+        reply,
+        plan: { intent: "market_summary", confidence: 1, entities: { symbols: [] }, tools: ["get_recommendations"] } as any,
+        toolResults: [recs],
+        userMessage: "رشح سهم للشراء غدا",
+        facts,
+    });
+    expect(gateResult.ok).toBe(true);
+    expect(gateResult.reasons).toEqual([]);
+
+    const safe = safeEvidenceResponse("رشح سهم للشراء غدا", [recs]);
+    const safeGate = runAnswerGate({
+        reply: safe,
+        plan: { intent: "market_summary", confidence: 1, entities: { symbols: [] }, tools: ["get_recommendations"] } as any,
+        toolResults: [recs],
+        userMessage: "رشح سهم للشراء غدا",
+        facts,
+    });
+    expect(safeGate.ok).toBe(true);
+});
+

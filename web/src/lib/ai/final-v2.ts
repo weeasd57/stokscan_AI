@@ -622,6 +622,10 @@ export function buildV2FinalMessages(
         sections.push(evidenceEngineBlock);
     }
 
+    if (plan.entities?.excluded_sectors && plan.entities.excluded_sectors.length > 0) {
+        sections.push(`⚠️ تنبيه: طلب المستخدم استبعاد القطاعات التالية: (${plan.entities.excluded_sectors.join("، ")}). اذكر صراحة في بداية ردك بأنه تم استبعاد/استثناء هذه القطاعات بناءً على طلبه.`);
+    }
+
     const verifiedPortfolioResults = toolResults.filter(result => result.tool === "manage_portfolio"
         && !result.error && result.data?.ok === true && Array.isArray(result.data?.positions));
     const ownedPositions = verifiedPortfolioResults
@@ -1483,6 +1487,10 @@ export function normalizeStockFreshnessLanguage(reply: string, toolResults: Tool
         // Last-resort terminology guard. This tool compares price with the
         // midpoint of a 60-session range; it does not calculate intrinsic value.
         reply = reply
+            .replace(/فوق\s+القيمة\s+الفنية\s*\((?:منتصف\s+نطاق)/g, "فوق منتصف النطاق (القيمة الفنية، نطاق")
+            .replace(/فوق\s+القيمة\s+الفنية(?!\s*\([^)]*منتصف)/g, "فوق منتصف النطاق (القيمة الفنية)")
+            .replace(/تحت\s+القيمة\s+الفنية\s*\((?:منتصف\s+نطاق)/g, "تحت منتصف النطاق (القيمة الفنية، نطاق")
+            .replace(/تحت\s+القيمة\s+الفنية(?!\s*\([^)]*منتصف)/g, "تحت منتصف النطاق (القيمة الفنية)")
             .replace(/قيمته\s+العادلة/g, "القيمة الوسطية الفنية لنطاقه")
             .replace(/قيمتها\s+العادلة/g, "القيمة الوسطية الفنية لنطاقها")
             .replace(/القيمة\s+العادلة/g, "القيمة الوسطية الفنية للنطاق")
@@ -1526,6 +1534,12 @@ function appendLiveSessionNotices(reply: string, toolResults: ToolResult[]): str
     }
     if (hasLiveFailed && !reply.includes("تعذر جلب السعر المباشر")) {
         reply += "\n\n> ⚠️ **ملاحظة:** تم إجراء محاولة لتحديث بيانات السهم لحظياً من جلسة التداول، ولكن تعذر جلب السعر المباشر حالياً بسبب بطء الاستجابة. تم الاعتماد على آخر إغلاق رسمي مسجل. يمكنك المحاولة لاحقاً.";
+    }
+    const sectorTool = toolResults.find(r => r.tool === "get_sector_liquidity" && Array.isArray(r.data?.excluded_sectors) && r.data.excluded_sectors.length > 0);
+    const fairValueTool = toolResults.find(r => r.tool === "get_fair_value_scan" && Array.isArray(r.data?.excluded_sectors) && r.data.excluded_sectors.length > 0);
+    const excluded = sectorTool?.data?.excluded_sectors || fairValueTool?.data?.excluded_sectors || [];
+    if (excluded.length > 0 && !/(?:استبعاد|مستبعد|استثناء|استثنينا)/i.test(reply)) {
+        reply += `\n\n> ℹ️ **ملاحظة:** تم استبعاد قطاعات: (${excluded.join("، ")}) بناءً على طلبك.`;
     }
     return reply;
 }

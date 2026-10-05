@@ -131,10 +131,11 @@ it("removes the safety gate and masks open >50% opportunities with a Pro badge a
   // An aged open recommendation is now released to Free, including its quote;
   // a still-locked signal above must continue to have no identity or price.
   expect(normal).toMatchObject({ last_close: 100, delayed: false, snapshot_cutoff: null });
-  expect(fresh.last_close).toBeUndefined();
-  expect(rows.find((r: any) => r.id === "old-loss")).toMatchObject({ status: "loss", precision: 0.8, identity_locked: true, profit_loss_pct: -10, exchange: "EGX" });
-  expect(rows.find((r: any) => r.id === "old-loss").symbol).toBeUndefined();
-  expect(rows.find((r: any) => r.id === "recent-loss").profit_loss_pct).toBe(-10);
+  // A closed recommendation older than 15 days is released to Free users,
+  // while fresh closed recommendations within 15 days remain identity-locked.
+  expect(rows.find((r: any) => r.id === "old-loss")).toMatchObject({ status: "loss", precision: 0.8, profit_loss_pct: -10, exchange: "EGX", symbol: "LOSS" });
+  expect(rows.find((r: any) => r.id === "recent-loss")).toMatchObject({ status: "loss", precision: 0.8, identity_locked: true, profit_loss_pct: -10, exchange: "EGX" });
+  expect(rows.find((r: any) => r.id === "recent-loss").symbol).toBeUndefined();
   expect(rows.find((r: any) => r.id === "fresh-loss").profit_loss_pct).toBe(-10);
   expect(rows.find((r: any) => r.id === "large-win")).toMatchObject({ identity_locked: true, high_return_pro: false, recommendation_age_days: null, profit_loss_pct: 51 });
   expect(rows.find((r: any) => r.id === "large-win").symbol).toBeUndefined();

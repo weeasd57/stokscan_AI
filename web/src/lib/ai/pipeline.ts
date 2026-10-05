@@ -1908,7 +1908,8 @@ export async function* runPipelineStream(
                     const gate = runAnswerGate(gateInput);
                     let finalPassed = gate.ok;
                     if (!gate.ok) {
-                        let repaired = safeEvidenceResponse(userMessage, publicationTools.results, publicationPlan);
+                        let repaired = (publicationVision ? null : buildDeterministicResponse(userMessage, publicationPlan, publicationTools.results, sessionState))
+                            || safeEvidenceResponse(userMessage, publicationTools.results, publicationPlan);
                         next.value.data.response_origin = "fallback";
                         // Deterministic shortcuts also get a contextual LLM repair,
                         // preserving other parts of compound requests when possible.
@@ -2475,6 +2476,7 @@ async function* runPipelineCore(
         || Boolean(detectPortfolioIntent(userMessage))
         || deterministicPlannerResult?.intent === "portfolio_management"
         || deterministicPlannerResult?.guidance_intent === "terms_explainer"
+        || Boolean(/شريع|sharia/i.test(normalizeArabicIntent(userMessage)))
         || Boolean(deterministicPlannerResult?.service_degraded_message || deterministicPlannerResult?.unresolved_stock);
     const canUseSemanticPlanner = !hasImages
         && portfolioAnalysisSymbols.length === 0
@@ -2889,7 +2891,7 @@ async function* runPipelineCore(
         tools: plannedTools,
         clarification_needed: Boolean(plannerResult.clarification_needed),
         clarification_options: plannerResult.clarification_options || [],
-        ranking_metric: marketRankingMode || plannerResult.request?.ranking_metric || "unspecified",
+        ranking_metric: /شريع|sharia/i.test(normalizeArabicIntent(userMessage)) ? "unspecified" : (marketRankingMode || plannerResult.request?.ranking_metric || "unspecified"),
         service_degraded_message: plannerResult.service_degraded_message || null,
         unresolved_stock: Boolean(plannerResult.unresolved_stock),
         request: plannerResult.request,
