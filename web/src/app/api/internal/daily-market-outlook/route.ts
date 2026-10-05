@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { executeStructuredTools } from "@/lib/ai/tools-v2";
 import { getDeepSeekApiKey } from "@/lib/ai/server-secrets";
 import { getSupabaseServiceClient } from "@/lib/supabase/route-data";
+import { recommendationResumeNotice } from "@/lib/ai/recommendation-resume-notice";
 import type { IntentPlan, ToolResult } from "@/lib/ai/types";
 
 export const runtime = "nodejs";
@@ -62,7 +63,13 @@ export async function POST(request: NextRequest) {
     };
 
     const supabase = getSupabaseServiceClient({ cacheMarketData: true });
-    const toolOutput = await executeStructuredTools(
+    const recommendationsCreated = Math.max(0, Number(body.recommendationsCreated || 0));
+    const decisionRead = recommendationsCreated === 0
+      ? Promise.resolve(supabase.from("market_cache").select("payload")
+        .eq("cache_key", "recommendation_decision_audit").eq("country", "Egypt").maybeSingle())
+        .catch(() => ({ data: null }))
+      : Promise.resolve({ data: null });
+    const [toolOutput, decisionResult] = await Promise.all([executeStructuredTools(
       supabase,
       plan,
       [],
@@ -70,7 +77,15 @@ export async function POST(request: NextRequest) {
       `daily-market-outlook-${body.date}`,
       "قدّم نظرة يومية موجزة على سوق EGX والسيولة والقطاعات، اعتمادًا حصريًا على بيانات الأدوات المرفقة.",
       [],
-    );
+    ), decisionRead]);
+    const decision = decisionResult.data?.payload;
+    const resumeNotice = recommendationResumeNotice({
+      date: body.date,
+      recommendationsCreated,
+      blocked: body.recommendationGate?.blocked,
+      gateReason: body.recommendationGate?.reason,
+      decision: decision && typeof decision === "object" ? decision : null,
+    });
 
     const market = toolOutput.results.find((result) => result.tool === "get_market");
     const liquidity = toolOutput.results.find((result) => result.tool === "get_sector_liquidity");
@@ -90,7 +105,8 @@ export async function POST(request: NextRequest) {
       data: {
         date: body.date,
         recommendation_gate: body.recommendationGate || null,
-        recommendations_created: Math.max(0, Number(body.recommendationsCreated || 0)),
+        recommendations_created: recommendationsCreated,
+        recommendation_decision: decision?.date === body.date ? decision : null,
       },
     };
     const evidence = JSON.stringify({
@@ -117,7 +133,7 @@ export async function POST(request: NextRequest) {
         messages: [
           {
             role: "system",
-            content: "أنت محرر ملخص سوق مصري. اكتب رسالة تيليجرام عربية موجزة بعنوان نظرة السوق اليومية. استخدم الأدلة المرفقة فقط، ولا تستنتج اتجاهًا أو سيولة أو أرقامًا غير موجودة. وضّح تاريخ بيانات السوق إن توفر، واذكر اتجاه EGX30/EGX100، تركّز السيولة بين القطاعات، وقرار التوصيات وسببه الفني كما ورد. لا تقدم توصية شراء/بيع. إذا غابت معلومة فقل إنها غير متاحة. اختم بأن الملخص تحليلي وليس نصيحة استثمارية. أخرج نص الرسالة فقط.",
+            content: "أنت محرر ملخص سوق مصري. اكتب رسالة تيليجرام عربية موجزة بعنوان نظرة السوق اليومية. استخدم الأدلة المرفقة فقط، ولا تستنتج اتجاهًا أو سيولة أو أرقامًا غير موجودة. وضّح تاريخ بيانات السوق إن توفر، واذكر اتجاه EGX30/EGX100، تركّز السيولة بين القطاعات، وقرار التوصيات وسببه الفني كما ورد. لا تتوقع موعد عودة التوصيات ولا تعد بصدورها غدًا؛ سيُضاف توضيح ثابت لشروط عودتها بعد المسودة. لا تقدم توصية شراء/بيع. إذا غابت معلومة فقل إنها غير متاحة. اختم بأن الملخص تحليلي وليس نصيحة استثمارية. أخرج نص الرسالة فقط.",
           },
           {
             role: "user",
@@ -138,7 +154,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       date: body.date,
-      message: message.trim(),
+      message: resumeNotice ? `${message.trim()}\n\n${resumeNotice}` : message.trim(),
       model: String(completion?.model || "deepseek-chat"),
       sources: [market.source, liquidity.source],
       marketDataDate: market.data_time,
