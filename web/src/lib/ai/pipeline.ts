@@ -24,10 +24,11 @@ import { safeEvidenceResponse } from "./response-evidence";
 import { isUnspecifiedOpportunityRequest } from "./intent-policy";
 import { completeToolsByFacets } from "./tool-completion";
 import { explicitBollingerPreset } from "./scan-request";
-import { completeDecisionTools } from "./response-task";
+import { completeDecisionTools, ResponseTask } from "./response-task";
 
 export interface PipelineResult {
     response_origin?: "llm" | "deterministic" | "fallback";
+    response_task?: ResponseTask | null;
     publication_review?: { passed: boolean; repaired: boolean; final_passed: boolean; reasons: string[] };
     vision: VisionContext | null;
     memory: MemoryResult | null;
@@ -1947,6 +1948,7 @@ export async function* runPipelineStream(
         const failureGate = runAnswerGate(publicationGateInput(response));
         yield { type: "token", data: response };
         yield { type: "done", data: { response, degraded: true, response_origin: "fallback",
+            response_task: publicationPlan?.response_task || null,
             publication_review: { passed: failureGate.ok, repaired: false, final_passed: failureGate.ok, reasons: failureGate.reasons },
             session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: sessionState.summary },
             tables: [] } };
@@ -3780,6 +3782,7 @@ export async function runPipeline(
             result.response = event.data.response;
             result.publication_review = event.data.publication_review;
             result.response_origin = event.data.response_origin;
+            result.response_task = event.data.response_task ?? null;
             result.session_update = event.data.session_update ?? result.session_update;
             result.tables = event.data.tables ?? [];
         }
