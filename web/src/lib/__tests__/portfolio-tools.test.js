@@ -4,6 +4,15 @@
  * remove, sell (full/partial + cash proceeds), and cash set.
  */
 
+jest.mock("../ai/live-stock-updater", () => {
+    const actual = jest.requireActual("../ai/live-stock-updater");
+    return {
+        ...actual,
+        isEgxSessionOpen: () => false,
+        fetchLiveStockIndicators: async () => ({ success: false }),
+    };
+});
+
 const {
     getPortfolioSnapshot,
     addPortfolioPosition,
