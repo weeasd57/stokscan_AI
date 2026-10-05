@@ -24,8 +24,10 @@ import { safeEvidenceResponse } from "./response-evidence";
 import { isUnspecifiedOpportunityRequest } from "./intent-policy";
 import { completeToolsByFacets } from "./tool-completion";
 import { explicitBollingerPreset } from "./scan-request";
+import { completeDecisionTools } from "./response-task";
 
 export interface PipelineResult {
+    response_origin?: "llm" | "deterministic" | "fallback";
     publication_review?: { passed: boolean; repaired: boolean; final_passed: boolean; reasons: string[] };
     vision: VisionContext | null;
     memory: MemoryResult | null;
@@ -1905,7 +1907,8 @@ export async function* runPipelineStream(
                     const gate = runAnswerGate(gateInput);
                     let finalPassed = gate.ok;
                     if (!gate.ok) {
-                        let repaired = safeEvidenceResponse(userMessage, publicationTools.results);
+                        let repaired = safeEvidenceResponse(userMessage, publicationTools.results, publicationPlan);
+                        next.value.data.response_origin = "fallback";
                         // Deterministic shortcuts also get a contextual LLM repair,
                         // preserving other parts of compound requests when possible.
                         if ((apiKeys.length || getDeepSeekApiKey()) && remainingExecutionMs() > 12000) {
@@ -1915,7 +1918,10 @@ export async function* runPipelineStream(
                                     { symbol: sessionState.current_symbol, message_id: null, confidence: 1 },
                                     apiKeys, requestedModel, sessionState,
                                     `${buildGateCorrectionBlock(gate.reasons)}\nالرد السابق:\n${gateInput.reply}\nحافظ على جميع أجزاء طلب المستخدم مع تصحيح المخالفات.`));
-                                if (runAnswerGate({ ...gateInput, reply: candidate }).ok) repaired = candidate;
+                                if (runAnswerGate({ ...gateInput, reply: candidate }).ok) {
+                                    repaired = candidate;
+                                    next.value.data.response_origin = "llm";
+                                }
                             } catch { /* A provider failure must not publish the rejected candidate. */ }
                         }
                         const repairedGate = runAnswerGate({ ...gateInput, reply: repaired });
@@ -1924,6 +1930,8 @@ export async function* runPipelineStream(
                         next.value.data.degraded = true;
                     }
                     next.value.data.publication_review = { passed: gate.ok, repaired: !gate.ok, final_passed: finalPassed, reasons: gate.reasons };
+                    next.value.data.response_origin ||= "deterministic";
+                    next.value.data.response_task = publicationPlan.response_task || null;
                 }
                 yield { type: "token", data: next.value.data.response };
                 yield next.value;
@@ -1938,7 +1946,7 @@ export async function* runPipelineStream(
         // can fail coverage here; do not claim an analysis passed when it timed out.
         const failureGate = runAnswerGate(publicationGateInput(response));
         yield { type: "token", data: response };
-        yield { type: "done", data: { response, degraded: true,
+        yield { type: "done", data: { response, degraded: true, response_origin: "fallback",
             publication_review: { passed: failureGate.ok, repaired: false, final_passed: failureGate.ok, reasons: failureGate.reasons },
             session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: sessionState.summary },
             tables: [] } };
@@ -2902,6 +2910,7 @@ async function* runPipelineCore(
         plan.needs_live_data = true;
     }
 
+    completeDecisionTools(userMessage, plan, history);
     yield { type: "plan", data: plan };
 
     if (plan.clarification_needed) {
@@ -3199,6 +3208,8 @@ async function* runPipelineCore(
 
     while (attempts < maxAttempts) {
         if (remainingExecutionMs() < 5000) {
+            responderMeta.source = "deterministic";
+            responderMeta.degraded = true;
             finalReply = (plan.ranking_metric === "price_change" ? buildTopMoversResponse(tools) : null)
                 || buildSafeFallbackResponse(tools.results, plan);
             break;
@@ -3307,6 +3318,8 @@ async function* runPipelineCore(
 
         // If it is the last attempt and still invalid, fall back to safe response
         if (attempts === maxAttempts - 1) {
+            responderMeta.source = "deterministic";
+            responderMeta.degraded = true;
             console.warn(`[VALIDATOR] Attempt ${attempts + 1} failed validation! Reached max retries. Using safe fallback.`);
             // Preserve the user's exact intent when the model exhausts its
             // validation retries. The intent-aware deterministic renderer can
@@ -3385,6 +3398,8 @@ async function* runPipelineCore(
     // English chain-of-thought survived all attempts), use the safe Arabic fallback.
     const finalArabicChars = (fullResponse.match(/[\u0600-\u06FF]/g) || []).length;
     if (finalArabicChars < 30) {
+        responderMeta.source = "deterministic";
+        responderMeta.degraded = true;
         console.warn("[VALIDATOR] Final reply lacks Arabic content — using safe fallback");
         fullResponse = sanitizeReply(
             buildDeterministicResponse(userMessage, plan, tools.results, sessionState)
@@ -3396,6 +3411,8 @@ async function* runPipelineCore(
     // contract before any text is sent to the user.
     const preSendGate = runAnswerGate({ reply: fullResponse, plan, toolResults: tools.results, userMessage, facts: answerFacts, history });
     if (!preSendGate.ok) {
+        responderMeta.source = "deterministic";
+        responderMeta.degraded = true;
         console.warn(`[ANSWER_GATE] Rejected final response: ${preSendGate.reasons.join("; ")}`);
         const deterministicAlt = buildDeterministicResponse(userMessage, plan, tools.results, sessionState);
         if (deterministicAlt && runAnswerGate({ reply: deterministicAlt, plan, toolResults: tools.results, userMessage, facts: answerFacts, history }).ok) {
@@ -3405,7 +3422,7 @@ async function* runPipelineCore(
                 && !result.error && result.data?.ok === true && Array.isArray(result.data?.positions));
             fullResponse = (plan.entities.portfolio_operation === "view" || isPortfolioAnalysisRequest(userMessage)) && portfolioSnapshot
                 ? (deterministicAlt || `${formatPortfolioSnapshotResponse(portfolioSnapshot.data)}\n\nتعذر إكمال التحليل الفني لكل المراكز بصورة موثوقة حالياً؛ أعد طلب التحليل بعد قليل.`)
-                : safeEvidenceResponse(userMessage, tools.results);
+                : safeEvidenceResponse(userMessage, tools.results, plan);
         }
     }
 
@@ -3482,7 +3499,8 @@ if (vision) {
         summaryUpdate.open_references = [memory.resolved_references.symbol];
     }
     await updateSessionSummary(supabase, sessionId, userId, summaryUpdate);
-    yield { type: "done", data: { response: fullResponse, session_update: sessionUpdate, tables } };
+    yield { type: "done", data: { response: fullResponse, session_update: sessionUpdate, tables,
+        response_origin: responderMeta.source === "llm" ? "llm" : responderMeta.degraded ? "fallback" : "deterministic" } };
     } catch (err: any) {
         console.error("Pipeline stream error caught:", err);
         const isTimeout = /PIPELINE_DEADLINE_EXCEEDED|DEADLINE|Timeout|AbortError/i.test(err?.message || "");
@@ -3493,6 +3511,8 @@ if (vision) {
         yield { type: "token", data: fallbackText };
         yield { type: "done", data: {
             response: fallbackText,
+            response_origin: "fallback",
+            degraded: true,
             session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: sessionState.summary },
             tables: []
         } };
@@ -3759,6 +3779,7 @@ export async function runPipeline(
         else if (event.type === "done") {
             result.response = event.data.response;
             result.publication_review = event.data.publication_review;
+            result.response_origin = event.data.response_origin;
             result.session_update = event.data.session_update ?? result.session_update;
             result.tables = event.data.tables ?? [];
         }

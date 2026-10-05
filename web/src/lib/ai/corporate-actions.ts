@@ -16,6 +16,7 @@
 
 import { searchWeb } from "./web-search";
 import { getExecutionSignal } from "./execution";
+import { getSyncStockMappings } from "./planner";
 
 // ---------------------------------------------------------------------------
 // Taxonomy + bilingual patterns (mirrors api/corporate_actions_engine.py;
@@ -161,7 +162,9 @@ function isCredibleStoredCorporateAction(item: CorporateActionItem): boolean {
     }
     const titleClassification = classifyCorporateAction(title);
     if (!titleClassification) return false;
-    return titleClassification.type === item.action_type;
+    // Cached symbol tags can be wrong. Re-verify issuer identity on reads,
+    // using the existing symbol/name cache without another database request.
+    return titleClassification.type === item.action_type && isRelevantCorporateTitle(title, item.symbol, item.symbol);
 }
 
 function extractCorporateActionDetails(title: string): Record<string, number | string> | null {
@@ -194,6 +197,14 @@ function isRelevantCorporateTitle(title: string, symbol: string, companyName: st
     const words = (value: string) => normalizeArabicText(value).match(/[\p{L}\p{N}]+/gu) || [];
     const titleWords = new Set(words(title));
     if (titleWords.has(symbol.toLowerCase())) return true;
+    const titlePhrase = ` ${words(title).join(" ")} `;
+    for (const [alias, value] of Object.entries(getSyncStockMappings())) {
+        const targets = Array.isArray(value) ? value : [value];
+        if (targets.length !== 1 || String(targets[0]).toUpperCase() !== symbol.toUpperCase()) continue;
+        const tokens = words(alias);
+        if (!tokens.some(token => !COMPANY_GENERIC_WORDS.has(token))) continue;
+        if (titlePhrase.includes(` ${tokens.join(" ")} `)) return true;
+    }
     // Sector words such as "أسمنت" and "غاز" are legitimate company names.
     // Require a company identity match rather than rejecting whole industries
     // or accepting one generic word shared by unrelated issuers.
@@ -391,7 +402,7 @@ export async function getCorporateActionsForSymbols(
         if (!enableWebSearch) return false;
         const cached = readSearchCache(cacheKey(sym));
         if (!cached) return true;
-        findings.push(...cached.items.filter(withinWindow).map(item => ({ item, via: "cache" as const })));
+        findings.push(...cached.items.filter(withinWindow).filter(isCredibleStoredCorporateAction).map(item => ({ item, via: "cache" as const })));
         return false;
     }).slice(0, 5);
 

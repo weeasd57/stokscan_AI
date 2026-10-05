@@ -9,6 +9,7 @@ import { sanitizeReply } from "./sanitizer";
 import { executionFetch } from "./execution";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { buildComparisonMatrix } from "./comparison-matrix";
+import { buildDecisionFallback, decisionPrompt } from "./decision-evidence";
 import { evidencePolicyPrompt, volumeAssessment, safeEvidenceResponse } from "./response-evidence";
 import { assembleContextSafely, EvidenceContextOverflow } from "./context-budget";
 import { recommendationPerformance } from "./recommendation-evidence";
@@ -189,10 +190,10 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
     lines.push("8. ⛔ When presented with get_accumulation_stocks or get_distribution_stocks: ALL stocks listed under get_accumulation_stocks are ACCUMULATION stocks (درجة تجميع عالية). NEVER label any stock from get_accumulation_stocks as 'تصريف' or 'توزيع'. If get_distribution_stocks reports no stocks found, explicitly write that no distribution stocks were detected in today's scan.");
     lines.push("9. ⛔ CRITICAL: If the distribution scan result shows stocks=[] or says 'لا توجد أسهم تصريف', you MUST NOT mention ANY stock as having 'تصريف', 'سيولة توزيعية', 'ضغط بيعي', or 'مرحلة تصريف'. Just say: 'لا توجد أسهم توزيع واضحة في المسح الحالي'. Same rule applies to accumulation: if accumulation scan is empty, do not invent accumulation stocks.");
     lines.push("10. ⛔ تحذير قوة الإشارة RSI: كلمة 'آمن' أو 'قوي' أو 'إيجابية واضحة' للزخم لا تنطبق على RSI بين 40-70. RSI في المنطقة 40-70 هو 'محايد' أو 'يميل للإيجابية/السلبية' فقط. لا تقل أبداً 'منطقة زخم صاعد إيجابي وآمن'، 'آمن تماماً'، أو 'إشارة قوية' إذا كان RSI بين 40 و 70. استخدم بدلاً منها: 'زخم محايد يميل للإيجابية' أو 'محايد بنسبة RSI X'.");
-    lines.push("11. 📝 هيكل الرد الإلزامي للمقارنات (MANDATORY COMPARISON LAYOUT): عندما يطلب المستخدم مقارنة أسهم، يجب الالتزام بهذا الترتيب الصارم: 1. النظرة العامة، 2. التحليل الفني لكل سهم، 3. مصفوفة القرار (Decision Matrix) في جدول (يحتوي: السهم | جودة الاتجاه | زخم | سيولة | مخاطرة الدخول | القرار)، 4. الرأي الإحصائي للذكاء الاصطناعي (ML Scores & Consensus)، 5. الخلاصة وشروط الدخول الثابتة والخاتمة التوجيهية (Decision Conclusion).");
-    lines.push("12. 📏 عتبات المؤشرات الثابتة (STRICT THRESHOLDS): للـ ADX (أقل 20=ضعيف، 20-25=بداية، 25-40=قوي، >40=مفرط/قوي جداً). للـ RSI (>70=تشبع شرائي ومخاطرة عالية ولا تطارد السهم، <30=تشبع بيعي، 40-70=محايد). للـ vol_ratio (<0.8x=سيولة ضعيفة، ~1.0x=متوسطة، >1.5x=انفجار). لا تنصح بالدخول إذا كانت السيولة ضعيفة.");
-    lines.push("13. 🎯 شروط الدخول (ACTIONABLE CONDITIONS): فقط عندما يدعمها التحليل الفني والأساسي واضواً. لا تقدّم شروط دخول إذا لم تدعمها البيانات (RSI 40-70، أو السعر قريب من المقاومة، أو سيولة ضعيفة). عندما يكون الاتجاه واضحاً والزخم إيجابياً، قدّم شرطاً تنفيذياً محدداً (مثال: 'الدخول يصبح جذاباً إذا عاد الحجم فوق 1.0x واخترق X، بينما كسر الدعم Y يلغي السيناريو').");
-    lines.push("14. 🤖 الرأي الإحصائي والرياضيات (ML MODELS & MATH): استخدم دائماً القيم المجهزة مسبقاً في ML STATISTICAL DELTAS أعلاه. لا تخترع فوارق حسابية من عندك.");
+    lines.push("11. صيغة المقارنة تتبع سؤال المستخدم: في طلب المفاضلة ابدأ بخلاصة مشروطة ثم أدلة كل مرشح وحدود التنفيذ. استخدم جدولاً تفصيلياً إذا طلبه المستخدم، ولا تفرض تقريراً من خمسة أقسام أو درجات مصطنعة.");
+    lines.push("12. وصف المؤشرات: ADX وRSI يصفان الاتجاه والزخم المسجلين، ولا يثبتان أمان الدخول. vol_ratio أقل من 1.0x حجم دون متوسطه، وأعلى من 1.0x حجم فوق متوسطه؛ لا يثبت سيولة مطلقة أو انفجاراً أو اتجاه شراء/بيع.");
+    lines.push("13. شروط المراقبة تعتمد على دعم ومقاومة موثقين وتأكيد حركة الجلسة؛ لا تخترع عتبات RSI/حجم أو دقائق انتظار كقاعدة تنفيذ معايرة، ولا تحول مؤشراً واحداً إلى أمر شراء.");
+    lines.push("14. درجات النماذج إن توفرت ملاحظات موثقة وليست احتمالات عائد أو دلالة إحصائية. لا تصف فرق الدرجات بأنه دال إحصائياً بلا اختبار وعدم يقين موثقين، ولا تخترع درجات أو حسابات غائبة.");
     lines.push("15. افصل توصية المنصة المسجلة عن التحليل الحالي. ACTIVE_OPEN تعني توصية مفتوحة وعائدًا غير محقق؛ CLOSED تعني توصية مغلقة، وNONE تعني عدم وجود سجل. لا تفترض تنفيذ المستخدم أو عدم تنفيذه، ولا تصف الإشارة القديمة بأنها دخول جديد.");
     lines.push("16. ⛔ سلامة ومطابقة الرموز والبيانات (SYMBOL & DATA INTEGRITY): يجب عليك فقط كتابة وتحليل الأسهم الموجودة صراحة في STRICT EVIDENCE CONTEXT أعلاه. يمنع منعاً باتاً استبدال أو خلط رموز الأسهم ببعضها البعض، ويجب ربط بيانات كل سهم (السعر، التغير، RSI، حجم التداول، إلخ) برمزها الصحيح بدقة بالغة دون أي تبديل أو خلط، مع الامتناع التام عن ذكر أو مناقشة أي أسهم غير متواجدة في البيانات المرفقة.");
     lines.push("16b. ⛔ عندما يسأل المستخدم عن مركزه الشخصي أو قراره في سهم (مثل 'اشتريت السهم بسعر X'، 'أوقف خساير؟'، 'سعري X'، 'متوسطي X') ولكن البيانات المعروضة أمامه هي قائمة مسح عام للسوق لعدة أسهم (مثل get_distribution_stocks أو get_accumulation_stocks بدون تحديد سهم المستخدم): يمنع منعاً باتاً اختيار أول سهم عشوائي من الجدول والادعاء بأنه سهم المستخدم أو تطبيق سعر الشراء عليه! بل اطلب منه فوراً تحديد رمز السهم المقصود لتحليله بدقة.");
@@ -308,6 +309,9 @@ export function buildV2FinalMessages(
         };
         sections.push("=== RESPONSE MODE: INVESTOR EDUCATION ===\n" + guidanceRules[guidanceIntent]);
     }
+
+    const completionContract = decisionPrompt(userMessage, plan, toolResults, recentHistory);
+    if (completionContract) sections.push(completionContract);
 
     const officialNameMap = getSyncSymbolOfficialNameMap();
     const allowedSymbols = Array.from(new Set([
@@ -556,18 +560,12 @@ export function buildV2FinalMessages(
     sections.push("  • يمنع منعاً باتاً تكرار العبارات الانتقالية المتماثلة مثل (من ناحية أخرى، يظهر أن) أو سرد الجمل بصيغ متكررة؛ اكتب بلغة عربية سلسلة ومتنوعة ومترابطة.");
     sections.push("  • يمنع منعاً باتاً استخدام مقدمات أو أسلوب المقالات أو المدونات (مثل: 'مرحباً بكم في هذا المقال' أو 'سنتحدث اليوم عن'). ابدأ مباشرة بالتحليل والإجابة عن سؤال العميل بأسلوب مساعد مالي ذكي ومباشر.");
     sections.push("  • لا تشرح المفاهيم العامة للمؤشرات الفنية (مثل شرح ما هو RSI أو ما هو MACD) بل طبّق الأرقام مباشرة لوصف حالة السهم الحالية، إلا إذا طلب المستخدم تعريفها صراحة.");
-    sections.push("  • نسبة الحجم (Volume Ratio / vol_ratio): إذا كانت أقل من 1.0x (مثل 0.53x) فهذا يعني أن 'التداول والسيولة ضعيفة/أقل من المتوسط'، ويُمنع تماماً وصفها بأنها قوية. لا تعتبر السيولة قوية إلا إذا كانت نسبة الحجم أكبر من 1.5x.");
+    sections.push("  • نسبة الحجم (vol_ratio) تقارن حجم السهم بمتوسطه فقط: دون 1.0x أقل من المتوسط، وفوقه أعلى منه. لا ترتب قيمة السيولة أو جودة التنفيذ من هذه النسبة وحدها.");
     sections.push("  • مؤشر MACD: القيمة الرقمية المجردة القريبة من الص الصفر (مثل 0.0089) لا تعني 'إشارات صاعدة' بمفردها؛ صف حركة السهم بناءً على تقاطعه مع خط الإشارة أو اتجاه الـ Histogram إن وجد في البيانات، وإلا اعتبره محايداً.");
     sections.push("  • عندما يسأل المستخدم 'في أي منطقة' أو 'منطقة إيه حالياً' أو عن موقع السعر مقارنة بالدعم والمقاومة لأسهم معينة:");
     sections.push("    1. استخدم قيم الحقول المحسوبة الجاهزة في === LIVE DATA === (مثل: price_vs_support, distance_from_support_pct, trading_zone, position_pct) لوصف موقع السعر بدقة.");
     sections.push("    2. يمنع تماماً مقارنة الأرقام يدوياً من قبلك لتفادي أخطاء الحساب اللغوي؛ اعتمد 100% على الحقل trading_zone و price_vs_support المكتوب في البيانات لتصنيف النطاق الفني.");
-    sections.push("  • 🚫 قاعدة مصفوفة القرار (Decision Matrix) — للاستعلامات مقارنة أسهم (2 سهم فأكثر): عند مقارنة أسهم، يجب عليك بناء **مصفوفة قرار** تلقائية تلقائياً من البيانات المقدرة، تتكوّن من البندات التالية لكل سهم:");
-    sections.push("    - التقنية (Technical): RSI، MACD (مقابل خط الإشارة إن وجد)، الاتجاه، مستويات الدعم/المقاومة، Bollinger Bands.");
-    sections.push("    - السيولة (Liquidity): vol_ratio، عدد الأيام المتداولة، wyckoff_phase.");
-    sections.push("    - التعلم الآلي (ML): KING AI score، EGX AI score (مع الفرق النقطي الدقيق بين الأسهم).");
-    sections.push("    - المخاطر (Risk): مسافة السعر من أقرب مستوى دعم/مقاومة، إشارات توزيع/تجميع المتاحة.");
-    sections.push("    - الثقة النهائية (Final Confidence): مجموع البندات الموجبة.");
-    sections.push("    ثم اجمعها في عمود 'النتيجة النهائية' وقلّلها إلى فئات: STRONG BUY (قوي للشراء) / BUY (أفضل) / NEUTRAL (محايد) / AVOID (تجنب). لا تخترع بندًا واحدة من عدها — استخدم فقط القيم الموجودة في === LIVE DATA ===. كن النظام المحسوب وليس الكاتب الذي يخترع.");
+    sections.push("  • المقارنة تستخدم الملاحظات الموثقة ومعيار المستخدم. لا تجمع المؤشرات أو درجات ML في ثقة نهائية أو تصنيف شراء؛ لا يوجد نموذج مجمع معاير لهذه العملية. وضح اختلاف الأفضلية بين المعايير وحدود البيانات، وأجب بإيجاز ما لم يطلب المستخدم التفاصيل.");
     sections.push("- عندما يسأل المستخدم عن قوائم أو توصيات السوق أو الأسبوع أو كل التوصيات المفتوحة (استعلام عام يشمل أكثر من سهم):");
     sections.push("  • جدول التوصيات الكامل التفاعلي (مع إمكانية التصدير لإكسيل) يُعرض تلقائياً أعلى ردك مباشرة كعنصر تفاعلي في واجهة المحادثة. يمنع منعاً باتاً تكرار أو طباعة أسطر الجدول أو كتابة نصوص بنظام '1 | COSG | ...' داخل النص.");
     sections.push("  • يمنع تماماً استخدام عنوان '🎯 موقف توصيات المنصة للسهم' في الاستعلامات العامة للتوصيات؛ هذا العنوان مخصص فقط للسهم الفردي.");
@@ -694,7 +692,9 @@ export function buildV2FinalMessages(
         || (Array.isArray(plan.entities.symbols) && plan.entities.symbols.length >= 2);
     const asksDetail = /تفصيل|بالتفصيل|شامل|متكامل|كل المؤشرات/i.test(userMessage);
     const asksEntry = /اشتري|اشترى|انري|ادخل|أدخل|دخول|اخرج|أخرج|ابيع|أبيع|احتفظ/i.test(normalizeArabicIntent(userMessage));
-    const lengthRule = asksEntry && !asksDetail
+    const lengthRule = completionContract && !asksDetail
+        ? "قدّم مفاضلة موجزة في حدود 120–180 كلمة: الخلاصة المشروطة أولاً، ثم دليل كل مرشح وتاريخ السعر، ثم شروط المراقبة وحدود البيانات. لا تفرض أقساماً إحصائية أو أخباراً لم تُطلب، ولا تضع عتبات دخول أو مدة انتظار رقمية بلا دليل موثق."
+        : asksEntry && !asksDetail
         ? "ابدأ بموقف واضح: مراقبة أو دخول مشروط أو تعذر التقييم، ثم السبب وشروط التفعيل والإلغاء من الأرقام الموثقة. استخدم 3–5 أسطر؛ لا تكرر التقرير الكامل، ولا تحول علاقة حالية إلى تقاطع مؤكد."
         : plan.intent === "technical_scan"
         ? "اعرض قائمة الأسهم ونتائج المسح الفني دائمًا في جدول ماركداون (Markdown Table) منسق ومكتمل الأعمدة بدلاً من القوائم المنقطة أو الأسطر الطويلة لتفادي تداخل النصوص واللغات."
@@ -2272,6 +2272,8 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     if (plan.unresolved_stock && plan.service_degraded_message) {
         return plan.service_degraded_message;
     }
+    const decisionReply = buildDecisionFallback(userMessage, plan, toolResults);
+    if (decisionReply) return safeEvidenceResponse(userMessage, toolResults, plan);
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
     if (fastAdvisor) return fastAdvisor;
 

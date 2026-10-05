@@ -476,6 +476,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
   },
   "tools": ["ToolName1", "ToolName2"], // EXACT tool names selected from AVAILABLE TOOLS. [] for general_chat.
   "request": {
+    "answer_kind": "decision_comparison|comparison|explanation|fact", // decision_comparison for choosing the better candidate; comparison for a data table only
     "goal": "short description of what the user wants",
     "reference": "explicit|portfolio|previous_turn|market|none",
     "ranking_metric": "price_change|liquidity|accumulation|fundamentals|unspecified",
@@ -780,6 +781,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                             intent: finalIntent,
                             confidence: parsed.confidence || 0.95,
                             request: parsed.request && typeof parsed.request === "object" ? {
+                                answer_kind: ["decision_comparison", "comparison", "explanation", "fact"].includes(parsed.request.answer_kind) ? parsed.request.answer_kind : undefined,
                                 goal: String(parsed.request.goal || finalIntent).slice(0, 180),
                                 reference: ["explicit", "portfolio", "previous_turn", "market", "none"].includes(parsed.request.reference)
                                     ? parsed.request.reference : (resolvedSymbols.length ? "explicit" : "none"),

@@ -25,6 +25,9 @@ import { isPortfolioAnalysisRequest, isConversationalChoiceOrFollowUp } from "./
 import { evidenceViolations } from "./response-evidence";
 import { checkStructuredClaims } from "./claim-evidence";
 import { isTodayNewsRequest } from "./news-evidence";
+import { resolveResponseTask, checkResponseTask } from "./response-task";
+import { checkDecisionComparatives, checkDecisionGrounding } from "./decision-evidence";
+import { proseOwner, stockSection } from "./prose-ownership";
 
 export interface AnswerGateInput {
     reply: string;
@@ -45,6 +48,7 @@ export interface AnswerGateResult {
         metric: boolean;
         attribution: boolean;
         context: boolean;
+        completion: boolean;
     };
 }
 
@@ -108,7 +112,9 @@ function checkAttribution(reply: string, facts: FactRecord[]): string[] {
         return selected ? new Set(selected) : null;
     };
 
+    let section: string | null = null;
     for (const line of reply.split("\n")) {
+        section = stockSection(line, [...bySymbol.keys()]) || section;
         // Table rows pair values with columns structurally; the validator and
         // deterministic renderers own table accuracy. The gate checks prose.
         if (line.trim().startsWith("|")) continue;
@@ -117,10 +123,11 @@ function checkAttribution(reply: string, facts: FactRecord[]): string[] {
             const symbolsInSentence = Array.from(
                 new Set((sentence.match(/\b[A-Z]{2,6}\b/g) || []).filter(sym => bySymbol.has(sym)))
             );
-            if (symbolsInSentence.length === 0) continue;
+            if (symbolsInSentence.length === 0 && !section) continue;
             // Mixed comparisons legitimately list several stocks' numbers in one clause.
             if (symbolsInSentence.length > 1) continue;
-            const symbol = symbolsInSentence[0];
+            const symbol = proseOwner(sentence, [...bySymbol.keys()], section);
+            if (!symbol) continue;
             const symbolFacts = bySymbol.get(symbol) || [];
 
             const percentClaims = Array.from(sentence.matchAll(/(?:[-+]?\d+(?:[.,]\d+)?)\s*(?:%|٪)/g))
@@ -167,7 +174,10 @@ export function runAnswerGate(input: AnswerGateInput): AnswerGateResult {
     const { reply, plan, toolResults, userMessage, facts } = input;
     const reasons: string[] = [...evidenceViolations(reply, userMessage, toolResults), ...checkStructuredClaims(reply, toolResults, userMessage),
         ...checkContextEvidence(reply, plan, toolResults, input.vision)];
-    const checked = { coverage: false, metric: false, attribution: false, context: false };
+    const checked = { coverage: false, metric: false, attribution: false, context: false, completion: true };
+    const task = resolveResponseTask(userMessage, plan, input.history);
+    reasons.push(...checkResponseTask(reply, task, toolResults), ...checkDecisionComparatives(reply, task, toolResults),
+        ...checkDecisionGrounding(reply, task, toolResults));
 
     // Ownership is a three-state fact: nonempty, verified empty, or unknown.
     // The responder may not turn a missing tool result into an empty portfolio.

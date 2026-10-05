@@ -18,6 +18,7 @@ const cell = (value: unknown): string => {
 };
 
 const metric = (value: unknown, digits = 2): string => {
+    if (value === null || value === undefined || value === "") return "";
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric.toFixed(digits).replace(/\.00$/, "") : cell(value);
 };
@@ -42,7 +43,7 @@ function stockRow(stock: any, symbolFallback = ""): string[] {
     const tech = stock?.tech || stock;
     const price = stock?.price?.close ?? stock?.price ?? tech?.close ?? "";
     const change = tech?.change_pct ?? stock?.change_pct ?? stock?.change ?? "";
-    const volume = tech?.vol_ratio ?? stock?.vol_ratio ?? (
+    const volume = tech?.vol_ratio ?? tech?.volume_ratio ?? stock?.vol_ratio ?? (
         tech?.volume != null && tech?.vol_sma20
             ? Number(tech.volume) / Number(tech.vol_sma20)
             : ""
@@ -148,7 +149,7 @@ function buildSectorListTable(tool: ToolResult): ExcelTable | null {
 
 function buildComparisonTable(tool: ToolResult): ExcelTable | null {
     const data = tool.data || {};
-    const entries = [data.sym1, data.sym2].filter(Boolean);
+    const entries = Array.isArray(data.comparisons) ? data.comparisons : [data.sym1, data.sym2].filter(Boolean);
     const rows = entries.map((entry: any, index: number) => stockRow(entry, entry?.info?.symbol || tool.symbols[index]));
     if (rows.length === 0) return null;
 

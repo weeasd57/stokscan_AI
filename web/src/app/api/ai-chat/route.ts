@@ -741,8 +741,10 @@ export async function POST(req: NextRequest) {
                                          ...extractProvenanceFromToolResults(toolsResults, streamTables),
                                          correlation_id: correlationId,
                                          publication_review: event.data?.publication_review || null,
+                                         response_origin: event.data?.response_origin || null,
+                                         response_task: event.data?.response_task || null,
                                          vision_error: event.data?.vision_error || null,
-                                         response_kind: event.data?.vision_error ? "vision_fallback" : "normal",
+                                         response_kind: event.data?.vision_error ? "vision_fallback" : event.data?.response_origin === "fallback" ? "fallback" : "normal",
                                      };
                                     if (clientMessageId) await supabase.from("ai_chat_idempotency").update({ status: "completed", response: replyText, updated_at: new Date().toISOString() }).eq("user_id", userId).eq("client_message_id", clientMessageId);
                                     const sessionUpdate = event.data.session_update;

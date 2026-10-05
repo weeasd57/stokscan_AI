@@ -125,11 +125,13 @@ export interface IntentPlan {
     };
     /** Structured semantic interpretation used to verify tool coverage and references. */
     request?: RequestContract;
+    response_task?: import("./response-task").ResponseTask;
     /** Market ranking metric retained through response and fallback stages. */
     ranking_metric?: RequestContract["ranking_metric"];
 }
 
 export interface RequestContract {
+    answer_kind?: "decision_comparison" | "comparison" | "explanation" | "fact";
     goal: string;
     reference: "explicit" | "portfolio" | "previous_turn" | "market" | "none";
     ranking_metric: "price_change" | "liquidity" | "liquidity_unavailable" | "accumulation" | "fundamentals" | "unspecified";

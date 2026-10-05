@@ -1,4 +1,5 @@
-import { ToolResult } from "./types";
+import { IntentPlan, ToolResult } from "./types";
+import { buildDecisionFallback } from "./decision-evidence";
 import { summarizeNewsEvidence, summarizeToolNewsEvidence, corporateActionDates, isTodayNewsRequest, newsEventDate } from "./news-evidence";
 import { renderRecommendationEvidence } from "./recommendation-presentation";
 import { explicitBollingerPreset } from "./scan-request";
@@ -152,8 +153,12 @@ export function evidenceViolations(reply: string, message: string, results: Tool
     return reasons;
 }
 
-export function safeEvidenceResponse(message: string, results: ToolResult[]): string {
+export function safeEvidenceResponse(message: string, results: ToolResult[], plan?: IntentPlan): string {
     const sections: string[] = [];
+    const decisionPlan = plan || { intent: "comparison", entities: { symbols: Array.from(new Set(results
+        .filter(r => ["get_stock", "get_comparison"].includes(r.tool)).flatMap(r => r.symbols || []))) } } as IntentPlan;
+    const decision = buildDecisionFallback(message, decisionPlan, results);
+    if (decision) sections.push(decision);
     const image = results.find(r => r.tool === "image_context")?.data;
     if (image?.symbols?.length) {
         sections.push(image.image_type === "portfolio"
@@ -241,7 +246,7 @@ export function safeEvidenceResponse(message: string, results: ToolResult[]): st
             if (older.length) sections.push(["أحدث أخبار أقدم من اليوم في المصادر المتاحة:", ...older.map(a => `- ${a.title} (تاريخ النشر ${a.event_date})`)].join("\n"));
         } else sections.push("لم أجد خبراً موثقاً في المصادر المتاحة للفترة المطلوبة؛ هذا لا يؤكد عدم صدور أخبار.");
     }
-    for (const r of results.filter(r => r.tool === "get_stock" && !r.error)) {
+    for (const r of results.filter(r => !decision && r.tool === "get_stock" && !r.error)) {
         if (r.data?.price != null) sections.push(`${r.data?.symbol || r.symbols[0]}: السعر ${r.data?.is_live_intraday ? "اللحظي" : "آخر إغلاق مسجل"} ${r.data.price} جنيه بتاريخ ${r.data_time || "غير محدد"}.`);
         sections.push(`${r.data?.symbol || r.symbols[0]} — نسبة حجم التداول ${r.data?.vol_ratio ?? "غير متاحة"}: ${volumeAssessment(r.data?.vol_ratio)}. حجم التداول وحده لا يثبت التجميع أو التصريف.`);
         const rec = r.data?.recommendation;

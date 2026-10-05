@@ -76,7 +76,7 @@ export function checkContextEvidence(reply: string, plan: IntentPlan, results: T
             if (line && row.as_of && !line.includes(String(row.as_of).slice(0, 10))) reasons.add(`${row.symbol}: المقارنة يجب أن تذكر تاريخ السعر ${String(row.as_of).slice(0, 10)} بجانب قيمته.`);
         }
     }
-    if (stocks.length && text.split(/[\n؛.!؟]/).some(clause => /فرق احصائي ملحوظ|دلاله احصائيه|دال احصائيا/.test(clause)
+    if ((stocks.length || comparison) && text.split(/[\n؛.!؟]/).some(clause => /فرق احصائي ملحوظ|دلاله احصائيه|دال احصائيا/.test(clause)
         && !/لا يثبت|لا يكفي|لا تكفي|لا يمكن|لا استطيع|لا نستطيع|لم نختبر|لم يجر.{0,10}اختبار|لا يوجد اختبار|لا تتوفر.{0,15}(?:اختبار|نتائج)|غير موثق|دون اختبار|من غير اختبار/.test(clause))) reasons.add("لم يجر اختبار للدلالة الإحصائية؛ لا تجزم بوجودها أو غيابها، وصف فرق الدرجات بالنقاط فقط.");
     if (stocks.length && /(?:king|egx).{0,80}(?:يقرأ|يقرا|بسبب|يركز|يرجح|يرجّح).{0,70}(?:الطويل|القصير|الزخم|متوسطات|المتوسطات)/i.test(text)) reasons.add("لا تخترع تفسيراً لقرار نموذج ML؛ أسباب اختلاف النموذجين غير موثقة في درجاتهما وحدها.");
     if (stocks.length && text.split(/[\n؛.!؟]/).some(clause => /(?:النموذجان|النموذجين|king|egx).{0,100}(?:يعملان|يستخدمان|لان|بسبب|مجموعات سمات|معايره مختلفه|سمات.{0,10}مختلفه)/.test(clause)

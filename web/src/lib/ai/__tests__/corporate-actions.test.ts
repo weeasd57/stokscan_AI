@@ -90,6 +90,15 @@ describe("getCorporateActionsForSymbols", () => {
         };
     }
 
+    it("rejects an unrelated issuer even when a stored row is tagged with the requested ticker", async () => {
+        const row = { symbol: "GBCO", exchange: "EGX", action_type: "capital_increase",
+            title: "«سيد» للصناعات الكيماوية ترفع رأس المال المرخص به إلى 1.5 مليار جنيه تمهيدًا للطرح",
+            published_at: new Date().toISOString(), details: null, origin: "scheduler" };
+        const result = await getCorporateActionsForSymbols(fakeSupabase([row]), ["GBCO"], { enableWebSearch: false });
+        expect(result.items).toEqual([]);
+        expect(result.fromDatabase).toBe(0);
+    });
+
     it("returns database rows but does not infer search freshness from a recent article", async () => {
         const row = {
             symbol: "COMI", exchange: "EGX", action_type: "dividend", title: "توزيعات كومي",
