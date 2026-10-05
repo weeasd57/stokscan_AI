@@ -2506,6 +2506,14 @@ async function* runPipelineCore(
             request: { goal: userMessage, reference: "market", ranking_metric: "unspecified", required_facts: [] } };
         isSemanticPlanAuthoritative = false;
     }
+    const explicitFairValueScan = !hasImages && splitChatCommands(userMessage).length === 1 && isFairValueScanRequest(userMessage) && extractExplicitSymbols(userMessage).length === 0;
+    if (explicitFairValueScan) {
+        const filters = getFairValueFilters(userMessage);
+        plannerResult = { ...plannerResult, intent: 'market_summary', tools: ['get_fair_value_scan'],
+            clarification_needed: false, entities: { ...plannerResult.entities, symbols: [], sector: null, ...filters },
+            request: { goal: userMessage, reference: 'market', ranking_metric: 'unspecified', required_facts: ['fair_value_scan'] } };
+        isSemanticPlanAuthoritative = false;
+    }
     const bollingerStockSymbols = /bollinger|بولينجر|بولنجر|بولينغر/i.test(userMessage) && !isMarketWideRequest(userMessage)
         ? extractExplicitSymbols(userMessage) : [];
     if (bollingerStockSymbols.length && !explicitScan) {
