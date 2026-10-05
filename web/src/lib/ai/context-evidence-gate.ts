@@ -40,9 +40,12 @@ export function checkContextEvidence(reply: string, plan: IntentPlan, results: T
         const symbol = stock.data.symbol;
         const level = levels.find(r => String(r.data?.symbol || r.symbols?.[0]).toUpperCase() === String(symbol).toUpperCase());
         const price = finiteMetric(stock.data.price);
-        const quoteMatch = line.match(/(?:سعر(?:\s+(?:السهم|الحالي|اللحظي|مسجل))?|السعر(?:\s+(?:الحالي|اللحظي))?|اغلاق(?:\s+مسجل)?)\s*[:(]?\s*(\d+(?:\.\d+)?)/);
-        if (quoteMatch && price != null && Math.abs(Number(quoteMatch[1]) - price) > .006 && !/اذا|لو|مستهدف|هدف|دخول|شراء|خروج|توصيه سابقه|اغلاق سابق/.test(line)) {
-            reasons.add(`${symbol}: السعر المذكور لا يطابق لقطة السعر المعتمدة ${price} بتاريخ ${stock.data_time}؛ لا تستبدله بسعر أقدم من أداة أخرى.`);
+        const quoteMatches = Array.from(line.matchAll(/(?:(?<!اعلى\s+|أعلى\s+|ادنى\s+|أدنى\s+|افتتاح\s+|فتح\s+|متوسط\s+|عادل\s+|عادلة\s+|سابق\s+|امس\s+|أمس\s+)(?:سعر(?:\s+(?:السهم|الحالي|اللحظي|مسجل))|السعر(?:\s+(?:الحالي|اللحظي|مسجل))?|(?:آخر\s+|اخر\s+)?اغلاق(?:\s+مسجل)?))\s*[:(]?\s*(\d+(?:\.\d+)?)/g));
+        if (quoteMatches.length > 0 && price != null) {
+            const hasCorrectPrice = quoteMatches.some(m => Math.abs(Number(m[1]) - price) <= 0.006 || (price > 0 && Math.abs(Number(m[1]) - price) / price <= 0.002));
+            if (!hasCorrectPrice && !/اذا|لو|مستهدف|هدف|دخول|شراء|خروج|توصيه|سابق|امس|أمس|اعلى|أعلى|ادنى|أدنى|فتح|افتتاح|متوسط|عادل|عادلة|دعم|مقاوم|نطاق/.test(line)) {
+                reasons.add(`${symbol}: السعر المذكور لا يطابق لقطة السعر المعتمدة ${price} بتاريخ ${stock.data_time}؛ لا تستبدله بسعر أقدم من أداة أخرى.`);
+            }
         }
         if (level?.data && /مسافه|بنحو|يبعد|تبعد|يبعدان|تبعدان/.test(line)) {
             for (const match of line.matchAll(/([-+]?\d+(?:\.\d+)?)\s*[%٪]/g)) {
@@ -58,7 +61,8 @@ export function checkContextEvidence(reply: string, plan: IntentPlan, results: T
         const positionMatch = line.match(/(?:positionpct|موقع.{0,15}(?:النطاق|السهم)|من نطاق).{0,15}?(\d+(?:\.\d+)?)\s*%/);
         if (positionMatch && level?.data?.position_pct != null && Math.abs(Number(positionMatch[1]) - Number(level.data.position_pct)) > .2) reasons.add(`${symbol}: موقع السعر داخل النطاق لا يطابق السعر المعتمد.`);
         for (const clause of line.split(/[؛،]/)) {
-            const conditional = conditionalSection || /اذا|لو\s|يتطلب|يحتاج|مشروط|شرط|شروط|حتى|انتظار|قد يحدث|قبل|تحول|تحوّل|عند حدوث|لتاكيد|لا يثبت|لا تثبت|غير مثبت|لم يثبت/.test(clause);
+            const isNegatedCross = /(?:دون|بدون|عدم|غياب|لا\s*(?:يوجد|يظهر|يشير|يعكس|يمثل|يعني|يثبت|نرى|نلحظ)|لم\s*(?:يحدث|يسجل|يظهر|يكن|يسبق)|ليس|غير)\s+(?:حدوث\s+|وجود\s+|اي\s+|أي\s+)?تقاطع/i.test(clause);
+            const conditional = conditionalSection || isNegatedCross || /اذا|لو\s|يتطلب|يحتاج|مشروط|شرط|شروط|حتى|انتظار|قد يحدث|قبل|تحول|تحوّل|عند حدوث|لتاكيد|لا يثبت|لا تثبت|غير مثبت|لم يثبت/.test(clause);
             if (!conditional && /macd|ماكد/.test(line) && /تقاطع|cross/.test(clause) && !stock.data.macd_cross_evidence?.verified) reasons.add(`${symbol}: MACD أعلى/أقل خط الإشارة وصف للقطة؛ التقاطع يحتاج قيمة سابقة موثقة.`);
             if (!conditional && /(?:اخترق|اختراق).{0,45}(?:اليوم|الجلسه الحاليه)|(?:اليوم|الجلسه الحاليه).{0,45}(?:اخترق|اختراق)/.test(clause) && !stock.data.breakout_evidence?.verified) reasons.add(`${symbol}: لا تثبت اللقطة وقت اختراق المقاومة؛ صف موقع السعر فقط.`);
         }

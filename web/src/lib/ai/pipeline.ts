@@ -3332,7 +3332,7 @@ async function* runPipelineCore(
         if (attempts === maxAttempts - 1) {
             responderMeta.source = "deterministic";
             responderMeta.degraded = true;
-            console.warn(`[VALIDATOR] Attempt ${attempts + 1} failed validation! Reached max retries. Using safe fallback.`);
+            console.warn(`[VALIDATOR] Attempt ${attempts + 1} failed validation! Reached max retries. Using safe fallback. Context: ${answerGate.reasons.join("; ")}; Det Errors: ${validation.deterministicErrors?.join("; ")}`);
             // Preserve the user's exact intent when the model exhausts its
             // validation retries. The intent-aware deterministic renderer can
             // answer questions such as daily limits and period highs from the

@@ -140,3 +140,31 @@ test("a requested historical snapshot is not upgraded with an older quote", () =
 test("CIB is an exact alias and never a fuzzy second entity", () => {
     expect(extractSymbolsFromText("Cib", ["COMI", "CIEB"], {})).toEqual(["COMI"]);
 });
+
+test("AMES scenario: negative percentage drop, negated MACD crossover, and multi-price line pass context evidence", () => {
+    const amesStock: any = {
+        tool: "get_stock", source: "database", data_time: "2026-10-05", symbols: ["AMES"], data_type: "historical",
+        data: {
+            symbol: "AMES", price: 48.21, change_pct: "-4.25%", rsi_14: 44.51, vol_ratio: "0.41x",
+            macd: -13.1371, macd_signal: -15.16835, macd_histogram: 2.03125,
+        }
+    };
+    const amesLevel: any = {
+        tool: "get_stock_levels", source: "stock_prices", data_time: "2026-10-05", symbols: ["AMES"], data_type: "historical",
+        data: { symbol: "AMES", close: 48.21, support: 40.15, resistance: 82.90, distance_from_support_pct: 20.07, position_pct: 18.85 }
+    };
+    const amesTools = synchronizeMarketSnapshot([amesStock, amesLevel]);
+    const amesPlan: any = { intent: "stock_analysis", entities: { symbols: ["AMES"] }, tools: ["get_stock", "get_stock_levels"] };
+
+    // 1. Line with approved price and session high should not fail on the high price
+    const replyPrice = "AMES: آخر إغلاق مسجل 48.21 جنيه بتاريخ 2026-10-05، بعد أن سجل أعلى سعر 50.87 جنيه.";
+    expect(checkContextEvidence(replyPrice, amesPlan, amesTools)).toEqual([]);
+
+    // 2. Negated MACD crossover description should not be rejected
+    const replyMacd = "AMES: مؤشر MACD عند -13.13 أعلى من خط الإشارة -15.17، دون أي تقاطع جديد مؤكد.";
+    expect(checkContextEvidence(replyMacd, amesPlan, amesTools)).toEqual([]);
+
+    // 3. Stale price substitution is still correctly rejected
+    const replyStale = "AMES: آخر إغلاق مسجل 50.35 جنيه بتاريخ 2026-10-05.";
+    expect(checkContextEvidence(replyStale, amesPlan, amesTools).length).toBeGreaterThan(0);
+});

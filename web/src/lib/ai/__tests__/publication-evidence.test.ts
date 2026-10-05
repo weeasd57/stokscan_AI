@@ -132,3 +132,23 @@ test("recommendation array payloads are bound to fact records and pass publicati
     expect(safeGate.ok).toBe(true);
 });
 
+test("falling stock with negative change_pct matches verbal drop with positive percentage in answer-gate", () => {
+    const { buildFactRecords } = require("../facts");
+    const { runAnswerGate } = require("../answer-gate");
+    const amesStock: any = {
+        tool: "get_stock", source: "database", data_time: "2026-10-05", symbols: ["AMES"], data_type: "historical",
+        data: { symbol: "AMES", price: 48.21, change_pct: "-4.25%", change_pct_num: -4.25, rsi_14: 44.51 }
+    };
+    const facts = buildFactRecords([amesStock]);
+    const reply = "AMES: آخر إغلاق مسجل 48.21 جنيه بتاريخ 2026-10-05، بتراجع يومي بنسبة 4.25%.";
+    const gateResult = runAnswerGate({
+        reply,
+        plan: { intent: "stock_analysis", confidence: 1, entities: { symbols: ["AMES"] }, tools: ["get_stock"] } as any,
+        toolResults: [amesStock],
+        userMessage: "ames",
+        facts,
+    });
+    expect(gateResult.ok).toBe(true);
+    expect(gateResult.reasons).toEqual([]);
+});
+

@@ -138,8 +138,11 @@ function checkAttribution(reply: string, facts: FactRecord[]): string[] {
 
             const matchesAny = (value: number, fields: Set<string>) => symbolFacts.some(record => {
                 if (!fields.has(record.field)) return false;
-                const rel = record.value !== 0 ? Math.abs(value - record.value) / Math.abs(record.value) : Math.abs(value - record.value);
-                return Math.abs(value - record.value) <= 0.15 || rel <= 0.02;
+                const directDiff = Math.abs(value - record.value);
+                const absDiff = Math.abs(Math.abs(value) - Math.abs(record.value));
+                const minDiff = Math.min(directDiff, absDiff);
+                const rel = record.value !== 0 ? minDiff / Math.abs(record.value) : minDiff;
+                return minDiff <= 0.15 || rel <= 0.02;
             });
 
             for (const { value, prefix } of percentClaims) {
