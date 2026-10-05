@@ -46,7 +46,7 @@ def test_invalid_mime_and_oversized_media_are_rejected():
 
 
 @pytest.mark.parametrize('mode', ['RGB', 'RGBA', 'P'])
-def test_tiktok_attachment_is_real_jpeg_with_same_dimensions(mode):
+def test_tiktok_attachment_is_real_jpeg_with_supported_dimensions(mode):
     buffer = io.BytesIO()
     Image.new(mode, (1200, 1200)).save(buffer, format='PNG')
     result = prepare_attachment(URL, '2026-10-04', platform='tiktok',
@@ -57,7 +57,7 @@ def test_tiktok_attachment_is_real_jpeg_with_same_dimensions(mode):
     with Image.open(result['path']) as image:
         assert image.format == 'JPEG'
         assert image.mode == 'RGB'
-        assert image.size == (1200, 1200)
+        assert image.size == (1080, 1080)
 
 
 def test_unknown_platform_is_rejected_before_download():

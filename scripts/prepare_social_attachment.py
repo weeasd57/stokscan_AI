@@ -51,11 +51,15 @@ def prepare_attachment(url, session_date, opener=None, *, platform='facebook'):
             background = Image.new('RGBA', image.size, '#050816')
             background.alpha_composite(rgba)
             buffer = io.BytesIO()
-            background.convert('RGB').save(buffer, format='JPEG', quality=95,
+            background.convert('RGB').resize((1080, 1080), Image.Resampling.LANCZOS).save(buffer, format='JPEG', quality=95,
                                            subsampling=0, optimize=True)
             data = buffer.getvalue()
         if len(data) > MAX_BYTES:
             raise ValueError('Oversized JPEG')
+        with Image.open(io.BytesIO(data)) as image:
+            if image.format != 'JPEG' or image.mode != 'RGB' or image.size != (1080, 1080):
+                raise ValueError('Invalid TikTok JPEG')
+            image.verify()
     mime = 'image/jpeg' if platform == 'tiktok' else 'image/png'
     extension = 'jpg' if platform == 'tiktok' else 'png'
     folder = Path(tempfile.mkdtemp(prefix='egxbots-social-'))
@@ -63,7 +67,8 @@ def prepare_attachment(url, session_date, opener=None, *, platform='facebook'):
     output.write_bytes(data)
     return {'path': str(output.resolve()), 'sha256': hashlib.sha256(data).hexdigest(),
             'bytes': len(data), 'session_date': session_date, 'mime': mime,
-            'platform': platform}
+            'platform': platform, 'width': 1080 if platform == 'tiktok' else 1200,
+            'height': 1080 if platform == 'tiktok' else 1200}
 
 
 def main():
