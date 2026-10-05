@@ -653,7 +653,8 @@ export async function POST(req: NextRequest) {
                             userId,
                             activeSessionId,
                             messageId,
-                            userRequestedModel
+                            userRequestedModel,
+                            { isPro: userIsPro }
                         );
 
                         // Keep only a bounded rolling window for safety checks.
@@ -923,7 +924,8 @@ export async function POST(req: NextRequest) {
             userId,
             activeSessionId,
             messageId,
-            userRequestedModel
+            userRequestedModel,
+            { isPro: userIsPro }
         );
 
         const replyText = filterOutput(pipelineResult.response);

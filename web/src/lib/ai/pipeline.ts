@@ -72,6 +72,7 @@ async function executeHybridAdditionalTools(
     sessionId: string,
     message: string,
     history: Array<{ role: string; content: string }>,
+    userIsPro: boolean = true,
 ): Promise<StructuredToolOutput> {
     const toolBudget = Math.min(15000, remainingExecutionMs() - 12000);
     if (!additionalTools.length || toolBudget < 1000) return initial;
@@ -85,6 +86,7 @@ async function executeHybridAdditionalTools(
             sessionId,
             message,
             history,
+            userIsPro,
         ));
     } catch (error) {
         console.warn("[HYBRID_TOOLS] additional tools failed:", error);
@@ -825,8 +827,8 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         return {
             intent: "market_summary",
             confidence: 1,
-            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, recommendation_order: "newest", recommendation_filter: "open_public" },
-            tools: asksTomorrowRecommendations ? ["get_recommendations", "get_fair_value_scan"] : ["get_recommendations"],
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, recommendation_order: "newest", recommendation_filter: "open" },
+            tools: asksTomorrowRecommendations ? ["get_recommendations", "get_market", "get_accumulation_stocks"] : ["get_recommendations"],
             session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message },
         } as any;
     }
@@ -1634,10 +1636,11 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     const hasRecommendationKw = /(?:توصيات|توصيه|توصية|إشارة|إشارات|اشارة|اشارات|توصي)/i.test(normalized);
     if (hasRecommendationKw) {
         const oldestRequest = /(اقدم|أقدم)/i.test(normalized);
+        const isHistoricalRec = /(?:قديم|أقدم|اقدم|سابق|سابق[ةه]|تاريخ|أرشيف|ارشيف|مغلق[ةه]|حققت|ضربت|نتائج|أداء|اداء|سجل)/i.test(normalized);
         const isRecFilterOpen = /(?:مفتوح[ةه]|open)/i.test(normalized);
         const isRecFilterThisWeek = /(?:[اأ]سبوع\s*(?:حالي|الحالي|الحالى|ده|هذا)|this\s*week)/i.test(normalized);
         const isRecFilterLastWeek = /(?:[اأ]سبوع\s*(?:الماضي|السابق|الفايت|اللي\s*فات|اللى\s*فات)|last\s*week)/i.test(normalized);
-        const recFilter: "open" | "this_week" | "last_week" | "all" | null = isRecFilterOpen ? "open" : isRecFilterLastWeek ? "last_week" : isRecFilterThisWeek ? "this_week" : null;
+        const recFilter: "open" | "this_week" | "last_week" | "all" | null = isRecFilterLastWeek ? "last_week" : isRecFilterThisWeek ? "this_week" : isHistoricalRec ? "all" : "open";
         if (hasSymbol) {
             return {
                 intent: "stock_analysis",
@@ -1649,7 +1652,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         }
         return {
             intent: oldestRequest ? "historical_recall" : "market_summary",
-            tools: ["get_recommendations", "get_signals"],
+            tools: oldestRequest ? ["get_recommendations", "get_signals"] : ["get_recommendations", "get_market", "get_accumulation_stocks"],
             replaceTools: true,
             recommendation_order: oldestRequest ? "oldest" : "newest",
             recommendation_filter: recFilter
@@ -1674,14 +1677,16 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     if (plannerIntent === "technical_scan") return { intent: "technical_scan", tools: ["get_technical_scan"], replaceTools: true };
     const isRecommendationQuery = isBestBuyStockQuestion(message) || /(?:توصي[اإ]?\s*ت|توصي[ةه]|ترشح|ترشيحات|فرص\s*شراء|فرص\s*دخول|اسهم\s*ادخل\s*فيها|اسهم\s*اشتريها|اشتري\s*ايه|ادخل\s*في\s*ايه|ادخل\s*فيها|اسهم\s*ممتازة|اسهم\s*كويسة|تحقق\s*ارباح|تحقق\s*أرباح|توصيات\s*كويسة|توصيات\s*شراء|اسهم\s*للشراء|فرص\s*الشراء)/i.test(normalized);
     if (isRecommendationQuery) {
+        const oldestRequest = /(اقدم|أقدم)/i.test(normalized);
+        const isHistoricalRec = /(?:قديم|أقدم|اقدم|سابق|سابق[ةه]|تاريخ|أرشيف|ارشيف|مغلق[ةه]|حققت|ضربت|نتائج|أداء|اداء|سجل)/i.test(normalized);
         const isRecFilterOpen = /(?:مفتوح[ةه]|open)/i.test(normalized);
         const isRecFilterThisWeek = /(?:[اأ]سبوع\s*(?:حالي|الحالي|الحالى|ده|هذا)|this\s*week)/i.test(normalized);
         const isRecFilterLastWeek = /(?:[اأ]سبوع\s*(?:الماضي|السابق|الفايت|اللي\s*فات|اللى\s*فات)|last\s*week)/i.test(normalized);
-        const recFilter: "open" | "this_week" | "last_week" | "all" | null = isRecFilterOpen ? "open" : isRecFilterLastWeek ? "last_week" : isRecFilterThisWeek ? "this_week" : null;
+        const recFilter: "open" | "this_week" | "last_week" | "all" | null = isRecFilterLastWeek ? "last_week" : isRecFilterThisWeek ? "this_week" : isHistoricalRec ? "all" : "open";
         if (hasSymbol) {
             return { intent: "stock_analysis", tools: ["get_stock", "get_recommendations", "get_stock_levels"], replaceTools: true, recommendation_filter: recFilter };
         }
-        return { intent: "market_summary", tools: ["get_recommendations"], replaceTools: true, recommendation_filter: recFilter };
+        return { intent: "market_summary", tools: ["get_recommendations", "get_market", "get_accumulation_stocks"], replaceTools: true, recommendation_filter: recFilter };
     }
     if (/(?:سبب|اسباب|لماذا|ليه\s+(?:نزل|طلع|هبط|صعد|وقع|طالع|نازل|بيخسر|بيهبط|بينزل|خسران|بيصعد)|ايه\s+سبب)/i.test(normalized) && hasSymbol) return { intent: "stock_news", tools: ["get_stock", "get_news", "get_stock_levels"], replaceTools: true };
     const isMultiStockLiquidityComparison = /(?:سيول|تداول|liquidity)/i.test(normalized)
@@ -1863,6 +1868,8 @@ export interface PipelineOptions {
     mockPlannerResult?: PlannerResult;
     /** Offline vision fixture for regression tests; production always analyzes the image. */
     mockVisionResult?: VisionContext;
+    /** User subscription tier: true for Pro, false for Free. */
+    isPro?: boolean;
 }
 
 export async function* runPipelineStream(
@@ -1983,6 +1990,21 @@ async function* runPipelineCore(
     let vision: VisionContext | null = null;
     let visionError: string | null = null;
     let memory: MemoryResult | null = null;
+
+    let userIsPro = options.isPro ?? false;
+    if (options.isPro === undefined && userId && supabase) {
+        try {
+            const { isPro: gateIsPro } = await import("./plan-gate");
+            const { data: planRows } = await supabase
+                .from("subscriptions")
+                .select("plan_id,status,current_period_end")
+                .eq("user_id", userId)
+                .limit(10);
+            userIsPro = gateIsPro(planRows || []);
+        } catch {
+            userIsPro = false;
+        }
+    }
 
     // A market category is not the similarly named NIPH stock. Preserve the
     // category across short follow-ups instead of letting an old stock alias
@@ -2336,7 +2358,7 @@ async function* runPipelineCore(
                 resolved_from: { symbol: null, message_id: null },
             };
             yield { type: "status", data: { status: "portfolio", message: "قراءة المحفظة وتنفيذ الطلب..." } };
-            const directTools = await executeStructuredTools(supabase, directPlan, apiKeys, userId, sessionId, effectivePortfolioMessage, []);
+            const directTools = await executeStructuredTools(supabase, directPlan, apiKeys, userId, sessionId, effectivePortfolioMessage, [], userIsPro);
             console.log(`[AI TELEMETRY DETAIL] fast_portfolio_tools_ms=${Date.now() - pipelineStart} operation=${directPortfolioOperation}`);
             const portfolioResult = directTools.results.find(result => result.tool === "manage_portfolio");
             if (portfolioResult) {
@@ -2797,6 +2819,7 @@ async function* runPipelineCore(
         effectiveIntent = "market_summary";
         plannerResult.clarification_needed = false;
         plannerResult.clarification_options = ["توصيات المنصة المفتوحة", "أسهم التجميع المؤسسي", "أعلى الأسهم ارتفاعاً اليوم"];
+        plannerResult.entities.recommendation_filter = "open";
         plannerResult.request = {
             goal: userMessage, reference: "market", ranking_metric: "unspecified", required_facts: ["recommendations", "market_summary", "accumulation"],
             clarification_reason: null,
@@ -2961,9 +2984,9 @@ async function* runPipelineCore(
     }
     ensureBudget(8000);
     let tools = options.mockToolsResults ?? await withExecutionTimeout(AI_CONFIG.limits.toolsTimeoutMs,
-        () => executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage, history));
+        () => executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage, history, userIsPro));
     const hybridAdditionalTools = options.mockToolsResults ? [] : await reviewHybridToolResults(userMessage, plan, tools, sessionState);
-    tools = await executeHybridAdditionalTools(supabase, plan, tools, hybridAdditionalTools, apiKeys, userId, sessionId, userMessage, history);
+    tools = await executeHybridAdditionalTools(supabase, plan, tools, hybridAdditionalTools, apiKeys, userId, sessionId, userMessage, history, userIsPro);
     tools = attachEvidenceContract(intersectHybridScanResults(tools, plan));
     const verifiedPortfolioSnapshot = tools.results.find(result => result.tool === "manage_portfolio"
         && !result.error && result.data?.ok === true && Array.isArray(result.data?.positions));

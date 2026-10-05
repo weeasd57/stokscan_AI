@@ -154,6 +154,7 @@ export interface ToolResult {
     /** Whether the tool could actually cover this request. */
     availability?: ToolAvailability;
     recommendation_collection?: RecommendationCollection;
+    pro_locked?: boolean;
 }
 
 /** Uniform coverage state every tool result exposes to the responder. */

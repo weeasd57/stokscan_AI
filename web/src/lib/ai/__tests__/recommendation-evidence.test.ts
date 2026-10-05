@@ -124,4 +124,19 @@ describe("recommendation tool contract", () => {
             expect(output.results.find(item => item.tool === "get_recommendations")).toMatchObject({ availability: "failed", recommendation_collection: { complete: false, fetch_failed: true } });
         } finally { spy.mockRestore(); }
     });
+    it("locks open recommendations for free users when billing is enabled", async () => {
+        const rows = [rec("TEST1"), rec("TEST2")];
+        const db = mockDatabase(rows, []);
+        const prevEnv = process.env.PAYMENTS_ENABLED;
+        try {
+            process.env.PAYMENTS_ENABLED = "true";
+            const output = await executeStructuredTools(db, plan, [], "user_123", "sess_1", "رشح سهم للشراء غدا", [], false);
+            const result = output.results.find(item => item.tool === "get_recommendations")!;
+            expect(result.pro_locked).toBe(true);
+            expect(result.data).toEqual([]);
+            expect(output.formattedText).toContain("ميزة حصرية لمشتركي باقة Pro");
+        } finally {
+            process.env.PAYMENTS_ENABLED = prevEnv;
+        }
+    });
 });
