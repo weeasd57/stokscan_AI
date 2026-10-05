@@ -119,7 +119,7 @@ function applyHybridDomainInvariants(message: string, plan: IntentPlan): IntentP
             : /(?:قطاع|القطاع)\s+(?:ال)?(عقارات|عقاري)/i.test(text)
                 ? "عقارات"
                 : null;
-    if (/(?:عدد|كام|كم|قائمة|قايمه).{0,20}(?:قطاع|قطاعات)/i.test(text)) {
+    if (/(?:عدد|كام|كم|قائمة|قايمه|هات|جيب|اعرض|كل).{0,20}(?:قطاع|قطاعات)|(?:قطاعات|القطاعات)\s+كلها/i.test(text)) {
         return { ...plan, intent: "sector_analysis", tools: ["get_sector_list"], entities: { ...plan.entities, symbols: [] } };
     }
     if (/(?:سيول|سيولة).{0,30}(?:قطاع|قطاعات)/i.test(text)) {

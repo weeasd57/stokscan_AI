@@ -68,6 +68,8 @@ test("ML differences cannot prove significance or its absence, nor a specific tr
     expect(checkContextEvidence("الفارق ضيق وغير ذي دلالة إحصائية", plan, normalized())).not.toEqual([]);
     expect(checkContextEvidence("النموذجان يعملان على مجموعات سمات ومعايرة مختلفة", plan, normalized())).not.toEqual([]);
     expect(checkContextEvidence("لا يمكن الحكم على الدلالة الإحصائية دون اختبار موثق؛ سبب اختلاف الدرجة غير متاح", plan, normalized())).toEqual([]);
+    expect(checkContextEvidence("### هل للفرق دلالة إحصائية؟\nلا يمكن الحكم على الدلالة الإحصائية دون اختبار موثق؛ سبب اختلاف الدرجة غير متاح", plan, normalized())).toEqual([]);
+    expect(checkContextEvidence("### ليه KING مختلف عن EGX؟\nسبب اختلاف الدرجة غير متاح لهذه الحالة دون بيانات تفسير موثقة", plan, normalized())).toEqual([]);
     expect(checkContextEvidence("لم يجر اختبار للدلالة الإحصائية؛ لا تتوفر نتائج اختبار للدلالة الإحصائية", plan, normalized())).toEqual([]);
     expect(checkContextEvidence("لا توجد دلالة إحصائية", plan, normalized())).not.toEqual([]);
 });

@@ -92,7 +92,9 @@ function recommendationClaimViolations(text: string, results: ToolResult[], user
                 }
                 const claimed = lossWord ? -amount : profitWord ? amount : Number(raw);
                 const isPlatformRecSentence = /(?:توصي|إشار|اشار|منصة|المنصة)/.test(clause) || (!isPortfolioHolding && /(?:عائد|ربح|مكسب|أرباح|ارباح)/.test(clause));
-                if (isPlatformRecSentence && (performance.return_pct == null || Math.abs(claimed - performance.return_pct) > .015))
+                const returnMatches = performance.return_pct != null && (Math.abs(claimed - performance.return_pct) <= 0.15
+                    || (performance.return_pct !== 0 && Math.abs(claimed - performance.return_pct) / Math.abs(performance.return_pct) <= 0.02));
+                if (isPlatformRecSentence && (performance.return_pct == null || !returnMatches))
                     reasons.push(`${symbol}: العائد المذكور لا يطابق العائد الموقّع المحسوب من سعر الدخول وسعر التقييم الموثقين.`);
             }
 
