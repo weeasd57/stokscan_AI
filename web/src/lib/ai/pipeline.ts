@@ -2835,16 +2835,28 @@ async function* runPipelineCore(
         && explicitSymbols.length === 0 && groupReferenceSymbols.length === 0
         && !plannerResult.entities.sector && !compoundRequest;
     if (unspecifiedOpportunities) {
-        mergedSymbols = [];
-        plannedTools.splice(0, plannedTools.length, "get_recommendations", "get_market", "get_accumulation_stocks");
-        effectiveIntent = "market_summary";
-        plannerResult.clarification_needed = false;
-        plannerResult.clarification_options = ["توصيات المنصة المفتوحة", "أسهم التجميع المؤسسي", "أعلى الأسهم ارتفاعاً اليوم"];
-        plannerResult.entities.recommendation_filter = "open";
-        plannerResult.request = {
-            goal: userMessage, reference: "market", ranking_metric: "unspecified", required_facts: ["recommendations", "market_summary", "accumulation"],
-            clarification_reason: null,
-        };
+        if (/اقوي|اقوى|أقوى/i.test(normalizeArabicIntent(userMessage))) {
+            mergedSymbols = [];
+            plannedTools.splice(0, plannedTools.length);
+            effectiveIntent = "clarification";
+            plannerResult.clarification_needed = true;
+            plannerResult.clarification_options = ["أعلى ارتفاعاً", "أعلى سيولة", "أعلى تجميعاً"];
+            plannerResult.request = {
+                goal: userMessage, reference: "market", ranking_metric: "unspecified", required_facts: [],
+                clarification_reason: "كلمة (أقوى) يمكن أن تعني الأقوى في الصعود، أو الأقوى في السيولة، أو الأقوى من حيث التجميع المؤسسي. يرجى تحديد المعيار الذي تفضله."
+            };
+        } else {
+            mergedSymbols = [];
+            plannedTools.splice(0, plannedTools.length, "get_recommendations", "get_market", "get_accumulation_stocks");
+            effectiveIntent = "market_summary";
+            plannerResult.clarification_needed = false;
+            plannerResult.clarification_options = ["توصيات المنصة المفتوحة", "أسهم التجميع المؤسسي", "أقوى الأسهم ارتفاعاً اليوم"];
+            plannerResult.entities.recommendation_filter = "open";
+            plannerResult.request = {
+                goal: userMessage, reference: "market", ranking_metric: "unspecified", required_facts: ["recommendations", "market_summary", "accumulation"],
+                clarification_reason: null,
+            };
+        }
     }
     const marketRankingMode = mergedSymbols.length === 0 ? getMarketRankingMode(userMessage, plannerResult.request) : null;
     if (marketRankingMode === "liquidity_unavailable") {
@@ -2899,6 +2911,12 @@ async function* runPipelineCore(
     const excludedSectors = extractExcludedSectors(userMessage);
     const plannerExcludedSectors = plannerResult.entities.excluded_sectors || [];
     const comparesSectors = plannedTools.includes("get_sector_liquidity") && enforced.sector === null;
+
+    const isFutureOpportunityQuery = /(?:غدا|بكره|بكرة|الاسبوع|الأسبوع|النهاردة|النهارده|اليوم)/i.test(normalizeArabicIntent(userMessage)) && /(?:فرص|فرصه|توقعات|ربحي|ترشح|اشتري|اسهم|أقوى|اقوي|اقوى|افضل|أفضل)/i.test(normalizeArabicIntent(userMessage));
+    if (isFutureOpportunityQuery && !plannedTools.includes("get_recommendations") && !plannerResult.clarification_needed) {
+        plannedTools.push("get_recommendations");
+    }
+
     const plan: IntentPlan = {
         intent: mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
