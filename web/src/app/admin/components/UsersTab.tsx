@@ -473,20 +473,21 @@ export default function UsersTab() {
                     ) : (
                         <div className="h-52 w-full pt-2">
                             <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={stats?.signupGrowth || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                <AreaChart data={stats?.signupGrowth || []} margin={{ top: 10, right: 30, left: -20, bottom: 0 }}>
                                     <defs>
                                         <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
                                             <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4}/>
                                             <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
                                         </linearGradient>
                                         <linearGradient id="colorPro" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4}/>
+                                            <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.35}/>
                                             <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
                                         </linearGradient>
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#52525b" opacity={0.2} />
                                     <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a' }} minTickGap={15} />
-                                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a' }} allowDecimals={false} />
+                                    <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#3b82f6' }} allowDecimals={false} />
+                                    <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#f59e0b' }} allowDecimals={false} />
                                     <RechartsTooltip 
                                         contentStyle={{ backgroundColor: '#000', border: '2px solid #fff', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }} 
                                         itemStyle={{ color: '#fff' }} 
@@ -498,8 +499,8 @@ export default function UsersTab() {
                                             return [value, isAr ? "المسجلون الجدد" : "New Signups"];
                                         }}
                                     />
-                                    <Area type="monotone" dataKey="count" name="count" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" activeDot={{ r: 5, strokeWidth: 0, fill: '#fff' }} />
-                                    <Area type="monotone" dataKey="totalPro" name="totalPro" stroke="#f59e0b" strokeWidth={3} fillOpacity={1} fill="url(#colorPro)" activeDot={{ r: 5, strokeWidth: 0, fill: '#f59e0b' }} />
+                                    <Area yAxisId="left" type="monotone" dataKey="count" name="count" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" activeDot={{ r: 5, strokeWidth: 0, fill: '#fff' }} />
+                                    <Area yAxisId="right" type="monotone" dataKey="totalPro" name="totalPro" stroke="#f59e0b" strokeWidth={3} fillOpacity={1} fill="url(#colorPro)" activeDot={{ r: 5, strokeWidth: 0, fill: '#f59e0b' }} />
                                 </AreaChart>
                             </ResponsiveContainer>
                         </div>
