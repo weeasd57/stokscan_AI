@@ -188,7 +188,7 @@ export async function executeStructuredTools(
     sessionId: string = "",
     userMessage: string = "",
     history: Array<{ role: string; content: string }> = [],
-    userIsPro: boolean = true
+    userIsPro: boolean = false
 ): Promise<StructuredToolOutput> {
     const results: ToolResult[] = [];
     const textParts: string[] = [];
@@ -2051,10 +2051,10 @@ export async function executeStructuredTools(
                 isHistoricalRec ? "all" : "open"
             );
 
-            const isGated = paymentsEnabled() && !userIsPro;
+            const isGated = !userIsPro;
 
-            // Free user requesting general recommendations (no specific symbol) without asking for past archives
-            if (isGated && symbols.length === 0 && recFilter === "open") {
+            // Free user requesting recommendations (general, specific symbol, this week, last week, etc.)
+            if (isGated) {
                 let openCount = 10;
                 try {
                     const { count } = await supabase.from("scan_results")
@@ -2065,12 +2065,14 @@ export async function executeStructuredTools(
                 } catch (err) {
                     console.warn("[RECOMMENDATIONS] failed to count open recs:", err);
                 }
-                const proMsg = `إشارات وتوصيات المنصة الفورية المفتوحة (مع مستهدفات وأسعار الدخول ووقف الخسارة المحدثة) هي ميزة حصرية لمشتركي باقة Pro. يوجد حالياً ${openCount} توصيات مفتوحة بالمنصة متاحة بالكامل للمشتركين. للوصول إلى التوصيات الفورية وتنبيهات قناة VIP، يمكنك ترقية حسابك إلى Pro. يمكنك الاستفادة من تحليلات السوق والتجميع المؤسسي المتاحة في هذه الإجابة.`;
+                const proMsg = symbols.length > 0
+                    ? `إشارات وتوصيات الأسهم الفورية بمستهدفاتها وأسعار الدخول ووقف الخسارة هي ميزة حصرية لمشتركي باقة Pro. يمكنك ترقية حسابك للوصول إلى توصيات وإشارات النظام الفورية.`
+                    : `إشارات وتوصيات المنصة الفورية المفتوحة (مع مستهدفات وأسعار الدخول ووقف الخسارة المحدثة) هي ميزة حصرية لمشتركي باقة Pro. يوجد حالياً ${openCount} توصيات مفتوحة بالمنصة متاحة بالكامل للمشتركين. للوصول إلى التوصيات الفورية وتنبيهات قناة VIP، يمكنك ترقية حسابك إلى Pro.`;
                 results.push({
                     tool: "get_recommendations",
                     source: "scan_results",
                     data_time: now,
-                    symbols: [],
+                    symbols: symbols,
                     data_type: "historical",
                     data: [],
                     pro_locked: true,
