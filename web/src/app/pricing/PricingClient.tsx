@@ -770,7 +770,7 @@ export default function PricingClient() {
                 <>
                   اشترك الآن في خطة <strong>Pro بـ 50 ج.م فقط شهرياً</strong> مدى الحياة (بدلاً من 200 ج.م). 
                   <span className="inline-block bg-black text-white px-2 py-0.5 font-black text-xs ms-1.5 shadow-[1px_1px_0_0_#fff]">
-                    متبقي 90 مقعداً فقط
+                    متبقي 91 مقعداً فقط
                   </span>
                   ، بعدها سيغلق العرض ويعود السعر الرسمي لـ 200 ج.م لجميع المشتركين الجدد.
                   <span className="block mt-1 text-[11px] font-bold text-black/80">
@@ -781,7 +781,7 @@ export default function PricingClient() {
                 <>
                   Lock in <strong>Pro for just 50 EGP/mo for life</strong> (standard price 200 EGP). 
                   <span className="inline-block bg-black text-white px-2 py-0.5 font-black text-xs ms-1.5 shadow-[1px_1px_0_0_#fff]">
-                    Only 90 spots remaining
+                    Only 91 spots remaining
                   </span>
                   . Price reverts to 200 EGP once filled.
                   <span className="block mt-1 text-[11px] font-bold text-black/80">

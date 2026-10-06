@@ -98,6 +98,7 @@ export function buildUserAnalytics(input: {
   kashierPayments?: KashierPaymentRow[];
   positions?: PositionRow[];
   emailDomains?: Record<string, number>;
+  excludeUserIds?: Set<string>;
   now?: Date;
 }) {
   const now = input.now || new Date();
@@ -106,9 +107,10 @@ export function buildUserAnalytics(input: {
   const profiles = input.profiles || [];
   const profileIds = unique(profiles.map((profile) => String(profile.id)));
   const totalProfileCount = Math.max(profileIds.size, Number(input.totalProfileCount) || 0);
+  const excludedIds = input.excludeUserIds || new Set<string>();
   const activeProIds = new Set([...unique(
     (input.subscriptions || [])
-      .filter((sub) => String(sub.plan_id || "").toLowerCase() === "pro" && String(sub.status || "").toLowerCase() === "active")
+      .filter((sub) => String(sub.plan_id || "").toLowerCase() === "pro" && String(sub.status || "").toLowerCase() === "active" && !excludedIds.has(String(sub.user_id)))
       .map((sub) => String(sub.user_id))
   )].filter((id) => profileIds.has(id)));
   const pageEvents = (input.events || []).filter((event) => !event.event_name || event.event_name === "page_view");

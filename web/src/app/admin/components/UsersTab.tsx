@@ -438,7 +438,7 @@ export default function UsersTab() {
                             <UsersIcon className="w-4 h-4 text-violet-600 dark:text-violet-400" />
                         </div>
                         <div className="text-3xl font-black text-black dark:text-white font-mono">
-                            {statsLoading ? "..." : (stats?.totalUsers || 0).toLocaleString(isAr ? "ar-EG" : "en-US")}
+                            {statsLoading ? "..." : (stats?.totalUsers || 0).toLocaleString("en-US")}
                         </div>
                         <div className="text-[10px] font-bold text-violet-600 dark:text-violet-400 mt-1">{isAr ? "إجمالي الحسابات المسجلة" : "Registered accounts"}</div>
                     </div>
@@ -515,7 +515,7 @@ export default function UsersTab() {
                         </h3>
                         <div className="grid grid-cols-2 gap-2 mb-3">
                             {[
-                                [isAr ? "إجمالي الإيرادات" : "Total Revenue", `${(stats?.totalRevenue || 0).toLocaleString(isAr ? "ar-EG" : "en-US")} ${isAr ? "ج.م" : "EGP"}`],
+                                [isAr ? "إجمالي الإيرادات" : "Total Revenue", `${(stats?.totalRevenue || 0).toLocaleString("en-US")} ${isAr ? "ج.م" : "EGP"}`],
                                 [isAr ? "الطلبات المدفوعة" : "Paid Orders", stats?.totalPaidOrders || 0],
                                 [isAr ? "متوسط الطلب" : "Avg Order", `${stats?.avgOrderValue || 0} ${isAr ? "ج.م" : "EGP"}`],
                                 [isAr ? "بانتظار المراجعة" : "Pending Review", stats?.pendingOrders || 0],
@@ -566,7 +566,7 @@ export default function UsersTab() {
                             ].map(([label, value, rate, sub]) => (
                                 <div key={String(label)} className="border-2 border-black dark:border-white bg-white dark:bg-zinc-950 p-2 text-center">
                                     <div className="text-[9px] font-black text-zinc-500 uppercase">{label}</div>
-                                    <div className="text-xl font-black font-mono mt-1">{statsLoading ? "..." : `${stats && !stats.engagementDataComplete ? "≥ " : ""}${Number(value).toLocaleString(isAr ? "ar-EG" : "en-US")}`}</div>
+                                    <div className="text-xl font-black font-mono mt-1">{statsLoading ? "..." : `${stats && !stats.engagementDataComplete ? "≥ " : ""}${Number(value).toLocaleString("en-US")}`}</div>
                                     <div className="text-[10px] font-black text-emerald-600 dark:text-emerald-400">{statsLoading ? "..." : `${stats && !stats.engagementDataComplete ? "≥ " : ""}${Number(rate)}%`}</div>
                                     <div className="text-[9px] font-bold text-zinc-400">{String(sub)}</div>
                                 </div>

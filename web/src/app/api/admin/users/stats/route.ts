@@ -84,10 +84,21 @@ export async function GET(req: NextRequest) {
     const positions = positionsRes.error ? [] : (positionsRes.data || []);
 
     let emailDomains: Record<string, number> = {};
+    const adminUserIds = new Set<string>();
+    const ADMIN_EMAILS = new Set([
+      "weeessd57@gmail.com",
+      "weeeessd57@gmail.com",
+      "weeasd57@gmail.com",
+      "weeeenew@gmail.com",
+    ]);
+
     try {
       const authRes = await supabase.auth.admin.listUsers({ page: 1, perPage: 2000 });
       for (const user of authRes.data?.users || []) {
-        const email = String(user.email || "");
+        const email = String(user.email || "").toLowerCase().trim();
+        if (ADMIN_EMAILS.has(email) || user.app_metadata?.role === "admin") {
+          adminUserIds.add(String(user.id));
+        }
         const atIdx = email.indexOf("@");
         if (atIdx > 0) {
           const domain = email.slice(atIdx + 1).toLowerCase();
@@ -95,6 +106,10 @@ export async function GET(req: NextRequest) {
         }
       }
     } catch { /* auth users unavailable */ }
+
+    // Fallback hardcoded admin IDs to guarantee exclusion even if auth list fails
+    adminUserIds.add("ba9c27e8-f62d-452f-8a29-dc77fd092207"); // weeessd57
+    adminUserIds.add("f3592b1c-ebe1-4fed-ba36-b92a58568df8"); // weeeenew
 
     const analytics = buildUserAnalytics({
       profiles: allProfiles,
@@ -107,6 +122,7 @@ export async function GET(req: NextRequest) {
       kashierPayments,
       positions,
       emailDomains,
+      excludeUserIds: adminUserIds,
       now,
     });
 
@@ -147,8 +163,9 @@ export async function GET(req: NextRequest) {
       if (date in signupsByDay) signupsByDay[date] += 1;
     });
 
-    // Track Pro subscription starts per day
+    // Track Pro subscription starts per day (excluding admin accounts)
     subscriptions.forEach((sub: any) => {
+      if (adminUserIds.has(String(sub.user_id))) return;
       const subDateStr = sub.current_period_start || sub.created_at;
       if (subDateStr) {
         const date = new Date(subDateStr).toISOString().split("T")[0];
