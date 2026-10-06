@@ -86,6 +86,23 @@ export interface ShortSwingsData {
   upgrade_cta?: string;
 }
 
+const safeNum = (val: unknown, fallback: number = 0): number => {
+  const n = Number(val);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const DEFAULT_SHORT_SWING_KPIS = {
+  profit_factor: 1.51,
+  win_rate_pct: 54.8,
+  total_return_pct: 347.1,
+  max_drawdown_pct: 12.3,
+  avg_holding_days: 2.9,
+  avg_win_pct: 5.8,
+  avg_loss_pct: -4.4,
+  top_win_pct: 86.1,
+  monthly_trades_avg: 35.0,
+};
+
 interface ShortSwingsTabProps {
   isPro?: boolean;
   onSelectStock?: (stock: any) => void;
@@ -207,17 +224,20 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
     };
   }, [loadData]);
 
-  const kpis = data?.kpis || {
-    profit_factor: 1.51,
-    win_rate_pct: 54.8,
-    total_return_pct: 347.1,
-    max_drawdown_pct: 12.3,
-    avg_holding_days: 2.9,
-    avg_win_pct: 5.8,
-    avg_loss_pct: -4.4,
-    top_win_pct: 86.1,
-    monthly_trades_avg: 35.0,
-  };
+  const kpis = useMemo(() => {
+    const raw = data?.kpis;
+    return {
+      profit_factor: safeNum(raw?.profit_factor, DEFAULT_SHORT_SWING_KPIS.profit_factor),
+      win_rate_pct: safeNum(raw?.win_rate_pct, DEFAULT_SHORT_SWING_KPIS.win_rate_pct),
+      total_return_pct: safeNum(raw?.total_return_pct, DEFAULT_SHORT_SWING_KPIS.total_return_pct),
+      max_drawdown_pct: safeNum(raw?.max_drawdown_pct, DEFAULT_SHORT_SWING_KPIS.max_drawdown_pct),
+      avg_holding_days: safeNum(raw?.avg_holding_days, DEFAULT_SHORT_SWING_KPIS.avg_holding_days),
+      avg_win_pct: safeNum(raw?.avg_win_pct, DEFAULT_SHORT_SWING_KPIS.avg_win_pct),
+      avg_loss_pct: safeNum(raw?.avg_loss_pct, DEFAULT_SHORT_SWING_KPIS.avg_loss_pct),
+      top_win_pct: safeNum(raw?.top_win_pct, DEFAULT_SHORT_SWING_KPIS.top_win_pct),
+      monthly_trades_avg: safeNum(raw?.monthly_trades_avg, DEFAULT_SHORT_SWING_KPIS.monthly_trades_avg),
+    };
+  }, [data?.kpis]);
 
   const activeTrades = data?.active_trades || [];
   const closedTrades = data?.closed_trades || [];
@@ -254,11 +274,11 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
     const total = viewedTrades.length;
     if (total === 0) return { total: 0, wins: 0, losses: 0, winRate: 0, netReturn: 0, bestTrade: null };
 
-    const wins = viewedTrades.filter((t) => t.return_pct > 0).length;
-    const losses = viewedTrades.filter((t) => t.return_pct <= 0).length;
-    const winRate = (wins / total) * 100;
-    const netReturn = viewedTrades.reduce((acc, t) => acc + (t.return_pct || 0), 0);
-    const bestTrade = [...viewedTrades].sort((a, b) => (b.return_pct || 0) - (a.return_pct || 0))[0] || null;
+    const wins = viewedTrades.filter((t) => safeNum(t.return_pct) > 0).length;
+    const losses = viewedTrades.filter((t) => safeNum(t.return_pct) <= 0).length;
+    const winRate = total > 0 ? (wins / total) * 100 : 0;
+    const netReturn = viewedTrades.reduce((acc, t) => acc + safeNum(t.return_pct), 0);
+    const bestTrade = [...viewedTrades].sort((a, b) => safeNum(b.return_pct) - safeNum(a.return_pct))[0] || null;
 
     return { total, wins, losses, winRate, netReturn, bestTrade };
   }, [viewedTrades]);
@@ -633,7 +653,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               </div>
             </div>
             <div className="text-2xl sm:text-3xl font-black font-mono text-black dark:text-white">
-              {kpis.profit_factor.toFixed(2)}
+              {safeNum(kpis.profit_factor, 1.51).toFixed(2)}
             </div>
             <p className="text-[10px] font-bold text-zinc-500 mt-1">
               إجمالي أرباح الصفقات ÷ إجمالي الخسائر
@@ -649,7 +669,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               </div>
             </div>
             <div className="text-2xl sm:text-3xl font-black font-mono text-emerald-600 dark:text-emerald-400">
-              {kpis.win_rate_pct.toFixed(1)}%
+              {safeNum(kpis.win_rate_pct, 54.8).toFixed(1)}%
             </div>
             <p className="text-[10px] font-bold text-zinc-500 mt-1">
               مبني على 1,796 صفقة تاريخية كاملة
@@ -665,7 +685,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               </div>
             </div>
             <div className="text-2xl sm:text-3xl font-black font-mono text-black dark:text-white">
-              {kpis.avg_holding_days.toFixed(1)} <span className="text-sm">جلسات</span>
+              {safeNum(kpis.avg_holding_days, 2.9).toFixed(1)} <span className="text-sm">جلسات</span>
             </div>
             <p className="text-[10px] font-bold text-zinc-500 mt-1">
               سرعة خروج عالية دون تجميد للسيولة
@@ -681,7 +701,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               </div>
             </div>
             <div className="text-2xl sm:text-3xl font-black font-mono text-emerald-600 dark:text-emerald-400">
-              +{kpis.top_win_pct.toFixed(1)}%
+              +{safeNum(kpis.top_win_pct, 86.1).toFixed(1)}%
             </div>
             <p className="text-[10px] font-bold text-zinc-500 mt-1">
               ركوب كامل لموجة الصعود عبر EMA10
@@ -849,7 +869,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               <span className="text-[10px] font-bold text-zinc-500 uppercase block">نسبة النجاح للشهر</span>
               <div className="flex items-center gap-1.5" dir="ltr">
                 <span className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400">
-                  {monthStats.winRate.toFixed(1)}%
+                  {safeNum(monthStats.winRate).toFixed(1)}%
                 </span>
                 <span className="text-xs font-bold text-zinc-500 font-sans">
                   ({monthStats.wins} رابحة)
@@ -861,10 +881,10 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               <span
                 dir="ltr"
                 className={`text-xl font-black font-mono block ${
-                  monthStats.netReturn >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                  safeNum(monthStats.netReturn) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
                 }`}
               >
-                {monthStats.netReturn >= 0 ? "+" : ""}{monthStats.netReturn.toFixed(1)}%
+                {safeNum(monthStats.netReturn) >= 0 ? "+" : ""}{safeNum(monthStats.netReturn).toFixed(1)}%
               </span>
             </div>
             <div>
@@ -872,7 +892,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               <span className="text-base sm:text-lg font-black font-mono text-indigo-600 dark:text-indigo-400 truncate block">
                 {monthStats.bestTrade ? (
                   <span dir="ltr">
-                    {monthStats.bestTrade.symbol} (+{monthStats.bestTrade.return_pct.toFixed(1)}%)
+                    {monthStats.bestTrade.symbol} (+{safeNum(monthStats.bestTrade.return_pct).toFixed(1)}%)
                   </span>
                 ) : (
                   "—"
@@ -975,12 +995,12 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                           <div
                             dir="ltr"
                             className={`text-xs font-black font-mono text-center px-1 py-0.5 border border-black ${
-                              netDailyPct >= 0
+                              safeNum(netDailyPct) >= 0
                                 ? "bg-emerald-200 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100"
                                 : "bg-rose-200 dark:bg-rose-900 text-rose-900 dark:text-rose-100"
                             }`}
                           >
-                            {netDailyPct >= 0 ? "+" : ""}{netDailyPct.toFixed(1)}%
+                            {safeNum(netDailyPct) >= 0 ? "+" : ""}{safeNum(netDailyPct).toFixed(1)}%
                           </div>
                         </div>
                       ) : (
@@ -995,7 +1015,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                           dir="ltr"
                           className="text-[9px] font-black bg-amber-400 text-black px-1 py-0.5 border border-black text-center truncate"
                         >
-                          🔥 {maxGainTrade.symbol} +{maxGainTrade.return_pct.toFixed(0)}%
+                          🔥 {maxGainTrade.symbol} +{safeNum(maxGainTrade?.return_pct).toFixed(0)}%
                         </div>
                       )}
                     </div>
@@ -1013,7 +1033,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               ) : (
                 <div className="divide-y-2 divide-black border-2 border-black">
                   {viewedTrades.map((t, idx) => {
-                    const isWin = t.return_pct > 0;
+                    const isWin = safeNum(t.return_pct) > 0;
                     return (
                       <div
                         key={`${t.symbol}-${idx}`}
@@ -1040,7 +1060,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                         <div className="flex items-center gap-4">
                           <div className="text-right text-xs font-mono">
                             <span className="text-zinc-500 block text-[10px]">الدخول / الخروج</span>
-                            <span>{t.is_locked ? "🔒" : `${t.entry_price?.toFixed(2)} → ${t.exit_price?.toFixed(2)} ج.م`}</span>
+                            <span>{t.is_locked ? "🔒" : `${t.entry_price != null ? safeNum(t.entry_price).toFixed(2) : "—"} → ${t.exit_price != null ? safeNum(t.exit_price).toFixed(2) : "—"} ج.م`}</span>
                           </div>
 
                           <div dir="ltr">
@@ -1049,7 +1069,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                                 isWin ? "bg-emerald-400 text-black" : "bg-rose-400 text-black"
                               }`}
                             >
-                              {isWin ? "+" : ""}{t.return_pct.toFixed(1)}%
+                              {isWin ? "+" : ""}{safeNum(t.return_pct).toFixed(1)}%
                             </span>
                           </div>
                         </div>
@@ -1168,10 +1188,10 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                         <span
                           dir="ltr"
                           className={`text-base font-black px-2 py-0.5 border border-black ${
-                            trade.return_pct >= 0 ? "bg-emerald-200 text-emerald-900" : "bg-rose-200 text-rose-900"
+                            safeNum(trade.return_pct) >= 0 ? "bg-emerald-200 text-emerald-900" : "bg-rose-200 text-rose-900"
                           }`}
                         >
-                          {trade.return_pct >= 0 ? "+" : ""}{trade.return_pct.toFixed(1)}%
+                          {safeNum(trade.return_pct) >= 0 ? "+" : ""}{safeNum(trade.return_pct).toFixed(1)}%
                         </span>
                       </div>
                     </div>
@@ -1181,15 +1201,15 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                       <div className="grid grid-cols-2 gap-2 text-xs font-bold bg-zinc-50 dark:bg-zinc-900 p-2.5 border-2 border-black">
                         <div>
                           <span className="text-zinc-500 block text-[10px]">سعر الدخول:</span>
-                          <span className="font-mono font-black text-black dark:text-white">{trade.entry_price?.toFixed(2)} ج.م</span>
+                          <span className="font-mono font-black text-black dark:text-white">{trade.entry_price != null ? safeNum(trade.entry_price).toFixed(2) : "—"} ج.م</span>
                         </div>
                         <div>
                           <span className="text-zinc-500 block text-[10px]">السعر الحالي:</span>
-                          <span className="font-mono font-black text-black dark:text-white">{trade.current_price?.toFixed(2)} ج.م</span>
+                          <span className="font-mono font-black text-black dark:text-white">{trade.current_price != null ? safeNum(trade.current_price).toFixed(2) : "—"} ج.م</span>
                         </div>
                         <div>
                           <span className="text-zinc-500 block text-[10px]">الوقف المتحرك (EMA10):</span>
-                          <span className="font-mono font-black text-amber-600 dark:text-amber-400">{trade.trailing_stop?.toFixed(2)} ج.م</span>
+                          <span className="font-mono font-black text-amber-600 dark:text-amber-400">{trade.trailing_stop != null ? safeNum(trade.trailing_stop).toFixed(2) : "—"} ج.م</span>
                         </div>
                         <div>
                           <span className="text-zinc-500 block text-[10px]">تاريخ الدخول:</span>
@@ -1289,17 +1309,17 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
 
                           {/* Entry Price */}
                           <td className="px-4 py-4 text-center font-mono border-l border-zinc-200 dark:border-zinc-800">
-                            {trade.is_locked ? "🔒" : `${trade.entry_price?.toFixed(2)} ج.م`}
+                            {trade.is_locked ? "🔒" : `${trade.entry_price != null ? safeNum(trade.entry_price).toFixed(2) : "—"} ج.م`}
                           </td>
 
                           {/* Current Price */}
                           <td className="px-4 py-4 text-center font-mono font-black border-l border-zinc-200 dark:border-zinc-800">
-                            {trade.is_locked ? "🔒" : `${trade.current_price?.toFixed(2)} ج.م`}
+                            {trade.is_locked ? "🔒" : `${trade.current_price != null ? safeNum(trade.current_price).toFixed(2) : "—"} ج.م`}
                           </td>
 
                           {/* Trailing Stop EMA10 */}
                           <td className="px-4 py-4 text-center font-mono font-black text-amber-600 dark:text-amber-400 border-l border-zinc-200 dark:border-zinc-800">
-                            {trade.is_locked ? "🔒" : `${trade.trailing_stop?.toFixed(2)} ج.م`}
+                            {trade.is_locked ? "🔒" : `${trade.trailing_stop != null ? safeNum(trade.trailing_stop).toFixed(2) : "—"} ج.م`}
                           </td>
 
                           {/* Current Return */}
@@ -1307,10 +1327,10 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                             <span
                               dir="ltr"
                               className={`inline-block px-2 py-0.5 border border-black ${
-                                trade.return_pct >= 0 ? "bg-emerald-200 text-emerald-900" : "bg-rose-200 text-rose-900"
+                                safeNum(trade.return_pct) >= 0 ? "bg-emerald-200 text-emerald-900" : "bg-rose-200 text-rose-900"
                               }`}
                             >
-                              {trade.return_pct >= 0 ? "+" : ""}{trade.return_pct.toFixed(1)}%
+                              {safeNum(trade.return_pct) >= 0 ? "+" : ""}{safeNum(trade.return_pct).toFixed(1)}%
                             </span>
                           </td>
 
@@ -1460,12 +1480,12 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                       <td className="p-3 font-mono text-zinc-600 dark:text-zinc-400">{t.entry_date}</td>
                       <td className="p-3 font-mono text-zinc-600 dark:text-zinc-400">{t.exit_date}</td>
                       <td className="p-3 font-mono">
-                        {t.is_locked ? "—" : `${t.entry_price?.toFixed(2)} ج.م`}
+                        {t.is_locked ? "—" : `${t.entry_price != null ? safeNum(t.entry_price).toFixed(2) : "—"} ج.م`}
                       </td>
                       <td className="p-3 font-mono">
-                        {t.is_locked ? "—" : `${t.exit_price?.toFixed(2)} ج.م`}
+                        {t.is_locked ? "—" : `${t.exit_price != null ? safeNum(t.exit_price).toFixed(2) : "—"} ج.م`}
                       </td>
-                      <td className="p-3 font-mono">{t.sessions} جلسات</td>
+                      <td className="p-3 font-mono">{t.sessions ? `${t.sessions} جلسات` : "—"}</td>
                       <td className="p-3 font-mono font-black">
                         <span
                           className={`inline-block px-2 py-0.5 border border-black ${
@@ -1474,7 +1494,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                               : "bg-rose-400 text-black"
                           }`}
                         >
-                          {isWin ? "+" : ""}{t.return_pct.toFixed(1)}%
+                          {isWin ? "+" : ""}{safeNum(t.return_pct).toFixed(1)}%
                         </span>
                       </td>
                       <td className="p-3 text-zinc-500 text-[11px]">
@@ -1651,10 +1671,10 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                         {t.is_active ? "مستمرة ⚡" : t.exit_date}
                       </td>
                       <td className="p-3 font-mono">
-                        {t.is_locked ? "—" : `${t.entry_price?.toFixed(2)} ج.م`}
+                        {t.is_locked ? "—" : `${t.entry_price != null ? safeNum(t.entry_price).toFixed(2) : "—"} ج.م`}
                       </td>
                       <td className="p-3 font-mono">
-                        {t.is_locked ? "—" : `${(t.is_active ? t.current_price : t.exit_price)?.toFixed(2)} ج.م`}
+                        {t.is_locked ? "—" : `${(t.is_active ? t.current_price : t.exit_price) != null ? safeNum(t.is_active ? t.current_price : t.exit_price).toFixed(2) : "—"} ج.م`}
                       </td>
                       <td className="p-3 font-mono">{t.sessions ? `${t.sessions} جلسات` : "—"}</td>
                       <td className="p-3 font-mono font-black">
@@ -1665,7 +1685,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                               : "bg-rose-400 text-black"
                           }`}
                         >
-                          {isWin ? "+" : ""}{t.return_pct.toFixed(1)}%
+                          {isWin ? "+" : ""}{safeNum(t.return_pct).toFixed(1)}%
                         </span>
                       </td>
                       <td className="p-3 text-zinc-500 text-[11px]">
@@ -1786,7 +1806,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                             isWin ? "bg-emerald-400 text-black" : "bg-rose-400 text-black"
                           }`}
                         >
-                          {isWin ? "+" : ""}{t.return_pct.toFixed(1)}%
+                          {isWin ? "+" : ""}{safeNum(t.return_pct).toFixed(1)}%
                         </span>
                       </div>
                     </div>
@@ -1795,13 +1815,13 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                       <div>
                         <span className="text-zinc-500 text-[10px] block">سعر الدخول</span>
                         <span className="font-mono text-black dark:text-white">
-                          {t.is_locked ? "🔒 مشفر" : `${t.entry_price?.toFixed(2)} ج.م`}
+                          {t.is_locked ? "🔒 مشفر" : `${t.entry_price != null ? safeNum(t.entry_price).toFixed(2) : "—"} ج.م`}
                         </span>
                       </div>
                       <div>
                         <span className="text-zinc-500 text-[10px] block">سعر الخروج</span>
                         <span className="font-mono text-black dark:text-white">
-                          {t.is_locked ? "🔒 مشفر" : `${t.exit_price?.toFixed(2)} ج.م`}
+                          {t.is_locked ? "🔒 مشفر" : `${t.exit_price != null ? safeNum(t.exit_price).toFixed(2) : "—"} ج.م`}
                         </span>
                       </div>
                       <div>
@@ -1916,31 +1936,31 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                   <div className="p-3 border-2 border-black bg-zinc-50 dark:bg-zinc-900">
                     <span className="text-[10px] text-zinc-500 font-black uppercase block">سعر الدخول</span>
                     <span className="text-base font-black font-mono mt-0.5 block">
-                      {selectedActiveTrade.entry_price?.toFixed(2)} ج.م
+                      {selectedActiveTrade.entry_price != null ? safeNum(selectedActiveTrade.entry_price).toFixed(2) : "—"} ج.م
                     </span>
                   </div>
 
                   <div className="p-3 border-2 border-black bg-zinc-50 dark:bg-zinc-900">
                     <span className="text-[10px] text-zinc-500 font-black uppercase block">السعر الحالي</span>
                     <span className="text-base font-black font-mono mt-0.5 block">
-                      {selectedActiveTrade.current_price?.toFixed(2)} ج.م
+                      {selectedActiveTrade.current_price != null ? safeNum(selectedActiveTrade.current_price).toFixed(2) : "—"} ج.م
                     </span>
                   </div>
 
                   <div className="p-3 border-2 border-black bg-amber-50 dark:bg-amber-950/30">
                     <span className="text-[10px] text-amber-700 dark:text-amber-400 font-black uppercase block">الوقف المتحرك (EMA10)</span>
                     <span className="text-base font-black font-mono text-amber-600 dark:text-amber-400 mt-0.5 block">
-                      {selectedActiveTrade.trailing_stop?.toFixed(2)} ج.م
+                      {selectedActiveTrade.trailing_stop != null ? safeNum(selectedActiveTrade.trailing_stop).toFixed(2) : "—"} ج.م
                     </span>
                   </div>
 
-                  <div className={`p-3 border-2 border-black ${selectedActiveTrade.return_pct >= 0 ? "bg-emerald-100 dark:bg-emerald-950/40" : "bg-rose-100 dark:bg-rose-950/40"}`}>
+                  <div className={`p-3 border-2 border-black ${safeNum(selectedActiveTrade.return_pct) >= 0 ? "bg-emerald-100 dark:bg-emerald-950/40" : "bg-rose-100 dark:bg-rose-950/40"}`}>
                     <span className="text-[10px] text-zinc-600 font-black uppercase block">العائد الحالي</span>
                     <span
                       dir="ltr"
-                      className={`text-base font-black font-mono mt-0.5 block ${selectedActiveTrade.return_pct >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-rose-700 dark:text-rose-300"}`}
+                      className={`text-base font-black font-mono mt-0.5 block ${safeNum(selectedActiveTrade.return_pct) >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-rose-700 dark:text-rose-300"}`}
                     >
-                      {selectedActiveTrade.return_pct >= 0 ? "+" : ""}{selectedActiveTrade.return_pct.toFixed(2)}%
+                      {safeNum(selectedActiveTrade.return_pct) >= 0 ? "+" : ""}{safeNum(selectedActiveTrade.return_pct).toFixed(2)}%
                     </span>
                   </div>
                 </div>
@@ -1956,7 +1976,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                       </h4>
                     </div>
                     <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200 leading-relaxed">
-                      دخل السهم بتاريخ <strong>{selectedActiveTrade.entry_date}</strong> بسعر <strong>{selectedActiveTrade.entry_price?.toFixed(2)} ج.م</strong> بناءً على إشارة فنية رقمية صارمة: اختراق قمة تماسك 20 جلسة تداول مع تدفق سيولة مؤسسية تجاوزت <strong>140%</strong> من متوسط التداول اليومي.
+                      دخل السهم بتاريخ <strong>{selectedActiveTrade.entry_date}</strong> بسعر <strong>{selectedActiveTrade.entry_price != null ? safeNum(selectedActiveTrade.entry_price).toFixed(2) : "—"} ج.م</strong> بناءً على إشارة فنية رقمية صارمة: اختراق قمة تماسك 20 جلسة تداول مع تدفق سيولة مؤسسية تجاوزت <strong>140%</strong> من متوسط التداول اليومي.
                     </p>
                   </div>
 
@@ -1969,7 +1989,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                       </h4>
                     </div>
                     <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200 leading-relaxed">
-                      الاستراتيجية تتبع قاعدة <strong>ركوب الاتجاه دون سقف للأرباح (Run Winners)</strong>. مستوى الوقف المتحرك الحالي محدد عند <strong>{selectedActiveTrade.trailing_stop?.toFixed(2)} ج.م</strong> ويتبع يومياً المتوسط المتحرك الأسي 10 أيام (EMA10). أمر الخروج الرقمي ينفذ فقط عند أول إغلاق مؤكد أسفل هذا المتوسط.
+                      الاستراتيجية تتبع قاعدة <strong>ركوب الاتجاه دون سقف للأرباح (Run Winners)</strong>. مستوى الوقف المتحرك الحالي محدد عند <strong>{selectedActiveTrade.trailing_stop != null ? safeNum(selectedActiveTrade.trailing_stop).toFixed(2) : "—"} ج.م</strong> ويتبع يومياً المتوسط المتحرك الأسي 10 أيام (EMA10). أمر الخروج الرقمي ينفذ فقط عند أول إغلاق مؤكد أسفل هذا المتوسط.
                     </p>
                   </div>
 

@@ -730,7 +730,7 @@ export default function RecommendationCalendar({
                             <span className="text-[10px] font-bold text-zinc-500 uppercase block">{isAr ? "نسبة النجاح للشهر" : "Month Win Rate"}</span>
                             <div className="flex items-center gap-1.5" dir="ltr">
                                 <span className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400">
-                                    {monthStats.winRate.toFixed(1)}%
+                                    {Number(monthStats.winRate || 0).toFixed(1)}%
                                 </span>
                                 <span className="text-xs font-bold text-zinc-500 font-sans">
                                     ({monthStats.wins} {isAr ? "رابحة" : "wins"})
@@ -742,10 +742,10 @@ export default function RecommendationCalendar({
                             <span
                                 dir="ltr"
                                 className={`text-xl font-black font-mono block ${
-                                    monthStats.netReturn >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                                    (monthStats.netReturn || 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
                                 }`}
                             >
-                                {monthStats.netReturn >= 0 ? "+" : ""}{monthStats.netReturn.toFixed(1)}%
+                                {(monthStats.netReturn || 0) >= 0 ? "+" : ""}{Number(monthStats.netReturn || 0).toFixed(1)}%
                             </span>
                         </div>
                         <div>
@@ -753,7 +753,7 @@ export default function RecommendationCalendar({
                             <span className="text-base sm:text-lg font-black font-mono text-indigo-600 dark:text-indigo-400 truncate block">
                                 {monthStats.bestTrade ? (
                                     <span dir="ltr">
-                                        {monthStats.bestTrade.symbol} ({monthStats.bestTrade.profit_loss_pct >= 0 ? "+" : ""}{Number(monthStats.bestTrade.profit_loss_pct).toFixed(1)}%)
+                                        {monthStats.bestTrade.symbol} ({(monthStats.bestTrade.profit_loss_pct || 0) >= 0 ? "+" : ""}{Number(monthStats.bestTrade.profit_loss_pct || 0).toFixed(1)}%)
                                     </span>
                                 ) : (
                                     "—"
