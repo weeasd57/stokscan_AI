@@ -2152,7 +2152,7 @@ export function buildDeterministicPortfolioAnalysisResponse(
         stockScores.push({ symbol, score: compositeScore, risk: riskScore, name: stock.name || symbol });
 
         perStockBreakdowns.push([
-            `#### 🔹 سهم **${symbol}** ${stock.name ? `(${stock.name})` : ""}:`,
+            `### 🔹 سهم **${symbol}** ${stock.name ? `(${stock.name})` : ""}:`,
             `- **الحالة الفنية:** ${posNotes.join(" ")}`,
             `- **التوجيه التكتيكي:** ${actionVerdict}.`
         ].join("\n"));
