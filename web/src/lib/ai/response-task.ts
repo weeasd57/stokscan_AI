@@ -1,7 +1,8 @@
 import { IntentPlan, ToolResult } from "./types";
+import { isBestBuyStockQuestion, normalizeArabicIntent } from "./intent-policy";
 
 export interface ResponseTask {
-    kind: "decision_comparison" | "comparison" | "explanation" | "fact";
+    kind: "decision_comparison" | "stock_recommendation" | "comparison" | "explanation" | "fact";
     symbols: string[];
     criterion: "intraday" | "risk" | "relative_volume" | "momentum" | "unspecified";
     target: string | null;
@@ -27,14 +28,16 @@ export function resolveResponseTask(message: string, plan: IntentPlan,
         && /ايهما|افضل|احسن|انسب|اختار|ترشح|مين/.test(normalize(previousUser + " " + previousAssistant));
     const context = inherited ? `${normalize(previousUser)} ${text}` : text;
     const decision = symbols.length >= 2 && (choice || inherited || plan.request?.answer_kind === "decision_comparison" || plan.response_task?.kind === "decision_comparison");
+    const stockRecommendation = symbols.length === 0 && isBestBuyStockQuestion(message);
     const criterion: ResponseTask["criterion"] = /مخاطر|مخاطره|امن|امان|محافظ/.test(context) ? "risk"
         : /مضارب|سكالب|intraday|يومي|جلسه/.test(context) ? "intraday"
         : /سيول|حجم|تداول/.test(context) ? "relative_volume"
         : /زخم|momentum|اقوي|اسرع/.test(context) ? "momentum" : plan.response_task?.criterion || "unspecified";
     const target = plan.entities?.requested_date || context.match(/(?:يوم\s+)?(?:الاثنين|الاتنين|الاحد|الثلاثاء|الاربعاء|الخميس|الجمعه|السبت)|بكره|غدا|النهارده|اليوم|الاسبوع/)?.[0] || plan.response_task?.target || null;
-    return { kind: decision ? "decision_comparison" : symbols.length >= 2 && plan.intent === "comparison" ? "comparison"
+    return { kind: decision ? "decision_comparison" : stockRecommendation ? "stock_recommendation" : symbols.length >= 2 && plan.intent === "comparison" ? "comparison"
         : /ليه|لماذا|اشرح|فسر|يعني ايه/.test(text) ? "explanation" : "fact", symbols, criterion, target,
-        requires: decision ? ["direct_conclusion_or_specific_insufficiency", "evidence_for_all_candidates", "criterion_tradeoffs", "conditions_and_limits"] : ["requested_facts"] };
+        requires: decision ? ["direct_conclusion_or_specific_insufficiency", "evidence_for_all_candidates", "criterion_tradeoffs", "conditions_and_limits"]
+            : stockRecommendation ? ["evidenced_candidate_or_entitlement_limit", "answer_the_requested_selection"] : ["requested_facts"] };
 }
 
 export function completeDecisionTools(message: string, plan: IntentPlan, history: Array<{ role: string; content: string }> = []): void {
@@ -51,6 +54,28 @@ export function completeDecisionTools(message: string, plan: IntentPlan, history
 /** Completion checks are additional to numerical/source checks. A verified
  * list of numbers does not satisfy a request to choose between alternatives. */
 export function checkResponseTask(reply: string, task: ResponseTask, results: ToolResult[]): string[] {
+    if (task.kind === "stock_recommendation") {
+        const rec = results.find(r => r.tool === "get_recommendations" || r.tool === "get_signals");
+        const lock = rec?.pro_locked && /حصريه لمشتركي|ترقيه حسابك|ترقية حسابك/.test(normalizeArabicIntent(reply));
+        if (lock) return [];
+        if (Array.isArray(rec?.data) && rec.data.length > 0
+            && rec.data.some((row: any) => row.symbol && new RegExp(`\\b${String(row.symbol)}\\b`, "i").test(reply))) return [];
+        const namedEvidence = new Set<string>();
+        for (const result of results) {
+            const rows = Array.isArray(result.data) ? result.data : Array.isArray(result.data?.stocks) ? result.data.stocks : [];
+            for (const row of rows) {
+                const symbol = String(row?.symbol || "").toUpperCase();
+                if (symbol && /^[A-Z0-9]{2,10}$/.test(symbol)) namedEvidence.add(symbol);
+            }
+            if (result.data?.symbol) namedEvidence.add(String(result.data.symbol).toUpperCase());
+        }
+        const text = normalizeArabicIntent(reply);
+        const recommends = /(?:ارشح|اوصي|اختار|الافضل|الانسب|ترشيحي)/.test(text);
+        const evidencedPick = recommends && Array.from(namedEvidence).some(symbol => new RegExp(`\\b${symbol}\\b`, "i").test(reply));
+        const explicitLimit = /(?:لا استطيع|لا اقدر|تعذر|لا توجد|لا تتوفر|غير متاح|محجوب|يتطلب).{0,110}(?:ترشيح|توصيه|سهم|بيانات|pro|المشتركين|المشترك)/.test(text);
+        if (!evidencedPick && !explicitLimit) return ["السؤال يطلب ترشيح سهم. لا تعرض مسحاً عاماً كأنه ترشيح؛ اختر سهماً مدعوماً ببيانات محددة أو اشرح المعلومة التي تمنع الترشيح."];
+        return [];
+    }
     if (task.kind !== "decision_comparison") return [];
     const reasons: string[] = [];
     const text = normalize(reply);

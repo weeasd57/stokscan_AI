@@ -3,6 +3,7 @@ import { buildDecisionFallback } from "./decision-evidence";
 import { summarizeNewsEvidence, summarizeToolNewsEvidence, corporateActionDates, isTodayNewsRequest, newsEventDate } from "./news-evidence";
 import { renderRecommendationEvidence } from "./recommendation-presentation";
 import { explicitBollingerPreset } from "./scan-request";
+import { isBestBuyStockQuestion, normalizeArabicIntent } from "./intent-policy";
 
 export function volumeRatio(value: unknown): number | null {
     if (value == null || value === "") return null;
@@ -153,8 +154,36 @@ export function evidenceViolations(reply: string, message: string, results: Tool
     return reasons;
 }
 
+export function asksForRecommendationEvidence(message: string, plan?: IntentPlan): boolean {
+    const normalizedMessage = normalizeArabicIntent(message);
+    const explicitRequest = isBestBuyStockQuestion(message)
+        || /(?:توصي|ترشيح|اشارات المنصه|سجل التوصيات|recommendations?|signals?)/i.test(normalizedMessage);
+    const contextualRequest = Boolean(plan && (
+        plan.request?.required_facts?.includes("recommendations")
+        || plan.entities?.recommendation_order
+        || (plan.intent === "historical_recall" && (plan.tools || []).some(tool => tool === "get_recommendations" || tool === "get_signals"))
+    ));
+    return explicitRequest || contextualRequest;
+}
+
+export function asksForAccumulationEvidence(message: string, plan?: IntentPlan): boolean {
+    const normalizedMessage = normalizeArabicIntent(message);
+    return /(?:تجميع|accumulation|wyckoff|سيوله.{0,12}(?:مؤسسي|ذكي)|(?:مؤسسي|ذكي).{0,12}سيوله)/i.test(normalizedMessage)
+        || plan?.ranking_metric === "accumulation"
+        || plan?.request?.required_facts?.includes("accumulation") === true
+        || plan?.entities?.scan_direction === "accumulation";
+}
+
 export function safeEvidenceResponse(message: string, results: ToolResult[], plan?: IntentPlan): string {
     const sections: string[] = [];
+    const normalizedMessage = normalizeArabicIntent(message);
+    const asksRecommendations = asksForRecommendationEvidence(message, plan);
+    const asksAccumulation = asksForAccumulationEvidence(message, plan);
+    const asksDistribution = /(?:تصريف|distribution)/i.test(normalizedMessage);
+    const asksMarket = /(?:السوق|البورصه|مؤشر(?:ات)?|شاشه|لحظي|مباشر|حركه السوق|الاسهم الاكثر ارتفاع|الاكثر ارتفاع|الاسهم الصاعده|الاعلى ارتفاع|اعلى هبوط|الدولار كام|سعر الدولار|usd\/egp|egp\/usd)/i.test(normalizedMessage);
+    const asksNews = /(?:اخبار|خبر|news|عاجل)/i.test(normalizedMessage);
+    const asksCorporateAction = /(?:حدث|احداث|اسهم مجانيه|توزيعات|اكتتاب|زياده راس المال|تجزئه|منحه|bonus shares|dividend|rights issue)/i.test(normalizedMessage);
+    const asksSector = /(?:قطاع|القطاعات|البنوك|العقارات|الاتصالات|الادويه)/i.test(normalizedMessage);
     const decisionPlan = plan || { intent: "comparison", entities: { symbols: Array.from(new Set(results
         .filter(r => ["get_stock", "get_comparison"].includes(r.tool)).flatMap(r => r.symbols || []))) } } as IntentPlan;
     const decision = buildDecisionFallback(message, decisionPlan, results);
@@ -187,7 +216,7 @@ export function safeEvidenceResponse(message: string, results: ToolResult[], pla
             if (scan.data?.scan_collection?.complete === false || scan.data?.scan_collection?.missing_evidence_count > 0) sections.push("تغطية الفحص جزئية؛ بعض السجلات أو أدلة الأسعار غير متاحة، لذلك لا يمكن اعتبار القائمة شاملة للسوق.");
         }
     }
-    for (const actionResult of results.filter(r => r.tool === "get_corporate_actions" && !r.error)) {
+    for (const actionResult of results.filter(r => (asksCorporateAction || asksNews) && r.tool === "get_corporate_actions" && !r.error)) {
         const actions = Array.isArray(actionResult.data?.corporate_actions) ? actionResult.data.corporate_actions : [];
         if (actions.length) sections.push(["أحداث الشركات الموثقة:", ...actions.slice(0, 20).map((action: any) => {
             const kind = action.action_type_ar || ({ bonus_shares: "أسهم مجانية", dividend: "توزيعات نقدية",
@@ -197,9 +226,10 @@ export function safeEvidenceResponse(message: string, results: ToolResult[], pla
             return `- ${action.symbol || "الشركة"}: ${kind}؛ ${action.title || action.headline || "التفاصيل التنفيذية غير متاحة"}؛ تاريخ نشر الخبر ${dates.published_date || "غير موثق"}؛ تاريخ تنفيذ الإجراء ${dates.action_date || "غير موثق"}.`;
         })].join("\n"));
     }
-    const recommendations = results.find(r => r.tool === "get_recommendations" || r.tool === "get_signals");
+    const recommendations = asksRecommendations ? results.find(r => r.tool === "get_recommendations" || r.tool === "get_signals") : undefined;
     if (recommendations) sections.push(renderRecommendationEvidence(recommendations));
-    for (const scan of results.filter(r => r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks")) {
+    for (const scan of results.filter(r => (r.tool === "get_accumulation_stocks" && asksAccumulation)
+        || (r.tool === "get_distribution_stocks" && asksDistribution))) {
         const metric = scan.tool === "get_distribution_stocks" ? "التصريف" : "التجميع";
         const field = scan.tool === "get_distribution_stocks" ? "dist_score" : "acc_score";
         const rows = Array.isArray(scan.data?.stocks) ? scan.data.stocks : [];
@@ -212,7 +242,7 @@ export function safeEvidenceResponse(message: string, results: ToolResult[], pla
                     : `- ${row.symbol}: درجة ${metric} ${row[field] ?? "غير متاحة"}/100؛ مرحلة وايكوف ${row.wyckoff_phase || "غير متاحة"}.`)].join("\n")
             : `لم تظهر أسهم موثقة في مسح ${metric} المتاح بتاريخ ${date}.`);
     }
-    const sector = results.find(r => r.tool === "get_sector" && !r.error);
+    const sector = asksSector ? results.find(r => r.tool === "get_sector" && !r.error) : undefined;
     if (sector && sector.data?.sector) {
         const d = sector.data;
         sections.push(`المتاح لدي لقطة إغلاق يومية لقطاع ${d.sector} وليست بيانات لحظية (بتاريخ ${sector.data_time || "غير محدد"}).`);
@@ -223,7 +253,7 @@ export function safeEvidenceResponse(message: string, results: ToolResult[], pla
             sections.push(`الأسهم الأكثر تراجعاً بقطاع ${d.sector}:\n` + d.losers.slice(0, 5).map((s: any) => `- ${s.symbol}: ${Number(s.tech?.change_pct || 0).toFixed(2)}%`).join("\n"));
         }
     }
-    const market = results.find(r => r.tool === "get_market" && !r.error);
+    const market = asksMarket ? results.find(r => r.tool === "get_market" && !r.error) : undefined;
     if (market) {
         const d = market.data || {};
         const dates = d.component_dates || {};
@@ -237,8 +267,8 @@ export function safeEvidenceResponse(message: string, results: ToolResult[], pla
         }
         sections.push("اختلاف أداء المؤشرات وحده لا يثبت انتقال السيولة بين الأسهم.");
     }
-    const news = results.filter(r => ["get_news", "search_web"].includes(r.tool));
-    if (todayNews || news.length) {
+    const news = asksNews ? results.filter(r => ["get_news", "search_web"].includes(r.tool)) : [];
+    if (todayNews || (asksNews && news.length > 0)) {
         const selected = todayNews ? newsSummary.today_articles : newsSummary.articles;
         if (selected.length) sections.push(selected.slice(0, 5).map(a => `- ${a.title} (تاريخ النشر ${a.event_date || "غير موثق"})`).join("\n"));
         else if (todayNews) {
@@ -250,7 +280,7 @@ export function safeEvidenceResponse(message: string, results: ToolResult[], pla
         if (r.data?.price != null) sections.push(`${r.data?.symbol || r.symbols[0]}: السعر ${r.data?.is_live_intraday ? "اللحظي" : "آخر إغلاق مسجل"} ${r.data.price} جنيه بتاريخ ${r.data_time || "غير محدد"}.`);
         sections.push(`${r.data?.symbol || r.symbols[0]} — نسبة حجم التداول ${r.data?.vol_ratio ?? "غير متاحة"}: ${volumeAssessment(r.data?.vol_ratio)}. حجم التداول وحده لا يثبت التجميع أو التصريف.`);
         const rec = r.data?.recommendation;
-        if (rec?.has_recommendation) sections.push(renderRecommendationEvidence({ ...r, tool: "get_recommendations", data: [{ ...rec, symbol: r.data?.symbol || r.symbols[0] }] }));
+        if (asksRecommendations && rec?.has_recommendation) sections.push(renderRecommendationEvidence({ ...r, tool: "get_recommendations", data: [{ ...rec, symbol: r.data?.symbol || r.symbols[0] }] }));
     }
     return sections.join("\n\n") || "تعذر التحقق من إجابة متسقة مع سؤالك والبيانات المتاحة. أعد المحاولة لاستكمال التحقق.";
 }

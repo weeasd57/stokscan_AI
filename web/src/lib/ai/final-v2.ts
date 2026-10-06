@@ -2290,7 +2290,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     if (/^\s*كمل\s*[؟?!.]*\s*$/i.test(userMessage) && toolResults.length === 0) {
         return "التحليل السابق مكتمل بالبيانات المتاحة حالياً. لو تقصد استكمال نقطة معينة، اكتب اسم السهم أو السؤال المطلوب.";
     }
-    if (plan.unresolved_stock && plan.service_degraded_message) {
+    if (plan.service_degraded_message) {
         return plan.service_degraded_message;
     }
     const decisionReply = buildDecisionFallback(userMessage, plan, toolResults);

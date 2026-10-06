@@ -220,7 +220,7 @@ export function isUnspecifiedOpportunityRequest(message: string): boolean {
     const value = normalizeArabicIntent(message);
     return isBestBuyStockQuestion(message)
         && /افضل|احسن|فرص|رشح|ترشح/.test(value)
-        && !/شريع|اسلام|إسلام|sharia|توصي|تجميع|تصريف|وايكوف|wyckoff|سيوله|حجم|دعم|مقاوم|زخم|rsi|macd|ربحيه|توزيعات|عائد|قيمه|ارخص|اعلي ارتفاع|اعلي صعود|اكثر ارتفاع/.test(value);
+        && !/شريع|اسلام|إسلام|sharia|توصي|تجميع|تصريف|وايكوف|wyckoff|سيوله|حجم|دعم|مقاوم|زخم|rsi|macd|ربحيه|توزيعات|عائد|قيمه|ارخص|اعلي ارتفاع|اعلي صعود|اكثر ارتفاع|دولار|usd|امريكي|امريكا|us stocks/.test(value);
 }
 
 export function isFairValueScanRequest(message: string): boolean {

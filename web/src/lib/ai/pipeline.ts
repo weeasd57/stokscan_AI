@@ -20,7 +20,7 @@ import { createExecutionScope, awaitExecution, executionFetch, executionSupabase
 import { attachEvidenceContract } from "./evidence";
 import { buildFactRecords } from "./facts";
 import { runAnswerGate, buildGateCorrectionBlock } from "./answer-gate";
-import { safeEvidenceResponse } from "./response-evidence";
+import { asksForAccumulationEvidence, asksForRecommendationEvidence, safeEvidenceResponse } from "./response-evidence";
 import { isUnspecifiedOpportunityRequest } from "./intent-policy";
 import { completeToolsByFacets } from "./tool-completion";
 import { explicitBollingerPreset } from "./scan-request";
@@ -650,6 +650,17 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             entities: { symbols: extractExplicitSymbols(message), sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null, portfolio_operation: portfolioOperation },
             tools: ["manage_portfolio"],
             session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+    const isCryptoQuestion = /(?:usdt|btc|eth|crypto|كريبتو|بيتكوين|عملات\s*رقمية|عمله\s*رقميه|بينانس|binance)/i.test(message);
+    if (isCryptoQuestion && extractExplicitSymbols(message).length === 0) {
+        return {
+            intent: "general_chat",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: [],
+            service_degraded_message: "منصة EGX Bots متخصصة حصرياً في أسهم وقطاعات البورصة المصرية (EGX)، ولا تدعم العملات الرقمية أو أزواج التداول المشفرة (Crypto / USDT). يمكنك البحث والتحليل لأي سهم مصري مدرج.",
+            session_update: { current_symbol: null, last_symbols: [], summary: message }
         };
     }
     if (/شريع|sharia/i.test(normalizeArabicIntent(message))) {
@@ -2934,6 +2945,11 @@ async function* runPipelineCore(
         }
     };
 
+    const normalizedDollarStockQuestion = normalizeArabicIntent(userMessage);
+    const dollarStockQuestion = isBestBuyStockQuestion(userMessage)
+        && /(?:دولار|usd|us stocks?)/i.test(normalizedDollarStockQuestion)
+        && /(?:سهم|اسهم|stock|stocks|equities)/i.test(normalizedDollarStockQuestion);
+
     // Portfolio commands are transactional and must never fall through to the
     // slow responder LLM. Re-check the raw user message at the final plan
     // boundary because an earlier planner/enforcement pass can overwrite the
@@ -2953,6 +2969,19 @@ async function* runPipelineCore(
         plan.tools = Array.from(new Set([...plan.tools.filter(t => t !== "get_comparison"), "get_stock", "get_stock_levels"]));
         plan.entities.symbols = explicitSymbols;
         plan.needs_live_data = true;
+    }
+    if (dollarStockQuestion) {
+        plan.intent = "clarification";
+        plan.entities.symbols = [];
+        plan.tools = [];
+        plan.needs_live_data = false;
+        plan.needs_historical_data = false;
+        plan.clarification_needed = true;
+        plan.clarification_options = ["أسهم مصرية مقومة بالدولار", "أسهم أمريكية"];
+        plan.request = {
+            goal: userMessage, reference: "market", ranking_metric: "unspecified", required_facts: [],
+            clarification_reason: "لا تتوفر في بيانات المنصة الحالية معلومات موثوقة كافية لترشيح سهم دولاري. هل تقصد سهماً مصرياً مقوماً بالدولار أم سهماً في سوق أمريكي؟",
+        };
     }
 
     completeDecisionTools(userMessage, plan, history);
@@ -3256,7 +3285,7 @@ async function* runPipelineCore(
             responderMeta.source = "deterministic";
             responderMeta.degraded = true;
             finalReply = (plan.ranking_metric === "price_change" ? buildTopMoversResponse(tools) : null)
-                || buildSafeFallbackResponse(tools.results, plan);
+                || buildSafeFallbackResponse(tools.results, plan, userMessage);
             break;
         }
         let currentResponse = "";
@@ -3371,7 +3400,7 @@ async function* runPipelineCore(
             // answer questions such as daily limits and period highs from the
             // same verified tool facts; the generic table is only a last resort.
             finalReply = buildDeterministicResponse(userMessage, plan, tools.results, sessionState)
-                || buildSafeFallbackResponse(tools.results, plan);
+                || buildSafeFallbackResponse(tools.results, plan, userMessage);
             break;
         }
 
@@ -3448,7 +3477,7 @@ async function* runPipelineCore(
         console.warn("[VALIDATOR] Final reply lacks Arabic content — using safe fallback");
         fullResponse = sanitizeReply(
             buildDeterministicResponse(userMessage, plan, tools.results, sessionState)
-            || buildSafeFallbackResponse(tools.results, plan)
+            || buildSafeFallbackResponse(tools.results, plan, userMessage)
         );
     }
 
@@ -3576,8 +3605,15 @@ function hasMeaningfulData(result: ToolResult): boolean {
     return true;
 }
 
- function buildSafeFallbackResponse(toolsResults: ToolResult[], plan: IntentPlan): string {
-     const sectorLiquidity = toolsResults.find(result => result.tool === "get_sector_liquidity");
+ function buildSafeFallbackResponse(toolsResults: ToolResult[], plan: IntentPlan, userMessage: string): string {
+     const asksRecommendations = asksForRecommendationEvidence(userMessage, plan);
+     const asksMarketOverview = (isMarketWideRequest(userMessage) && !isBestBuyStockQuestion(userMessage))
+         || /(?:الدولار كام|سعر الدولار|usd\/egp|egp\/usd)/i.test(normalizeArabicIntent(userMessage));
+     const normalizedMessage = normalizeArabicIntent(userMessage);
+     const asksAccumulation = asksForAccumulationEvidence(userMessage, plan);
+     const asksDistribution = /(?:تصريف|distribution)/i.test(normalizedMessage);
+     const sectorLiquidity = toolsResults.find(result => result.tool === "get_sector_liquidity"
+         && /(?:سيول|تداول|قطاع)/i.test(normalizeArabicIntent(userMessage)));
      if (sectorLiquidity) {
          return buildDeterministicResponse("سيولة القطاعات", plan, toolsResults)
              || "تعذر صياغة ملخص سيولة القطاعات، لكن البيانات الموثقة متاحة في الجدول.";
@@ -3598,11 +3634,23 @@ function hasMeaningfulData(result: ToolResult): boolean {
          otcNotice ? `\n${otcNotice}\n` : ""
      ];
 
-    let hasContent = false;
+     let hasContent = false;
+
+     if (asksRecommendations) {
+         const locked = toolsResults.find(r => (r.tool === "get_recommendations" || r.tool === "get_signals") && r.pro_locked);
+         if (locked?.error) {
+             lines.push(locked.error);
+             hasContent = true;
+         }
+     }
 
     if (Array.isArray(toolsResults)) {
         toolsResults.forEach(r => {
             if (!hasMeaningfulData(r)) return;
+            if (r.tool === "get_accumulation_stocks" && !asksAccumulation) return;
+            if (r.tool === "get_distribution_stocks" && !asksDistribution) return;
+            if ((r.tool === "get_recommendations" || r.tool === "get_signals") && !asksRecommendations) return;
+            if (r.tool === "get_market" && !asksMarketOverview) return;
             if (r.tool === "get_stock" && r.data?.symbol) {
                 hasContent = true;
                 const d = r.data;
