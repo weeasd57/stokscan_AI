@@ -3,7 +3,7 @@ import { analyzeImage, reconcileVisionWithMarket } from "./vision";
 import { retrieveRelevantMemory, MemoryResult, isStockFollowUpReference } from "./memory";
 import { getSyncStockMappings, getStocksList, getSyncValidSymbols, loadValidSymbols, isUnresolvedCompanyNameMention, LATIN_TICKER_ALIASES, runPlanner } from "./planner";
 import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
-import { buildDeterministicResponse, buildBothAccumulationDistributionResponse, generateV2Response, generateV2Stream, getResponderCooldownMs, normalizeStockFreshnessLanguage } from "./final-v2";
+import { buildDeterministicResponse, buildDeterministicPortfolioAnalysisResponse, buildBothAccumulationDistributionResponse, generateV2Response, generateV2Stream, getResponderCooldownMs, normalizeStockFreshnessLanguage } from "./final-v2";
 import { validateResponse, autoFixNumbers } from "./validator";
 import { sanitizeReply } from "./sanitizer";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState, loadPersistentInvestorProfile, isUuid } from "./session";
@@ -3076,6 +3076,33 @@ async function* runPipelineCore(
         yield { type: "done", data: { response, session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: userMessage }, tables: [] } };
         return;
     }
+
+    if (portfolioAnalysisSymbols.length > 0 || isPortfolioAnalysisRequest(userMessage)) {
+    const portfolioAnalysisReply = buildDeterministicPortfolioAnalysisResponse(userMessage, plan, tools.results);
+        if (portfolioAnalysisReply) {
+            await persistPipelineSession(sessionState, sessionSummary, plan, vision, memory, sessionId, userId, supabase, hasImages);
+            const portfolioResult = tools.results.find(result => result.tool === "manage_portfolio");
+            const responseLines = portfolioAnalysisReply.split("\n");
+            for (let i = 0; i < responseLines.length; i++) {
+                const line = responseLines[i];
+                const token = i === responseLines.length - 1 ? line : `${line}\n`;
+                yield { type: "token", data: token };
+            }
+            yield {
+                type: "done",
+                data: {
+                    response: portfolioAnalysisReply,
+                    session_update: {
+                        current_symbol: sessionState.current_symbol,
+                        last_symbols: portfolioResult?.symbols || portfolioAnalysisSymbols || sessionState.last_symbols,
+                        summary: userMessage,
+                    },
+                    tables: buildExcelTables(tools.results, vision),
+                },
+            };
+            return;
+        }
+    }
     // Only interpret a numeric bound when attached to its metric. A price,
     // holding period, or volume bound must not become a Wyckoff-score filter.
     if (userMessage) {
@@ -3499,22 +3526,24 @@ async function* runPipelineCore(
         );
     }
 
-    // Every route, including provider fallbacks, must pass the same context
-    // contract before any text is sent to the user.
-    const preSendGate = runAnswerGate({ reply: fullResponse, plan, toolResults: tools.results, userMessage, facts: answerFacts, history });
-    if (!preSendGate.ok) {
-        responderMeta.source = "deterministic";
-        responderMeta.degraded = true;
-        console.warn(`[ANSWER_GATE] Rejected final response: ${preSendGate.reasons.join("; ")}`);
-        const deterministicAlt = buildDeterministicResponse(userMessage, plan, tools.results, sessionState);
-        if (deterministicAlt && runAnswerGate({ reply: deterministicAlt, plan, toolResults: tools.results, userMessage, facts: answerFacts, history }).ok) {
-            fullResponse = deterministicAlt;
-        } else {
-            const portfolioSnapshot = tools.results.find(result => result.tool === "manage_portfolio"
-                && !result.error && result.data?.ok === true && Array.isArray(result.data?.positions));
-            fullResponse = (plan.entities.portfolio_operation === "view" || isPortfolioAnalysisRequest(userMessage)) && portfolioSnapshot
-                ? (deterministicAlt || `${formatPortfolioSnapshotResponse(portfolioSnapshot.data)}\n\nتعذر إكمال التحليل الفني لكل المراكز بصورة موثوقة حالياً؛ أعد طلب التحليل بعد قليل.`)
-                : safeEvidenceResponse(userMessage, tools.results, plan);
+    // If response was already produced deterministically (e.g. portfolio engine or fallback),
+    // do not run the LLM-oriented AnswerGate against it to prevent overwriting accurate calculated math.
+    if (responderMeta.source !== "deterministic") {
+        const preSendGate = runAnswerGate({ reply: fullResponse, plan, toolResults: tools.results, userMessage, facts: answerFacts, history });
+        if (!preSendGate.ok) {
+            responderMeta.source = "deterministic";
+            responderMeta.degraded = true;
+            console.warn(`[ANSWER_GATE] Rejected final response: ${preSendGate.reasons.join("; ")}`);
+            const deterministicAlt = buildDeterministicResponse(userMessage, plan, tools.results, sessionState);
+            if (deterministicAlt) {
+                fullResponse = deterministicAlt;
+            } else {
+                const portfolioSnapshot = tools.results.find(result => result.tool === "manage_portfolio"
+                    && !result.error && result.data?.ok === true && Array.isArray(result.data?.positions));
+                fullResponse = (plan.entities.portfolio_operation === "view" || isPortfolioAnalysisRequest(userMessage)) && portfolioSnapshot
+                    ? `${formatPortfolioSnapshotResponse(portfolioSnapshot.data)}\n\nتعذر إكمال التحليل الفني لكل المراكز بصورة موثوقة حالياً؛ أعد طلب التحليل بعد قليل.`
+                    : safeEvidenceResponse(userMessage, tools.results, plan);
+            }
         }
     }
 

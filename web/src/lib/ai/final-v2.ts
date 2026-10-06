@@ -2112,7 +2112,7 @@ export function buildDeterministicPortfolioAnalysisResponse(
                 posNotes.push(`السعر يقترب من المقاومة الفنية (${resis.toFixed(2)} ج.م) — فرصة مناسبة لجني أرباح جزئي أو رفع وقف الأرباح.`);
                 compositeScore += 10;
             } else {
-                posNotes.push(`نطاق الحركة محصور بين دعم ${supp.toFixed(2)} ج.م ومقاومة ${resis.toFixed(2)} ج.م (المسافة للدعم: ${distToSupp >= 0 ? "+" : ""}${distToSupp.toFixed(1)}%).`);
+                posNotes.push(`نطاق الحركة محصور بين دعم ${supp.toFixed(2)} ج.م ومقاومة ${resis.toFixed(2)} ج.م.`);
             }
         } else if (supp != null) {
             posNotes.push(`الدعم الأقرب عند ${supp.toFixed(2)} ج.م كحزام أمان رئيسي.`);
