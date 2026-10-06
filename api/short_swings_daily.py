@@ -65,31 +65,31 @@ def _save_sent_cache_state(sb, as_of_date: str, state: Dict[str, Any]):
 
 
 def build_vip_entry_message(trades: List[Dict[str, Any]], as_of_date: str, web_origin: str) -> str:
-    """Format full, unmasked swing signals for the VIP channel."""
+    """Format full, unmasked swing signals for the VIP channel ready for tomorrow's open."""
     lines = [
         "⚡ *إشارات مضاربة قصيرة جديدة (نظام الزخم ⚡ PRO)*",
-        f"📅 جلسة: `{as_of_date}`",
+        f"📅 رُصدت بنهاية جلسة: `{as_of_date}` | 🎯 *التنفيذ: مع افتتاح جلسة الغد*",
         "━━━━━━━━━━━━━━━━━━━━",
-        "تم رصد اختراق قواعد سعرية مع انفجار سيولة مؤسسية (>140%):",
+        "تم رصد اختراق قواعد سعرية مع انفجار سيولة مؤسسية (>140%) جاهزة للدخول غداً:",
         ""
     ]
 
     for t in trades:
         sym = t.get("symbol", "")
         name = t.get("name_ar", sym)
-        entry = t.get("entry_price", 0.0)
-        curr = t.get("current_price", entry)
-        trail_sl = t.get("trailing_stop", entry * 0.96)
-        sig_type = t.get("trigger_type", "انفجار سيولة واختراق 20 يوم")
+        close_ref = t.get("entry_price", 0.0)
+        sl_price = t.get("trailing_stop", close_ref * 0.96)
+        sig_type = t.get("trigger_type", "اختراق قمة 20 جلسة مع انفجار سيولة")
         sector = t.get("sector", "عام")
 
         lines.extend([
             f"🔹 *{name}* (`{sym}`) — قطاع {sector}",
-            f"  • *سعر الدخول المقترح:* `{entry:.3f}` ج.م",
-            f"  • *وقف الخسارة الصارم:* `{entry * 0.96:.3f}` ج.م (-4.0%)",
-            f"  • *تأمين الصفقة (Breakeven):* عند وصول السعر إلى `+{entry * 1.045:.3f}` ج.م (+4.5%) يُرفع الوقف لنقطة الدخول فوراً.",
-            f"  • *استراتيجية جني الأرباح:* وقف متحرك بكسر متوسط `EMA10` يومي للإغلاق لركوب كامل الموجة 🚀",
-            f"  • *النموذج:* {sig_type}",
+            f"  • *سعر الإغلاق المرجعي:* `{close_ref:.2f}` ج.م",
+            f"  • *نقطة الدخول المقترحة:* مع افتتاح جلسة الغد (شرط عدم الافتتاح بفجوة صاعدة > 2%)",
+            f"  • *وقف الخسارة الصارم:* `{sl_price:.2f}` ج.م (-4.0% من الإغلاق)",
+            f"  • *تأمين الصفقة (Breakeven):* عند وصول السعر إلى `+{close_ref * 1.045:.2f}` ج.م (+4.5%) يُرفع الوقف لنقطة الدخول فوراً.",
+            f"  • *استراتيجية جني الأرباح:* الوقف يتبع متوسط `EMA10` يومياً لركوب كامل الموجة 🚀",
+            f"  • *النموذج الفني:* {sig_type}",
             ""
         ])
 
@@ -97,7 +97,7 @@ def build_vip_entry_message(trades: List[Dict[str, Any]], as_of_date: str, web_o
         "━━━━━━━━━━━━━━━━━━━━",
         f"🔗 *متابعة الإشارات الحية ولوحة التقويم:*",
         f"{web_origin}/?tab=short_swings",
-        "⚠️ *تنبيه إدارة مخاطر:* لا تخاطر بأكثر من 1-2% من رأس مال محفظتك في الصفقة الواحدة."
+        "⚠️ *تنبيه إدارة مخاطر:* جهز أمر الشراء قبل افتتاح الجلسة ولا تخاطر بأكثر من 1-2% من رأس مال محفظتك."
     ])
 
     return "\n".join(lines)
@@ -107,9 +107,9 @@ def build_free_entry_message(trades: List[Dict[str, Any]], as_of_date: str, web_
     """Format masked teaser signals for the Free channel."""
     lines = [
         "⚡ *إشارات مضاربة قصيرة جديدة تم رصدها الآن! (نظام ⚡ PRO)*",
-        f"📅 جلسة: `{as_of_date}`",
+        f"📅 رُصدت بنهاية جلسة: `{as_of_date}` | 🎯 *جاهزة للتنفيذ في جلسة الغد*",
         "━━━━━━━━━━━━━━━━━━━━",
-        f"رصد محرك الذكاء الاصطناعي `{len(trades)}` فرصة زخم وانفجار سيولة مؤسسية جديدة بالبورصة المصرية:",
+        f"رصد محرك الذكاء الاصطناعي `{len(trades)}` فرصة زخم وانفجار سيولة جديدة بالبورصة المصرية:",
         ""
     ]
 
@@ -118,18 +118,17 @@ def build_free_entry_message(trades: List[Dict[str, Any]], as_of_date: str, web_
         sig_type = t.get("trigger_type", "اختراق فني قوي")
         lines.extend([
             f"📍 *فرصة مضاربة رقم {idx}:*",
-            f"  • *السهم:* 🔒 `[مشفر لمشتركي VIP]`",
             f"  • *القطاع:* {sector}",
-            f"  • *حجم السيولة:* تدفق مؤسسي غير اعتيادي يتجاوز 140% من المعدل الطبيعي 🌊",
-            f"  • *قواعد الصفقة:* وقف خسارة محكم 4%، تأمين تلقائي، وتتبع أرباح مفتوح عبر EMA10.",
+            f"  • *النموذج:* {sig_type}",
+            f"  • *موعد الدخول:* مع افتتاح جلسة الغد",
+            f"  • *الرمز والسعر ووقف الخسارة:* متاح حصرياً لمشتركي VIP 🔒",
             ""
         ])
 
     lines.extend([
         "━━━━━━━━━━━━━━━━━━━━",
-        "📢 *التفاصيل الكاملة والأسعار وأسماء الأسهم متاحة فوراً لمشتركي VIP.*",
-        f"🔗 *اشترك وفك التشفير اللحظي الآن:* {web_origin}/pricing",
-        f"📊 *راجع أرشيف الصفقات التاريخية مجاناً على المنصة:* {web_origin}/?tab=short_swings"
+        "🔓 *فعّل اشتراك PRO الآن لإلغاء التشفير واستلام الإشارات كاملة:*",
+        f"🔗 {web_origin}/pricing"
     ])
 
     return "\n".join(lines)
@@ -219,14 +218,21 @@ def run_daily_short_swings(trigger: str = "manual", dry_run: bool = False) -> Di
     sent_entries = set(state.get("sent_entries", []))
     sent_exits = set(state.get("sent_exits", []))
 
-    # 1. Identify newly opened trades today that haven't been alerted yet
-    # Note: If date matches as_of or recent session, and not in sent_entries
+    # 1. Identify newly triggered pending entries for TOMORROW'S session that haven't been alerted yet
+    # These are high-priority pre-market swing signals generated at today's close.
     new_entries = [
         t for t in active_trades
-        if t.get("entry_date") == as_of and t.get("symbol") not in sent_entries
+        if t.get("is_pending_entry") and t.get("symbol") not in sent_entries
     ]
 
-    # If no trades on exact as_of date (e.g. backtest ends or weekend run), check latest active unannounced
+    # If no pending entry flag, fall back to today's entry_date
+    if not new_entries:
+        new_entries = [
+            t for t in active_trades
+            if t.get("entry_date") == as_of and t.get("symbol") not in sent_entries
+        ]
+
+    # If manual trigger test with no fresh alerts, pick latest 1-2 active unalerted
     if not new_entries and trigger == "manual":
         new_entries = [t for t in active_trades if t.get("symbol") not in sent_entries][:2]
 

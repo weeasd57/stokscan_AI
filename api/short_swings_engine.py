@@ -359,9 +359,43 @@ def compute_short_swings() -> Dict[str, Any]:
             elif age >= 20:
                 p["pending"] = "max_time"
 
-    # Prepare active positions output
+    # Prepare active positions output (Trades entered in or prior to last_date)
     last_date = dates[-1]
     active_output = []
+    
+    # 1. New Pending Signals triggered at today's close for TOMORROW'S session:
+    # These represent actionable pre-market breakout/pullback signals where entry will happen at tomorrow's open.
+    # Return is 0.0% so the user clearly sees the opportunity BEFORE the move happens.
+    today_signals_df = df[(df["date"] == last_date) & (df["signal"])].sort_values("turnover", ascending=False)
+    seen_symbols = set()
+    for _, s_row in today_signals_df.iterrows():
+        sym = s_row["symbol"]
+        if sym in positions or sym in seen_symbols:
+            continue
+        seen_symbols.add(sym)
+        close_price = round(float(s_row["close"]), 3)
+        sl_price = round(close_price * 0.96, 3)
+        m_info = meta.get(sym.upper().split(".")[0], {})
+        active_output.append({
+            "symbol": sym,
+            "name_ar": m_info.get("name_ar", sym),
+            "name_en": m_info.get("name_en", sym),
+            "sector": m_info.get("sector", "عام"),
+            "entry_date": "جلسة الغد",
+            "signal_date": last_date,
+            "entry_price": close_price,
+            "current_price": close_price,
+            "return_pct": 0.0,
+            "trailing_stop": sl_price,
+            "is_breakeven_protected": False,
+            "max_gain_pct": 0.0,
+            "trigger_type": s_row["sig_type"],
+            "status": "إشارة دخول جديدة (جلسة الغد)",
+            "is_pending_entry": True,
+            "as_of": last_date
+        })
+
+    # 2. Existing running positions
     for sym, p in positions.items():
         b = market.get((sym, last_date))
         curr_price = b.close if b else p["entry_price"]
@@ -375,6 +409,7 @@ def compute_short_swings() -> Dict[str, Any]:
             "name_en": m_info.get("name_en", sym),
             "sector": m_info.get("sector", "عام"),
             "entry_date": p["date"],
+            "signal_date": p.get("signal_date", p["date"]),
             "entry_price": round(p["entry_price"], 3),
             "current_price": round(curr_price, 3),
             "return_pct": round(curr_gain, 2),
@@ -382,7 +417,8 @@ def compute_short_swings() -> Dict[str, Any]:
             "is_breakeven_protected": p["be_active"],
             "max_gain_pct": round(p["max_gain"], 2),
             "trigger_type": p["sig_type"],
-            "status": "مؤمنة بربح" if p["be_active"] else "نشطة",
+            "status": "مؤمنة بربح" if p["be_active"] else "قيد التداول",
+            "is_pending_entry": False,
             "as_of": last_date
         })
 

@@ -26,11 +26,12 @@ def get_short_swings(
     cutoff_date = (dt.date.today() - dt.timedelta(days=15)).strftime("%Y-%m-%d")
 
     if not is_pro:
-        # Active trades: lock only the ones whose entry_date is within the last 15 days.
+        # Active trades: lock only the ones whose entry_date is within the last 15 days or is_pending_entry for tomorrow
         masked_active = []
         for t in data.get("active_trades", []):
             entry_date = t.get("entry_date", "")
-            is_recent = bool(entry_date and entry_date >= cutoff_date)
+            is_pending = bool(t.get("is_pending_entry"))
+            is_recent = is_pending or bool(entry_date and entry_date >= cutoff_date)
             if is_recent:
                 sym = t.get("symbol", "")
                 masked_active.append({
@@ -39,14 +40,16 @@ def get_short_swings(
                     "name_en": "PRO Signal",
                     "sector": t.get("sector", "عام"),
                     "entry_date": t.get("entry_date"),
+                    "signal_date": t.get("signal_date"),
                     "entry_price": None,
                     "current_price": None,
                     "trailing_stop": None,
-                    "return_pct": t.get("return_pct"),
-                    "is_breakeven_protected": t.get("is_breakeven_protected"),
-                    "max_gain_pct": t.get("max_gain_pct"),
+                    "return_pct": t.get("return_pct", 0.0),
+                    "is_breakeven_protected": t.get("is_breakeven_protected", False),
+                    "max_gain_pct": t.get("max_gain_pct", 0.0),
                     "trigger_type": "صفقة زخم وليدة مشفرة",
                     "status": t.get("status"),
+                    "is_pending_entry": is_pending,
                     "is_locked": True
                 })
             else:

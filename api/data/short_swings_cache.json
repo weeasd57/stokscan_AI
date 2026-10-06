@@ -12,27 +12,12 @@
   },
   "active_trades": [
     {
-      "symbol": "ETEL",
-      "name_ar": "ETEL",
-      "name_en": "ETEL",
-      "sector": "عام",
-      "entry_date": "2026-09-07",
-      "entry_price": 118.377,
-      "current_price": 118.377,
-      "return_pct": 0.0,
-      "trailing_stop": 118.732,
-      "is_breakeven_protected": true,
-      "max_gain_pct": 31.78,
-      "trigger_type": "ارتداد زخم من متوسط 10 أيام",
-      "status": "مؤمنة بربح",
-      "as_of": "2026-10-06"
-    },
-    {
       "symbol": "AJWA",
       "name_ar": "AJWA",
       "name_en": "AJWA",
       "sector": "عام",
       "entry_date": "2026-10-06",
+      "signal_date": "2026-10-06",
       "entry_price": 190.515,
       "current_price": 197.44,
       "return_pct": 3.63,
@@ -40,11 +25,27 @@
       "is_breakeven_protected": false,
       "max_gain_pct": 3.67,
       "trigger_type": "اختراق قمة 20 جلسة مع انفجار سيولة",
-      "status": "نشطة",
+      "status": "قيد التداول",
+      "is_pending_entry": false,
       "as_of": "2026-10-06"
     }
   ],
   "closed_trades": [
+    {
+      "symbol": "ETEL",
+      "name_ar": "ETEL",
+      "name_en": "ETEL",
+      "sector": "عام",
+      "entry_date": "2026-09-07",
+      "exit_date": "2026-10-06",
+      "entry_price": 118.377,
+      "exit_price": 150.774,
+      "return_pct": 27.37,
+      "max_gain_pct": 31.78,
+      "sessions": 21,
+      "reason": "max_time",
+      "trigger_type": "ارتداد زخم من متوسط 10 أيام"
+    },
     {
       "symbol": "CCAP",
       "name_ar": "CCAP",
@@ -7741,7 +7742,7 @@
       "trigger_type": "اختراق قمة 20 جلسة مع انفجار سيولة"
     }
   ],
-  "total_active": 2,
-  "total_closed": 1798,
+  "total_active": 1,
+  "total_closed": 1799,
   "as_of": "2026-10-06"
 }
