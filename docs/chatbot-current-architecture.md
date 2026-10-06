@@ -1,0 +1,113 @@
+# الوضع الحالي لمعمارية الشات بوت
+
+**هذه الوثيقة هي مرجع التسليم الحالي لأي إيجنت لاحق.**
+آخر تحديث: 2026-10-07 — آخر كود موثق: `aa2a9915`.
+
+الملف يصف التنفيذ الفعلي في `web/src/lib/ai/`. الملفات المؤرخة مثل
+`chatbot-decision-architecture-2026-10-05.md` تشرح الحوادث والقرارات التاريخية؛
+لا تستخدمها لتخمين سلوك أحدث من هذه الوثيقة.
+
+## الرسم الفعلي
+
+```mermaid
+flowchart TD
+    A[رسالة المستخدم + history + session state] --> B0[تخطيط حتمي أولي]
+    B0 --> B1{هل الطلب يحتاج فهمًا دلاليًا؟}
+    B1 -->|نعم و LLM متاح وثقة الخطة >= 0.6| B2[Semantic planner يصبح الخطة المعتمدة]
+    B1 -->|لا أو غير متاح| B3[الخطة الحتمية + قواعد النية]
+    B2 --> C[عقد مهمة الرد response_task]
+    B3 --> C
+    C --> D[خطة أدوات محدودة + domain invariants]
+    D --> E[تنفيذ الأدوات المحددة]
+    E --> F[Evidence contract: المصدر، الرمز، التاريخ، نوع السعر]
+    F --> G[Fact records + فحص اكتمال وقابلية المقارنة]
+    G --> H[صياغة LLM من الأدلة والخطة]
+    H --> I{فحص المحتوى والادعاءات وإتمام المهمة}
+    I -->|مقبول| J[رد مرشح]
+    I -->|مرفوض والمحاولات متاحة| K[Correction prompt بالأسباب المحددة]
+    K --> H
+    I -->|فشل أو انتهاء الوقت| L[Deterministic fallback بنفس الأدلة]
+    J --> M[Publication gate قبل النشر]
+    L --> M
+    M -->|مقبول| N[done: الرد + الجداول + المصدر + publication review]
+    M -->|مرفوض| O[إصلاح حتمي أو محاولة LLM واحدة]
+    O --> P{هل الإصلاح اجتاز المراجعة؟}
+    P -->|نعم| N
+    P -->|لا| Q[رسالة آمنة: تعذر التحقق، لا تنشر ادعاء غير موثوق]
+    Q --> N
+```
+
+## ترتيب المسؤوليات في الكود
+
+| المرحلة | التنفيذ الحالي | المرجع |
+|---|---|---|
+| استقبال السياق | `runPipelineCore` يستقبل الرسالة، الصور، history، الذاكرة، والجلسة | `web/src/lib/ai/pipeline.ts` |
+| التخطيط الأولي | `buildDeterministicPlannerResult` وقواعد `enforceIntentFromMessage` | `web/src/lib/ai/pipeline.ts` |
+| التخطيط الدلالي | `runPlanner` يعمل فقط عندما تسمح حدود الصور/المعاملات والمفاتيح؛ الخطة الدلالية ذات الثقة الكافية تصبح authoritative | `web/src/lib/ai/pipeline.ts` قرب Stage 3 |
+| عقد الرد | `completeDecisionTools` يملأ `response_task` بالمرشحين والمعيار والزمن ونوع الإجابة | `web/src/lib/ai/response-task.ts` |
+| خطة الأدوات | `plannedTools` ثم `sanitizePlannerTools` و`completeToolsByFacets` | `web/src/lib/ai/pipeline.ts` |
+| الأدلة | `attachEvidenceContract` ثم `buildFactRecords`؛ كل حقيقة تحمل `source/tool/as_of/fetched_at` | `web/src/lib/ai/facts.ts` و`pipeline.ts` |
+| صياغة النموذج | `generateV2Stream` يستقبل الخطة، الأدلة، الذاكرة، و`correctionPrompt` | `web/src/lib/ai/final-v2.ts` |
+| المراجعة الداخلية | `validateResponse` + `runAnswerGate` + `checkResponseTask` و`checkDecisionGrounding` | `web/src/lib/ai/pipeline.ts` و`answer-gate.ts` |
+| الإصلاح | أسباب الرفض تدخل في `buildGateCorrectionBlock` ثم يعاد طلب الصياغة بعدد محاولات محدود | `web/src/lib/ai/pipeline.ts` |
+| الاحتياطي | `buildDeterministicResponse`، ثم `buildSafeFallbackResponse` أو `safeEvidenceResponse` | `final-v2.ts` و`pipeline.ts` |
+| مراجعة النشر | `runPipelineStream` يعيد فحص الرد قبل `done` ويسجل `publication_review` و`response_origin` | `web/src/lib/ai/pipeline.ts` |
+
+## قواعد النية المهمة حاليًا
+
+### العبارات العامة عن «الأقوى»
+
+- `أقوى الأسهم النهارده` أو `أقوى الأسهم لاخر يوم` لا تُعامل تلقائيًا كتوصية شراء.
+- يظل المجال مفتوحًا للمخطط الدلالي ليحدد: ارتفاع سعري، سيولة، زخم، أو توصيات المنصة.
+- إذا كانت العبارة `أقوى الأسهم` بلا معيار أو فترة، يطلب النظام توضيحًا بدل اختراع ترتيب.
+- `getMarketRankingMode` يدعم مسار أعلى الارتفاعات، ويميز طلب السيولة غير المدعوم عن التجميع.
+
+### طلب التوصية الصريح
+
+- `هات توصيات المنصة المفتوحة`، `رشحلي سهم للشراء`، و`ادخل في مين` تظل مسارات توصيات صريحة.
+- `isExplicitRecommendationRequest` هو بوابة الاحتفاظ بأدوات `get_recommendations/get_signals`.
+- لا تستخدم `isBestBuyStockQuestion` وحدها للحكم على أن الرد توصية؛ فهي كاشف واسع للعبارات الاستفهامية والسوبرلاتيف.
+
+### عقد الرد والمراجعة
+
+- المقارنة بين سهمين تحتاج نتيجة أو قيدًا محددًا، وليس مجرد جدول أرقام.
+- لا يجوز تحويل نسبة الحجم إلى سيولة مطلقة، أو مؤشر واحد إلى أمان عام، أو إغلاق سابق إلى ضمان مستقبلي.
+- اختلاف التاريخ أو نوع السعر أو غياب الدليل يمنع الترجيح الكمي الصامت.
+- الرد الحتمي لا يعاد إخضاعه لمراجعة LLM عندما يكون مبنيًا مباشرة من الأدلة؛ لكن `publication gate` يظل نقطة النشر النهائية.
+
+## سلوك الفشل والمهلة
+
+1. عند فشل تحقق الصياغة، توجد محاولتان أو ثلاث حسب الوقت المتبقي.
+2. عند عدم وجود وقت كافٍ أو فشل المزود، يستخدم النظام renderer حتميًا من نتائج الأدوات.
+3. الـ fallback يمر عبر `publication gate` مرة أخرى.
+4. إذا فشل الإصلاح النهائي، ينشر النظام رسالة آمنة تفيد تعذر التحقق بدل اختراع إجابة.
+5. هذه ليست حلقة إصلاح غير محدودة؛ لا تضف retry جديدًا بلا ميزانية زمنية واختبار رجوع.
+
+## ما يجب أن يعرفه الإيجنت التالي
+
+- ابدأ من هذه الوثيقة ثم راجع `pipeline.ts`, `response-task.ts`, `answer-gate.ts`, `facts.ts`, و`final-v2.ts`.
+- لا تعدّل قواعد عامة في `isBestBuyStockQuestion` لتصحيح حالة واحدة قبل فحص `isExplicitRecommendationRequest` و`getMarketRankingMode`.
+- عند تعديل مسار AI، شغّل الاختبارات غير الحية أولًا:
+
+  ```powershell
+  cd web
+  $all = Get-ChildItem -Recurse -File -Path src |
+    Where-Object { $_.Name -match '\.(test|spec)\.(js|ts|tsx)$' -and
+      $_.Name -notmatch '\.live\.test\.' -and $_.FullName -notmatch '\\load\\' }
+  $patterns = $all.FullName | ForEach-Object {
+    $_.Substring((Get-Location).Path.Length + 1).Replace('\\','/')
+  }
+  npx jest --runInBand --silent $patterns
+  npx tsc --noEmit
+  ```
+
+- لا تشغل اختبارات `*.live.test.*` أو مزودي LLM المدفوعين كاختبار smoke عادي.
+- تغييرات الواجهة فقط لا تحتاج نشر HF؛ لا تلمس pipeline اليومي أو cache العام أثناء مراجعة المعمارية.
+
+## حالة التحقق عند كتابة الوثيقة
+
+- الاختبارات غير الحية الأخيرة: **78 suite ناجحة، 884 اختبارًا ناجحًا، 12 suite متخطية**.
+- `npx tsc --noEmit`: ناجح.
+- `npm run build`: ناجح؛ ظهرت تحذيرات بيئية غير حاجزة عن بيانات السوق ومسارات ديناميكية.
+- آخر commit منشور: `aa2a9915`.
+
