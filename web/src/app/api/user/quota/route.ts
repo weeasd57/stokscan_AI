@@ -18,8 +18,17 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    let serviceClient: any = null;
+    try {
+      serviceClient = getSupabaseServiceClient();
+    } catch (e) {
+      serviceClient = supabase;
+    }
+
+    const clientForData = serviceClient || supabase;
+
     // 1. Fetch user active subscriptions
-    const { data: subRows, error: subErr } = await supabase
+    const { data: subRows, error: subErr } = await clientForData
       .from("subscriptions")
       .select("id, plan_id, status, current_period_end, created_at")
       .eq("user_id", user.id)
@@ -46,12 +55,6 @@ export async function GET() {
     monthStart.setHours(0, 0, 0, 0);
     const monthStartStr = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, "0")}-01`;
 
-    let serviceClient: any = null;
-    try {
-      serviceClient = getSupabaseServiceClient();
-    } catch (e) {
-      serviceClient = supabase;
-    }
 
     // Fetch ai_chatbot_limits rows — MUST include "date" so we can find today's row.
     const limitRowsRes = await serviceClient
