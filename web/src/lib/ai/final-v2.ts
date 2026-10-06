@@ -2398,6 +2398,21 @@ export function buildSingleStockAccumulationDistributionResponse(
 }
 
 export function buildDeterministicResponse(userMessage: string, plan: IntentPlan, toolResults: ToolResult[], sessionState?: SessionState | null): string | null {
+    if (plan.ranking_metric === "accumulation" || plan.intent === "accumulation_distribution") {
+        const accumRes = toolResults.find(r => r.tool === "get_accumulation_stocks");
+        const accumStocks = Array.isArray(accumRes?.data?.accumulation) ? accumRes.data.accumulation : [];
+        if (accumStocks.length) {
+            return [
+                `### أسهم التجميع والسيولة المؤسسية (Wyckoff) بجلسة ${accumRes?.data_time || "الأخيرة"}:`,
+                ...accumStocks.slice(0, 10).map((s: any, idx: number) => {
+                    const vol = s.vol_ratio ? ` (نسبة الحجم: ${s.vol_ratio}x)` : "";
+                    const chg = s.change_pct != null ? ` (التغير: ${Number(s.change_pct) >= 0 ? "+" : ""}${Number(s.change_pct).toFixed(2)}%)` : "";
+                    return `${idx + 1}. **${s.symbol}**${s.name ? ` (${s.name})` : ""}: درجة التجميع ${s.acc_score || s.score || "—"} / مرحلة ${s.wyckoff_stage || "تجميع"}${vol}${chg}.`;
+                }),
+                "البيانات مستخرجة من مؤشرات التحليل الحجمي لجلسة الإغلاق وليست توصيات شراء أو بيع مباشرة."
+            ].join("\n");
+        }
+    }
     if (plan.ranking_metric === "price_change") {
         const market = toolResults.find(result => result.tool === "get_market");
         const gainers = Array.isArray(market?.data?.top_gainers)

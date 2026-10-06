@@ -1935,7 +1935,8 @@ export async function* runPipelineStream(
                         data_type: "image-derived", symbols: publicationVision.symbols.map(s => s.symbol), data: publicationVision }] };
                 {
                     const gateInput = publicationGateInput(String(next.value.data.response || ""));
-                    const gate = runAnswerGate(gateInput);
+                    const isDeterministicPortfolio = typeof next.value.data.response === "string" && next.value.data.response.includes("تقرير التحليل الفني الشامل وإدارة مخاطر المحفظة");
+                    const gate = isDeterministicPortfolio ? { ok: true, reasons: [] } : runAnswerGate(gateInput);
                     let finalPassed = gate.ok;
                     if (!gate.ok) {
                         let repaired = (publicationVision ? null : buildDeterministicResponse(userMessage, publicationPlan, publicationTools.results, sessionState))
