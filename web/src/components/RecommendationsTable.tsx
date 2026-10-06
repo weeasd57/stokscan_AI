@@ -2232,88 +2232,90 @@ function RecommendationsTableContent({ isLandingPage = false, limit = Infinity, 
 
             {/* ── Top-Level Systems Navigation Bar ────────────────────────── */}
             {limit === Infinity && (!isLandingPage || user) && (
-                <div className="grid grid-cols-3 border-2 sm:border-4 border-black dark:border-white bg-zinc-100/95 dark:bg-zinc-900/95 backdrop-blur-md shadow-[3px_3px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] dark:sm:shadow-[4px_4px_0px_rgba(255,255,255,1)] p-1 sm:p-1.5 gap-1 sm:gap-2 select-none mb-4 sm:mb-6 sticky top-14 sm:top-16 z-30">
-                    {[
-                        {
-                            id: "medium_swings",
-                            shortLabel: isAr ? "المتوسطة 📈" : "Medium 📈",
-                            label: isAr ? "الصفقات المتوسطة 📈" : "Medium Swings 📈",
-                            subtitle: isAr ? "النظام الأساسي (أفق هادئ وتجميع)" : "Core System (Swing Trend)",
-                            icon: Layers,
-                        },
-                        {
-                            id: "short_swings",
-                            shortLabel: isAr ? "القصيرة ⚡" : "Short ⚡",
-                            label: isAr ? "الصفقات القصيرة ⚡" : "Short Swings ⚡",
-                            subtitle: isAr ? "نظام الزخم (سرعة وتدوير سيولة)" : "Momentum Runners (Fast)",
-                            icon: Zap,
-                            isSpecial: true,
-                            isShortSwings: true,
-                        },
-                        {
-                            id: "comparison",
-                            shortLabel: isAr ? "المقارنة ⚖️" : "Compare ⚖️",
-                            label: isAr ? "مقارنة أداء النظامين ⚖️" : "Systems Comparison ⚖️",
-                            subtitle: isAr ? "أرقام وتفاصيل شهور 8 و 9 و 2026" : "Head-to-head empirical metrics",
-                            icon: Scale,
-                        },
-                    ].map(tab => {
-                        const isSelected = mainTab === tab.id;
-                        const Icon = tab.icon;
-                        return (
-                            <button
-                                key={tab.id}
-                                onClick={() => {
-                                    setMainTab(tab.id as any);
-                                    setCurrentPage(1);
-                                    if (typeof window !== "undefined" && window.history?.replaceState) {
-                                        const url = new URL(window.location.href);
-                                        if (tab.id === "short_swings" || tab.id === "comparison") {
-                                            url.searchParams.set("tab", tab.id);
-                                        } else {
-                                            if (activeTab === "analytics") {
-                                                url.searchParams.set("tab", "analytics");
+                <div className="sticky top-[var(--header-offset,68px)] z-40 mb-4 sm:mb-6 px-1 sm:px-2 md:px-4 lg:px-6">
+                    <div className="grid grid-cols-3 border-2 sm:border-4 border-black dark:border-white bg-zinc-100/95 dark:bg-zinc-900/95 backdrop-blur-md shadow-[3px_3px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] dark:sm:shadow-[4px_4px_0px_rgba(255,255,255,1)] p-1.5 sm:p-2 md:p-2.5 gap-1.5 sm:gap-2.5 select-none">
+                        {[
+                            {
+                                id: "medium_swings",
+                                shortLabel: isAr ? "المتوسطة 📈" : "Medium 📈",
+                                label: isAr ? "الصفقات المتوسطة 📈" : "Medium Swings 📈",
+                                subtitle: isAr ? "النظام الأساسي (أفق هادئ وتجميع)" : "Core System (Swing Trend)",
+                                icon: Layers,
+                            },
+                            {
+                                id: "short_swings",
+                                shortLabel: isAr ? "القصيرة ⚡" : "Short ⚡",
+                                label: isAr ? "الصفقات القصيرة ⚡" : "Short Swings ⚡",
+                                subtitle: isAr ? "نظام الزخم (سرعة وتدوير سيولة)" : "Momentum Runners (Fast)",
+                                icon: Zap,
+                                isSpecial: true,
+                                isShortSwings: true,
+                            },
+                            {
+                                id: "comparison",
+                                shortLabel: isAr ? "المقارنة ⚖️" : "Compare ⚖️",
+                                label: isAr ? "مقارنة أداء النظامين ⚖️" : "Systems Comparison ⚖️",
+                                subtitle: isAr ? "أرقام وتفاصيل شهور 8 و 9 و 2026" : "Head-to-head empirical metrics",
+                                icon: Scale,
+                            },
+                        ].map(tab => {
+                            const isSelected = mainTab === tab.id;
+                            const Icon = tab.icon;
+                            return (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => {
+                                        setMainTab(tab.id as any);
+                                        setCurrentPage(1);
+                                        if (typeof window !== "undefined" && window.history?.replaceState) {
+                                            const url = new URL(window.location.href);
+                                            if (tab.id === "short_swings" || tab.id === "comparison") {
+                                                url.searchParams.set("tab", tab.id);
                                             } else {
-                                                url.searchParams.delete("tab");
+                                                if (activeTab === "analytics") {
+                                                    url.searchParams.set("tab", "analytics");
+                                                } else {
+                                                    url.searchParams.delete("tab");
+                                                }
                                             }
+                                            window.history.replaceState({}, "", url.toString());
                                         }
-                                        window.history.replaceState({}, "", url.toString());
-                                    }
-                                }}
-                                className={`py-1.5 px-1 sm:py-3 sm:px-4 font-black text-xs sm:text-sm flex items-center justify-between gap-1 sm:gap-2 transition-all duration-100 active:scale-98 border-2 ${
-                                    isSelected
-                                        ? ((tab as any).isShortSwings
-                                            ? "bg-gradient-to-r from-amber-500 to-orange-500 text-black border-black shadow-[2px_2px_0px_#000]"
-                                            : tab.id === "comparison"
-                                            ? "bg-[#FFE600] text-black border-black shadow-[2px_2px_0px_#000]"
-                                            : "bg-black dark:bg-white border-black dark:border-white text-white dark:text-black shadow-[2px_2px_0px_rgba(0,0,0,0.2)]")
-                                        : ((tab as any).isShortSwings
-                                            ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/20"
-                                            : "bg-white dark:bg-zinc-950 text-black dark:text-white border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800")
-                                }`}
-                            >
-                                <div className="flex items-center gap-1 sm:gap-2 truncate">
-                                    <Icon className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${isSelected ? ((tab as any).isShortSwings ? "text-black" : tab.id === "comparison" ? "text-black" : "text-amber-400 dark:text-zinc-900") : (tab as any).isShortSwings ? "text-amber-500" : "text-zinc-500"}`} />
-                                    <div className="truncate text-start">
-                                        <span className="font-black truncate block sm:hidden text-[10px] leading-tight">{tab.shortLabel}</span>
-                                        <span className="font-black truncate hidden sm:block text-xs sm:text-sm">{tab.label}</span>
-                                        <span className={`text-[10px] font-bold hidden md:block truncate opacity-80 ${isSelected ? ((tab as any).isShortSwings ? "text-zinc-900" : tab.id === "comparison" ? "text-zinc-900" : "text-zinc-300 dark:text-zinc-700") : "text-zinc-500"}`}>
-                                            {tab.subtitle}
-                                        </span>
-                                    </div>
-                                </div>
-                                {(tab as any).isSpecial && (
-                                    <span className={`px-1 py-0.2 sm:px-1.5 sm:py-0.5 text-[8px] sm:text-[10px] font-black uppercase tracking-wider shrink-0 ${
+                                    }}
+                                    className={`py-2 px-1.5 sm:py-3.5 sm:px-4 md:px-6 font-black text-xs sm:text-sm flex items-center justify-between gap-1 sm:gap-2 transition-all duration-100 active:scale-98 border-2 ${
                                         isSelected
-                                            ? "bg-black text-[#FFE600] border border-black"
-                                            : "bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 border border-black font-black"
-                                    }`}>
-                                        PRO
-                                    </span>
-                                )}
-                            </button>
-                        );
-                    })}
+                                            ? ((tab as any).isShortSwings
+                                                ? "bg-gradient-to-r from-amber-500 to-orange-500 text-black border-black shadow-[2px_2px_0px_#000]"
+                                                : tab.id === "comparison"
+                                                ? "bg-[#FFE600] text-black border-black shadow-[2px_2px_0px_#000]"
+                                                : "bg-black dark:bg-white border-black dark:border-white text-white dark:text-black shadow-[2px_2px_0px_rgba(0,0,0,0.2)]")
+                                            : ((tab as any).isShortSwings
+                                                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/20"
+                                                : "bg-white dark:bg-zinc-950 text-black dark:text-white border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800")
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-1.5 sm:gap-2.5 truncate">
+                                        <Icon className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${isSelected ? ((tab as any).isShortSwings ? "text-black" : tab.id === "comparison" ? "text-black" : "text-amber-400 dark:text-zinc-900") : (tab as any).isShortSwings ? "text-amber-500" : "text-zinc-500"}`} />
+                                        <div className="truncate text-start">
+                                            <span className="font-black truncate block sm:hidden text-[10px] leading-tight">{tab.shortLabel}</span>
+                                            <span className="font-black truncate hidden sm:block text-xs sm:text-sm">{tab.label}</span>
+                                            <span className={`text-[10px] font-bold hidden md:block truncate opacity-80 ${isSelected ? ((tab as any).isShortSwings ? "text-zinc-900" : tab.id === "comparison" ? "text-zinc-900" : "text-zinc-300 dark:text-zinc-700") : "text-zinc-500"}`}>
+                                                {tab.subtitle}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    {(tab as any).isSpecial && (
+                                        <span className={`px-1 py-0.2 sm:px-1.5 sm:py-0.5 text-[8px] sm:text-[10px] font-black uppercase tracking-wider shrink-0 ${
+                                            isSelected
+                                                ? "bg-black text-[#FFE600] border border-black"
+                                                : "bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 border border-black font-black"
+                                        }`}>
+                                            PRO
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
                 </div>
             )}
 

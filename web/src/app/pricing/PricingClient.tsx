@@ -75,6 +75,10 @@ export default function PricingClient() {
   const [pollRestart, setPollRestart] = useState(0);
   const [pollingExhausted, setPollingExhausted] = useState(false);
 
+  // Live founders counter from backend — refreshed every time localConfig is fetched
+  const foundersRemaining: number = localConfig?.founders?.remaining ?? null;
+  const foundersIsOpen: boolean = localConfig?.founders?.is_open ?? true;
+
   const normalizedMobile = customerMobile.trim().replace(/[\s-]/g, "").replace(/^\+20/, "0").replace(/^0020/, "0");
   const isMobileValid = /^01[0125]\d{8}$/.test(normalizedMobile);
 
@@ -790,7 +794,9 @@ export default function PricingClient() {
                 <>
                   اشترك الآن في خطة <strong>Pro بـ 50 ج.م فقط شهرياً</strong> مدى الحياة (بدلاً من 200 ج.م). 
                   <span className="inline-block bg-black text-white px-2 py-0.5 font-black text-xs ms-1.5 shadow-[1px_1px_0_0_#fff]">
-                    متبقي 91 مقعداً فقط
+                    {foundersRemaining !== null
+                      ? `متبقي ${foundersRemaining} مقعداً فقط`
+                      : "مقاعد محدودة جداً"}
                   </span>
                   ، بعدها سيغلق العرض ويعود السعر الرسمي لـ 200 ج.م لجميع المشتركين الجدد.
                   <span className="block mt-1 text-[11px] font-bold text-black/80">
@@ -801,7 +807,9 @@ export default function PricingClient() {
                 <>
                   Lock in <strong>Pro for just 50 EGP/mo for life</strong> (standard price 200 EGP). 
                   <span className="inline-block bg-black text-white px-2 py-0.5 font-black text-xs ms-1.5 shadow-[1px_1px_0_0_#fff]">
-                    Only 91 spots remaining
+                    {foundersRemaining !== null
+                      ? `Only ${foundersRemaining} spots remaining`
+                      : "Very limited spots"}
                   </span>
                   . Price reverts to 200 EGP once filled.
                   <span className="block mt-1 text-[11px] font-bold text-black/80">

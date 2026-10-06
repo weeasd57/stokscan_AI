@@ -105,6 +105,18 @@ def payment_config() -> Dict[str, Any]:
         {"id": "pro_6m", "name_ar": "6 شهور", "name_en": "6 Months", "amount_egp": int(plan_amount_egp("pro_6m")), "days": 180},
         {"id": "pro_1y", "name_ar": "سنة", "name_en": "1 Year", "amount_egp": int(plan_amount_egp("pro_1y")), "days": 365},
     ]
+    # Founders counter: count active Pro subscribers to show remaining spots live
+    founders_limit = int(settings.get("founders_limit") or os.getenv("FOUNDERS_LIMIT", "100"))
+    founders_count = 0
+    try:
+        _init_supabase()
+        if supabase:
+            result = supabase.table("user_plans").select("user_id", count="exact").eq("is_pro", True).execute()
+            founders_count = result.count or 0
+    except Exception:
+        founders_count = 0
+    founders_remaining = max(0, founders_limit - founders_count)
+
     return {
         "enabled": enabled,
         "mode": "easykash" if enabled else "disabled",
@@ -112,6 +124,12 @@ def payment_config() -> Dict[str, Any]:
         "currency": "EGP",
         "plans": plans,
         "limits": {"free": free_limits(), "pro": pro_limits()},
+        "founders": {
+            "limit": founders_limit,
+            "count": founders_count,
+            "remaining": founders_remaining,
+            "is_open": founders_remaining > 0,
+        },
     }
 
 

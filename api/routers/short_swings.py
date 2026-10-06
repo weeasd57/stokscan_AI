@@ -14,71 +14,53 @@ def get_short_swings(
 ):
     """
     Fetch active and historical short swing trades.
-    If is_pro is False:
-      - Active trades are masked (is_locked=True).
-      - Closed trades closed within the last 15 days are masked (is_locked=True).
-      - Closed trades older than 15 days are completely unmasked for Free users!
-    If is_pro is True:
-      - All active and historical trades are fully unmasked in real time.
+
+    Encryption rules:
+      - Closed trades: NEVER encrypted for any user. Historical record is always fully visible.
+      - Active (open) trades: locked (is_locked=True) for free users ONLY IF entry_date is
+        within the last 15 days (the signal is still fresh & actionable).
+        Active trades older than 15 days are shown freely — the signal is no longer a live edge.
+      - PRO users: all trades fully unmasked at all times.
     """
     data = compute_short_swings() if refresh else get_cached_short_swings()
     cutoff_date = (dt.date.today() - dt.timedelta(days=15)).strftime("%Y-%m-%d")
-    
+
     if not is_pro:
-        # 1. Active open trades are current market opportunities -> Always encrypted for Free users!
+        # Active trades: lock only the ones whose entry_date is within the last 15 days.
         masked_active = []
         for t in data.get("active_trades", []):
-            sym = t.get("symbol", "")
-            masked_active.append({
-                "symbol": (sym[:2] + "**") if len(sym) > 2 else "**",
-                "name_ar": "سهم قيادي مشفر (متاح لـ PRO)",
-                "name_en": "PRO Signal",
-                "sector": t.get("sector", "عام"),
-                "entry_date": t.get("entry_date"),
-                "entry_price": None,
-                "current_price": None,
-                "trailing_stop": None,
-                "return_pct": t.get("return_pct"),
-                "is_breakeven_protected": t.get("is_breakeven_protected"),
-                "max_gain_pct": t.get("max_gain_pct"),
-                "trigger_type": "صفقة زخم وليدة مشفرة",
-                "status": t.get("status"),
-                "is_locked": True
-            })
-        
-        # 2. Closed trades: Trades closed within the last 15 days are encrypted.
-        # Historical closed trades older than 15 days are 100% visible for Free audit.
-        processed_closed = []
-        for t in data.get("closed_trades", []):
-            exit_date = t.get("exit_date", "")
-            if exit_date and exit_date >= cutoff_date:
+            entry_date = t.get("entry_date", "")
+            is_recent = bool(entry_date and entry_date >= cutoff_date)
+            if is_recent:
                 sym = t.get("symbol", "")
-                processed_closed.append({
+                masked_active.append({
                     "symbol": (sym[:2] + "**") if len(sym) > 2 else "**",
-                    "name_ar": "سهم مشفر (أقل من 15 يوم)",
-                    "name_en": "Locked Signal (<15d)",
+                    "name_ar": "سهم قيادي مشفر (متاح لـ PRO)",
+                    "name_en": "PRO Signal",
                     "sector": t.get("sector", "عام"),
                     "entry_date": t.get("entry_date"),
-                    "exit_date": t.get("exit_date"),
                     "entry_price": None,
-                    "exit_price": None,
+                    "current_price": None,
+                    "trailing_stop": None,
                     "return_pct": t.get("return_pct"),
-                    "sessions": t.get("sessions"),
-                    "reason": t.get("reason"),
-                    "trigger_type": t.get("trigger_type"),
+                    "is_breakeven_protected": t.get("is_breakeven_protected"),
+                    "max_gain_pct": t.get("max_gain_pct"),
+                    "trigger_type": "صفقة زخم وليدة مشفرة",
+                    "status": t.get("status"),
                     "is_locked": True
                 })
             else:
-                processed_closed.append({
-                    **t,
-                    "is_locked": False
-                })
+                # Active trade but entry is older than 15 days — show freely
+                masked_active.append({**t, "is_locked": False})
+
+        # Closed trades: ALWAYS fully visible for every user — historical audit is never restricted.
+        unmasked_closed = [{**t, "is_locked": False} for t in data.get("closed_trades", [])]
 
         return {
             "is_pro": False,
             "kpis": data.get("kpis", {}),
             "active_trades": masked_active,
-            "closed_trades": processed_closed,
+            "closed_trades": unmasked_closed,
             "total_active": data.get("total_active", 0),
             "total_closed": data.get("total_closed", 0),
             "as_of": data.get("as_of"),
