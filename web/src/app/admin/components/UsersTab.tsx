@@ -802,115 +802,159 @@ export default function UsersTab() {
                     <div className="overflow-x-auto -mx-2">
                         <table className="w-full text-xs font-mono">
                             <thead>
-                                <tr className="border-b-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900">
-                                    <th className="px-3 py-3 text-start uppercase tracking-widest font-black">{isAr ? "المستخدم" : "User"}</th>
-                                    <th className="px-3 py-3 text-start uppercase tracking-widest font-black">{isAr ? "الخطة" : "Plan"}</th>
-                                    <th className="px-3 py-3 text-start uppercase tracking-widest font-black">{isAr ? "البوتات" : "Bots"}</th>
-                                    <th className="px-3 py-3 text-start uppercase tracking-widest font-black">{isAr ? "اللغة" : "Language"}</th>
-                                    <th className="px-3 py-3 text-start uppercase tracking-widest font-black">{isAr ? "تليجرام" : "Telegram"}</th>
-                                    <th className="px-3 py-3 text-start uppercase tracking-widest font-black">{isAr ? "تاريخ التسجيل" : "Joined"}</th>
-                                    <th className="px-3 py-3 text-center uppercase tracking-widest font-black">{isAr ? "إجراءات" : "Actions"}</th>
+                                <tr className="border-b-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">
+                                    <th className="px-4 py-3.5 text-start uppercase tracking-widest font-black">{isAr ? "المستخدم" : "User"}</th>
+                                    <th className="px-3 py-3.5 text-start uppercase tracking-widest font-black">{isAr ? "خطة الاشتراك" : "Subscription"}</th>
+                                    <th className="px-3 py-3.5 text-start uppercase tracking-widest font-black">{isAr ? "البوتات" : "Bots"}</th>
+                                    <th className="px-3 py-3.5 text-start uppercase tracking-widest font-black">{isAr ? "اللغة" : "Language"}</th>
+                                    <th className="px-3 py-3.5 text-start uppercase tracking-widest font-black">{isAr ? "تاريخ التسجيل" : "Joined"}</th>
+                                    <th className="px-3 py-3.5 text-start uppercase tracking-widest font-black">{isAr ? "نهاية الاشتراك" : "Sub Expiry"}</th>
+                                    <th className="px-3 py-3.5 text-center uppercase tracking-widest font-black">{isAr ? "إجراءات" : "Actions"}</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredUsers.map((u) => (
-                                    <tr
-                                        key={u.id}
-                                        className="border-b-2 border-zinc-200 dark:border-zinc-800 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition-colors cursor-pointer"
-                                        onClick={() => fetchDetail(u.id)}
-                                    >
-                                     <td className="px-3 py-2.5">
-                                            <div className="flex items-center gap-2.5">
-                                                {u.avatar_url ? (
-                                                    <img src={u.avatar_url} alt="" className="w-7 h-7 rounded-full border-2 border-black dark:border-white object-cover" />
-                                                ) : (
-                                                    <div className="w-7 h-7 rounded-full border-2 border-black dark:border-white bg-blue-100 dark:bg-blue-900 flex items-center justify-center font-black text-[11px] text-blue-700 dark:text-blue-300">
-                                                        {(u.display_name || u.username || "?")[0].toUpperCase()}
+                                {filteredUsers.map((u) => {
+                                    const isUserPro = u.subscription?.plan_id === "pro" && u.subscription?.status === "active";
+                                    const subEnd = u.subscription?.current_period_end;
+                                    return (
+                                        <tr
+                                            key={u.id}
+                                            className="border-b-2 border-zinc-200 dark:border-zinc-800 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition-colors cursor-pointer"
+                                            onClick={() => fetchDetail(u.id)}
+                                        >
+                                            {/* User Info */}
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center gap-3">
+                                                    {u.avatar_url ? (
+                                                        <img src={u.avatar_url} alt="" className="w-8 h-8 rounded-full border-2 border-black dark:border-white object-cover shrink-0" />
+                                                    ) : (
+                                                        <div className="w-8 h-8 rounded-full border-2 border-black dark:border-white bg-blue-100 dark:bg-blue-900 flex items-center justify-center font-black text-xs text-blue-700 dark:text-blue-300 shrink-0">
+                                                            {(u.display_name || u.username || u.email || "?")[0].toUpperCase()}
+                                                        </div>
+                                                    )}
+                                                    <div className="min-w-0">
+                                                        <div className="font-bold text-black dark:text-white text-xs truncate max-w-[180px]">{u.display_name || u.username || "—"}</div>
+                                                        <div className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 truncate max-w-[200px]">{u.email || u.username || "—"}</div>
+                                                        <div className="text-[9px] text-zinc-400 truncate font-mono">{u.id.slice(0, 10)}...</div>
                                                     </div>
-                                                )}
-                                                <div>
-                                                    <div className="font-bold text-black dark:text-white text-xs">{u.display_name || u.username || "—"}</div>
-                                                    <div className="text-[10px] text-blue-600 dark:text-blue-400 truncate max-w-[180px]">{u.email || u.username || "—"}</div>
-                                                    <div className="text-[10px] text-zinc-400 truncate max-w-[120px]">{u.id.slice(0, 8)}...</div>
                                                 </div>
-                                            </div>
-                                         </td>
-                                         <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-                                             {u.subscription?.plan_id === "pro" && u.subscription?.status === "active" ? (
-                                                 <button onClick={() => runSubscriptionAction(u.id, "cancel_subscription")} disabled={subscriptionActionLoading} className="border-2 border-red-500 bg-red-50 px-2 py-1 text-[10px] font-black text-red-700 hover:bg-red-500 hover:text-white disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300">{isAr ? "إلغاء برو" : "Cancel Pro"}</button>
-                                             ) : <span className="text-zinc-400 font-bold">{isAr ? "مجاني" : "Free"}</span>}
-                                         </td>
-                                        <td className="px-3 py-2.5">
-                                            {u.subscription?.plan_id ? (
-                                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 border-2 border-black dark:border-white font-black text-[10px] uppercase tracking-wider ${u.subscription.plan_id === "pro" ? "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300" : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400"}`}>
-                                                    <Crown className="w-3 h-3" />
-                                                {displayPlanName(u.subscription.plan_id, isAr)}
+                                            </td>
+
+                                            {/* Plan & Cancel Action */}
+                                            <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                                                <div className="flex flex-col gap-1.5 items-start">
+                                                    {isUserPro ? (
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 border-2 border-black dark:border-white font-black text-[10px] uppercase tracking-wider bg-[#FFE600] text-black shadow-[2px_2px_0px_#000]">
+                                                                <Crown className="w-3 h-3 text-black" />
+                                                                PRO
+                                                            </span>
+                                                            <button
+                                                                onClick={() => runSubscriptionAction(u.id, "cancel_subscription")}
+                                                                disabled={subscriptionActionLoading}
+                                                                className="border-2 border-red-500 bg-red-50 hover:bg-red-500 hover:text-white px-2 py-0.5 text-[10px] font-black text-red-700 transition-colors disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300"
+                                                                title={isAr ? "إلغاء اشتراك برو لهذا المستخدم" : "Cancel Pro subscription"}
+                                                            >
+                                                                {isAr ? "إلغاء برو" : "Cancel Pro"}
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-zinc-300 dark:border-zinc-700 font-bold text-[10px] text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800">
+                                                            {isAr ? "مجاني" : "Free"}
+                                                        </span>
+                                                    )}
+                                                    {u.payment_review_status === "pending_review" && (
+                                                        <span className="inline-flex items-center gap-1 border border-amber-500 bg-amber-50 px-1.5 py-0.5 text-[9px] font-black text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                                                            <AlertCircle className="w-3 h-3" /> {isAr ? "قيد المراجعة" : "Under Review"}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </td>
+
+                                            {/* Bots Count */}
+                                            <td className="px-3 py-3">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <Bot className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                                    <span className="font-black text-zinc-900 dark:text-zinc-100">{u.bot_count || (u.bot_subscriptions || []).length}</span>
+                                                    {(u.bot_subscriptions || []).slice(0, 2).map((b, i) => (
+                                                        <span key={i} className="text-[9px] font-bold text-zinc-600 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 px-1 py-0.5 border border-zinc-300 dark:border-zinc-700">
+                                                            {(isAr ? SERVICE_LABELS_AR[b.service_type] : SERVICE_LABELS[b.service_type]) || b.service_type}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </td>
+
+                                            {/* Language */}
+                                            <td className="px-3 py-3">
+                                                <span className="inline-flex items-center gap-1 font-bold text-zinc-600 dark:text-zinc-300">
+                                                    <Globe className="w-3 h-3 text-zinc-400 shrink-0" />
+                                                    {(u.language || "ar").toUpperCase()}
                                                 </span>
-                                            ) : (
-                                                <span className="text-zinc-400 font-bold">{isAr ? "مجاني" : "Free"}</span>
-                                            )}
-                                            {u.payment_review_status === "pending_review" && <span className="ml-1 inline-flex items-center gap-1 border border-amber-500 bg-amber-50 px-1.5 py-0.5 text-[9px] font-black text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"><AlertCircle className="w-3 h-3" /> مراجعة</span>}
-                                        </td>
-                                        <td className="px-3 py-2.5">
-                                            <div className="flex items-center gap-1.5">
-                                                <Bot className="w-3.5 h-3.5 text-amber-500" />
-                                                <span className="font-black">{u.bot_count || (u.bot_subscriptions || []).length}</span>
-                                                {(u.bot_subscriptions || []).slice(0, 2).map((b, i) => (
-                                                    <span key={i} className="text-[9px] font-bold text-zinc-600 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 px-1 border border-zinc-300 dark:border-zinc-700">
-                                                        {(isAr ? SERVICE_LABELS_AR[b.service_type] : SERVICE_LABELS[b.service_type]) || b.service_type}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        </td>
-                                        <td className="px-3 py-2.5">
-                                            <span className="inline-flex items-center gap-1 font-bold text-zinc-600 dark:text-zinc-300">
-                                                <Globe className="w-3 h-3 text-zinc-400" />
-                                                {(u.language || "en").toUpperCase()}
-                                            </span>
-                                        </td>
-                                        <td className="px-3 py-2.5">
-                                            {u.telegram_chat_id ? (
-                                                <span className="inline-flex items-center gap-1 text-cyan-600 dark:text-cyan-400 font-bold">
-                                                    <MessageSquare className="w-3 h-3" />
-                                                    {u.telegram_chat_id.slice(0, 10)}...
-                                                </span>
-                                            ) : (
-                                                <span className="text-zinc-400">—</span>
-                                            )}
-                                        </td>
-                                        <td className="px-3 py-2.5">
-                                            <span className="inline-flex items-center gap-1 text-zinc-500 font-bold">
-                                                <Calendar className="w-3 h-3" />
-                                                {new Date(u.created_at).toLocaleDateString()}
-                                            </span>
-                                        </td>
-                                        <td className="px-3 py-2.5 text-center">
-                                            <div className="flex items-center justify-center gap-1">
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); fetchDetail(u.id); }}
-                                                    className="p-1.5 border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors"
-                                                    title={isAr ? "عرض التفاصيل" : "View Detail"}
-                                                >
-                                                    <Eye className="w-3.5 h-3.5" />
-                                                </button>
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); startEdit(u); }}
-                                                    className="p-1.5 border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors"
-                                                    title={isAr ? "تعديل المستخدم" : "Edit User"}
-                                                >
-                                                    <Edit3 className="w-3.5 h-3.5" />
-                                                </button>
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); deleteUser(u.id); }}
-                                                    className="p-1.5 border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
-                                                    title={isAr ? "حذف المستخدم" : "Delete User"}
-                                                >
-                                                    <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
+                                            </td>
+
+                                            {/* Registration Date (Joined) */}
+                                            <td className="px-3 py-3 whitespace-nowrap">
+                                                <div className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-300 font-bold">
+                                                    <Calendar className="w-3 h-3 text-zinc-400 shrink-0" />
+                                                    <span>{new Date(u.created_at).toLocaleDateString(isAr ? "ar-EG" : "en-US")}</span>
+                                                </div>
+                                                <div className="text-[10px] text-zinc-400 mt-0.5">
+                                                    {new Date(u.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                                </div>
+                                            </td>
+
+                                            {/* Subscription Expiration Date */}
+                                            <td className="px-3 py-3 whitespace-nowrap">
+                                                {isUserPro && subEnd ? (
+                                                    <div>
+                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-bold text-[11px]">
+                                                            <Clock className="w-3 h-3 shrink-0" />
+                                                            {new Date(subEnd).toLocaleDateString(isAr ? "ar-EG" : "en-US")}
+                                                        </span>
+                                                        <div className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5 font-bold">
+                                                            {(() => {
+                                                                const diffDays = Math.ceil((new Date(subEnd).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                                                                if (diffDays > 0) return isAr ? `متبقي ${diffDays} يوم` : `${diffDays} days left`;
+                                                                return isAr ? "منتهي" : "Expired";
+                                                            })()}
+                                                        </div>
+                                                    </div>
+                                                ) : isUserPro ? (
+                                                    <span className="text-emerald-600 dark:text-emerald-400 font-bold text-[11px]">—</span>
+                                                ) : (
+                                                    <span className="text-zinc-400 font-bold text-[11px]">—</span>
+                                                )}
+                                            </td>
+
+                                            {/* Actions */}
+                                            <td className="px-3 py-3 text-center">
+                                                <div className="flex items-center justify-center gap-1.5">
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); fetchDetail(u.id); }}
+                                                        className="p-1.5 border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors shadow-[1px_1px_0px_#000]"
+                                                        title={isAr ? "عرض التفاصيل" : "View Detail"}
+                                                    >
+                                                        <Eye className="w-3.5 h-3.5" />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); startEdit(u); }}
+                                                        className="p-1.5 border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors shadow-[1px_1px_0px_#000]"
+                                                        title={isAr ? "تعديل المستخدم" : "Edit User"}
+                                                    >
+                                                        <Edit3 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); deleteUser(u.id); }}
+                                                        className="p-1.5 border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors shadow-[1px_1px_0px_#000]"
+                                                        title={isAr ? "حذف المستخدم" : "Delete User"}
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     </div>
