@@ -2153,8 +2153,8 @@ export function buildDeterministicPortfolioAnalysisResponse(
 
         perStockBreakdowns.push([
             `### 🔹 سهم **${symbol}** ${stock.name ? `(${stock.name})` : ""}:`,
-            `- **الحالة الفنية:** ${posNotes.join(" ")}`,
-            `- **التوجيه التكتيكي:** ${actionVerdict}.`
+            `- **الحالة الفنية لسهم ${symbol}:** ${posNotes.join(" ")}`,
+            `- **التوجيه التكتيكي لسهم ${symbol}:** ${actionVerdict}.`
         ].join("\n"));
     }
 

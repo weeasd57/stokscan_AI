@@ -462,7 +462,11 @@ export function FormattedChatMessage({
             let headingLevel = 0;
             let headingContent = line;
 
-            if (trimmedLine.startsWith("### ")) {
+            if (trimmedLine.startsWith("#### ")) {
+                isHeading = true;
+                headingLevel = 4;
+                headingContent = trimmedLine.substring(5);
+            } else if (trimmedLine.startsWith("### ")) {
                 isHeading = true;
                 headingLevel = 3;
                 headingContent = trimmedLine.substring(4);
@@ -483,7 +487,7 @@ export function FormattedChatMessage({
                     ? "text-sm sm:text-base font-bold text-zinc-900 dark:text-zinc-100 my-2"
                     : "text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400 my-2";
                 
-                const HeadingTag = `h${headingLevel}` as "h1" | "h2" | "h3";
+                const HeadingTag = `h${headingLevel}` as "h1" | "h2" | "h3" | "h4";
                 
                 return (
                     <HeadingTag key={idx} className={headingClass} dir="rtl">

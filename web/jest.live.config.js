@@ -8,7 +8,7 @@ module.exports = createJestConfig({
         "<rootDir>/src/lib/__tests__/automation-full-eval.test.js",
         "<rootDir>/src/lib/__tests__/live-user-scenario.test.js",
         "<rootDir>/src/lib/__tests__/oct4-context-live.test.js",
-        "<rootDir>/src/lib/ai/__tests__/pro-user-analysis.live.test.ts",
+        "<rootDir>/src/lib/ai/__tests__/user-analysis.live.test.ts",
     ],
     testTimeout: 60000,
 });
