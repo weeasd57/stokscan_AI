@@ -97,6 +97,20 @@ export default function PricingClient() {
     };
     const check = async () => {
       if (stopped || document.visibilityState === "hidden") return;
+      // Fast-path: if the quota endpoint already confirmed Pro, no need to poll
+      if (isPro) {
+        setOrderStatus("approved");
+        broadcastEntitlements(true);
+        // Fetch the invite link if we don't have it yet
+        if (!telegramProUrl) {
+          const vip = await fetch("/api/profile/telegram-pro", { cache: "no-store", signal: AbortSignal.timeout(12_000) })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null);
+          if (!stopped && vip?.invite_link) setTelegramProUrl(vip.invite_link);
+          if (!stopped && vip?.current_period_end) setSubscriptionEnd(vip.current_period_end);
+        }
+        return;
+      }
       try {
         const res = await fetch(`/api/payment/easykash/status?order_id=${encodeURIComponent(localOrder)}`, {
           cache: "no-store",
@@ -145,7 +159,7 @@ export default function PricingClient() {
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [step, localOrder, pollRestart]);
+  }, [step, localOrder, pollRestart, isPro, telegramProUrl]);
 
   useEffect(() => {
     let cancelled = false;
