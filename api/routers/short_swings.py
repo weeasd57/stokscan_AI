@@ -43,6 +43,7 @@ def get_short_swings(
                     "signal_date": t.get("signal_date"),
                     "entry_price": None,
                     "current_price": None,
+                    "reference_close": None,
                     "trailing_stop": None,
                     "return_pct": t.get("return_pct", 0.0),
                     "is_breakeven_protected": t.get("is_breakeven_protected", False),

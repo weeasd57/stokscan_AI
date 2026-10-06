@@ -77,8 +77,8 @@ def build_vip_entry_message(trades: List[Dict[str, Any]], as_of_date: str, web_o
     for t in trades:
         sym = t.get("symbol", "")
         name = t.get("name_ar", sym)
-        close_ref = t.get("entry_price", 0.0)
-        sl_price = t.get("trailing_stop", close_ref * 0.96)
+        close_ref = float(t.get("reference_close") or t.get("entry_price") or t.get("current_price") or 0.0)
+        sl_price = float(t.get("trailing_stop") or (close_ref * 0.96))
         sig_type = t.get("trigger_type", "اختراق قمة 20 جلسة مع انفجار سيولة")
         sector = t.get("sector", "عام")
 

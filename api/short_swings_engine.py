@@ -395,7 +395,7 @@ def compute_short_swings() -> Dict[str, Any]:
             "as_of": last_date
         })
 
-    # 2. Existing running positions
+    # 1. Existing running positions
     for sym, p in positions.items():
         b = market.get((sym, last_date))
         curr_price = b.close if b else p["entry_price"]
@@ -403,24 +403,52 @@ def compute_short_swings() -> Dict[str, Any]:
         trail_stop = b.ema10 if b else p["sl_price"]
         m_info = meta.get(sym.upper().split(".")[0], {})
         
-        active_output.append({
-            "symbol": sym,
-            "name_ar": m_info.get("name_ar", sym),
-            "name_en": m_info.get("name_en", sym),
-            "sector": m_info.get("sector", "عام"),
-            "entry_date": p["date"],
-            "signal_date": p.get("signal_date", p["date"]),
-            "entry_price": round(p["entry_price"], 3),
-            "current_price": round(curr_price, 3),
-            "return_pct": round(curr_gain, 2),
-            "trailing_stop": round(trail_stop, 3),
-            "is_breakeven_protected": p["be_active"],
-            "max_gain_pct": round(p["max_gain"], 2),
-            "trigger_type": p["sig_type"],
-            "status": "مؤمنة بربح" if p["be_active"] else "قيد التداول",
-            "is_pending_entry": False,
-            "as_of": last_date
-        })
+        # If the trade's entry was triggered for last_date (today's close or open):
+        # The daily bot runs after market close. Users cannot buy retroactively.
+        # This setup is actionable for TOMORROW'S OPEN with reference close = curr_price, return = 0.0%.
+        if p["date"] == last_date:
+            active_output.append({
+                "symbol": sym,
+                "name_ar": m_info.get("name_ar", sym),
+                "name_en": m_info.get("name_en", sym),
+                "sector": m_info.get("sector", "عام"),
+                "entry_date": "جلسة الغد",
+                "signal_date": last_date,
+                "entry_price": round(curr_price, 3),
+                "current_price": round(curr_price, 3),
+                "reference_close": round(curr_price, 3),
+                "return_pct": 0.0,
+                "trailing_stop": round(trail_stop, 3),
+                "is_breakeven_protected": False,
+                "max_gain_pct": 0.0,
+                "trigger_type": p["sig_type"],
+                "status": "إشارة دخول جديدة (جلسة الغد)",
+                "is_pending_entry": True,
+                "as_of": last_date
+            })
+        else:
+            active_output.append({
+                "symbol": sym,
+                "name_ar": m_info.get("name_ar", sym),
+                "name_en": m_info.get("name_en", sym),
+                "sector": m_info.get("sector", "عام"),
+                "entry_date": p["date"],
+                "signal_date": p.get("signal_date", p["date"]),
+                "entry_price": round(p["entry_price"], 3),
+                "current_price": round(curr_price, 3),
+                "reference_close": round(curr_price, 3),
+                "return_pct": round(curr_gain, 2),
+                "trailing_stop": round(trail_stop, 3),
+                "is_breakeven_protected": p["be_active"],
+                "max_gain_pct": round(p["max_gain"], 2),
+                "trigger_type": p["sig_type"],
+                "status": "مؤمنة بربح" if p["be_active"] else "قيد التداول",
+                "is_pending_entry": False,
+                "as_of": last_date
+            })
+
+    # Sort active output: pending tomorrow trades first, then by return
+    active_output.sort(key=lambda t: (0 if t.get("is_pending_entry") else 1, -float(t.get("return_pct", 0) or 0)))
 
     # Sort closed trades descending by exit date
     closed_trades.sort(key=lambda t: t["exit_date"], reverse=True)
