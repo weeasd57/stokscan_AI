@@ -109,6 +109,41 @@ def compute_short_swings() -> Dict[str, Any]:
     df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
     df = df[df["date"] >= "2024-01-01"].reset_index(drop=True)
 
+    # Augment with latest prices from Supabase stock_prices table beyond the archive date
+    max_archive_date = df["date"].max() if not df.empty else "2024-01-01"
+    try:
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if supabase:
+            all_new = []
+            page = 0
+            page_size = 1000
+            while True:
+                res = (
+                    supabase.table("stock_prices")
+                    .select("symbol,date,open,high,low,close,volume")
+                    .gt("date", max_archive_date)
+                    .range(page * page_size, (page + 1) * page_size - 1)
+                    .execute()
+                )
+                rows = res.data or []
+                all_new.extend(rows)
+                if len(rows) < page_size:
+                    break
+                page += 1
+            if all_new:
+                df_new = pd.DataFrame(all_new)
+                for col in ["open", "high", "low", "close", "volume"]:
+                    df_new[col] = pd.to_numeric(df_new[col], errors="coerce")
+                df_new = df_new.dropna(subset=["open", "high", "low", "close", "volume"])
+                df_new = df_new[(df_new.open > 0) & (df_new.high > 0) & (df_new.low > 0) & (df_new.close > 0) & (df_new.volume >= 0)]
+                df = pd.concat([df, df_new], ignore_index=True)
+                df = df.drop_duplicates(subset=["symbol", "date"], keep="last")
+                df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
+                print(f"[SHORT_SWINGS] Merged {len(all_new)} live rows from Supabase; latest date is now {df['date'].max()}")
+    except Exception as merge_err:
+        print(f"[SHORT_SWINGS] Warning: failed to merge live Supabase prices: {merge_err}")
+
     meta = load_stock_metadata()
     dates = sorted(df["date"].unique())
 

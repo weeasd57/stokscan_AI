@@ -12,38 +12,6 @@
   },
   "active_trades": [
     {
-      "symbol": "MFPC",
-      "name_ar": "MFPC",
-      "name_en": "MFPC",
-      "sector": "عام",
-      "entry_date": "2026-08-31",
-      "entry_price": 40.921,
-      "current_price": 40.921,
-      "return_pct": 0.0,
-      "trailing_stop": 41.044,
-      "is_breakeven_protected": true,
-      "max_gain_pct": 25.36,
-      "trigger_type": "ارتداد زخم من متوسط 10 أيام",
-      "status": "مؤمنة بربح",
-      "as_of": "2026-09-24"
-    },
-    {
-      "symbol": "CCAP",
-      "name_ar": "CCAP",
-      "name_en": "CCAP",
-      "sector": "عام",
-      "entry_date": "2026-09-01",
-      "entry_price": 6.059,
-      "current_price": 7.09,
-      "return_pct": 17.01,
-      "trailing_stop": 6.905,
-      "is_breakeven_protected": true,
-      "max_gain_pct": 20.81,
-      "trigger_type": "اختراق قمة 20 جلسة مع انفجار سيولة",
-      "status": "مؤمنة بربح",
-      "as_of": "2026-09-24"
-    },
-    {
       "symbol": "ETEL",
       "name_ar": "ETEL",
       "name_en": "ETEL",
@@ -54,13 +22,59 @@
       "return_pct": 0.0,
       "trailing_stop": 118.732,
       "is_breakeven_protected": true,
-      "max_gain_pct": 18.27,
+      "max_gain_pct": 31.78,
       "trigger_type": "ارتداد زخم من متوسط 10 أيام",
       "status": "مؤمنة بربح",
-      "as_of": "2026-09-24"
+      "as_of": "2026-10-06"
+    },
+    {
+      "symbol": "AJWA",
+      "name_ar": "AJWA",
+      "name_en": "AJWA",
+      "sector": "عام",
+      "entry_date": "2026-10-06",
+      "entry_price": 190.515,
+      "current_price": 197.44,
+      "return_pct": 3.63,
+      "trailing_stop": 185.051,
+      "is_breakeven_protected": false,
+      "max_gain_pct": 3.67,
+      "trigger_type": "اختراق قمة 20 جلسة مع انفجار سيولة",
+      "status": "نشطة",
+      "as_of": "2026-10-06"
     }
   ],
   "closed_trades": [
+    {
+      "symbol": "CCAP",
+      "name_ar": "CCAP",
+      "name_en": "CCAP",
+      "sector": "عام",
+      "entry_date": "2026-09-01",
+      "exit_date": "2026-09-28",
+      "entry_price": 6.059,
+      "exit_price": 6.79,
+      "return_pct": 12.06,
+      "max_gain_pct": 20.81,
+      "sessions": 19,
+      "reason": "ema10_break",
+      "trigger_type": "اختراق قمة 20 جلسة مع انفجار سيولة"
+    },
+    {
+      "symbol": "MFPC",
+      "name_ar": "MFPC",
+      "name_en": "MFPC",
+      "sector": "عام",
+      "entry_date": "2026-08-31",
+      "exit_date": "2026-09-27",
+      "entry_price": 40.921,
+      "exit_price": 46.93,
+      "return_pct": 14.68,
+      "max_gain_pct": 25.36,
+      "sessions": 19,
+      "reason": "ema10_break",
+      "trigger_type": "ارتداد زخم من متوسط 10 أيام"
+    },
     {
       "symbol": "ATQA",
       "name_ar": "ATQA",
@@ -7727,7 +7741,7 @@
       "trigger_type": "اختراق قمة 20 جلسة مع انفجار سيولة"
     }
   ],
-  "total_active": 3,
-  "total_closed": 1796,
-  "as_of": "2026-09-24"
+  "total_active": 2,
+  "total_closed": 1798,
+  "as_of": "2026-10-06"
 }

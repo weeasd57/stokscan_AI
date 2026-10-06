@@ -111,8 +111,12 @@ def payment_config() -> Dict[str, Any]:
     try:
         _init_supabase()
         if supabase:
-            result = supabase.table("user_plans").select("user_id", count="exact").eq("is_pro", True).execute()
-            founders_count = result.count or 0
+            result = supabase.table("subscriptions").select("user_id", count="exact").eq("status", "active").execute()
+            if result and result.data:
+                # Count distinct user IDs
+                founders_count = len(set(r.get("user_id") for r in result.data if r.get("user_id")))
+            else:
+                founders_count = result.count or 0
     except Exception:
         founders_count = 0
     founders_remaining = max(0, founders_limit - founders_count)
