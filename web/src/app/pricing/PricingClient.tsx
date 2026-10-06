@@ -896,7 +896,15 @@ export default function PricingClient() {
                 {(planDiscount || plan.badge) && (
                   <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
                     <span className="border-2 border-black dark:border-white bg-amber-300 text-black text-[10px] font-black uppercase px-3 py-0.5 tracking-wider shadow-[2px_2px_0px_rgba(0,0,0,1)] whitespace-nowrap">
-                      {planDiscount ? (isAr ? planDiscount.label_ar || "عرض محدود" : planDiscount.label_en || "Limited offer") : plan.badge}
+                      {planDiscount
+                        ? (isAr
+                            ? (foundersRemaining !== null
+                                ? `عرض المؤسسين الأوائل (باقي ${foundersRemaining} مقعد)`
+                                : planDiscount.label_ar || "عرض محدود")
+                            : (foundersRemaining !== null
+                                ? `Founding Members (${foundersRemaining} spots left)`
+                                : planDiscount.label_en || "Limited offer"))
+                        : plan.badge}
                     </span>
                   </div>
                 )}
