@@ -2051,7 +2051,7 @@ export async function executeStructuredTools(
                 isHistoricalRec ? "all" : "open"
             );
 
-            const isGated = !userIsPro;
+            const isGated = paymentsEnabled() && !userIsPro;
 
             // Free user requesting recommendations (general, specific symbol, this week, last week, etc.)
             if (isGated) {

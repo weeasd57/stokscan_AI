@@ -2347,6 +2347,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         const lines: string[] = [];
         const proRec = toolResults.find(r => (r.tool === "get_recommendations" || r.tool === "get_signals") && r.pro_locked);
         if (proRec?.error) {
+            if (plan.tools.includes("get_recommendations") || /(?:توصي|ترشح|ترشيح)/i.test(userMessage)) {
+                return proRec.error;
+            }
             lines.push(proRec.error + "\n");
         }
         lines.push(`المسح الحالي يعرض ${countWord} بإشارة ${actionAr}:`);

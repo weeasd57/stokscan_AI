@@ -772,7 +772,6 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
 
                         if (hasRecommendationKw && !hasImages) {
                             if (!toolsList.includes("get_recommendations")) toolsList.push("get_recommendations");
-                            if (!toolsList.includes("get_accumulation_stocks")) toolsList.push("get_accumulation_stocks");
                             if (resolvedSymbols.length > 0 && !toolsList.includes("get_stock")) toolsList.push("get_stock");
                         }
 

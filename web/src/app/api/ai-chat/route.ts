@@ -10,7 +10,7 @@ import { AI_CONFIG } from "@/lib/ai/config";
 import { logAiInteraction } from "@/lib/ai/logger";
 
 import { extractExplicitSymbols, runPipeline, runPipelineStream } from "@/lib/ai/pipeline";
-import { detectPortfolioIntent } from "@/lib/ai/intent-policy";
+import { detectPortfolioIntent, normalizeArabicIntent } from "@/lib/ai/intent-policy";
 import { analyzeImage } from "@/lib/ai/vision";
 import { retrieveRelevantMemory } from "@/lib/ai/memory";
 import { executeStructuredTools } from "@/lib/ai/tools-v2";
@@ -455,7 +455,10 @@ export async function POST(req: NextRequest) {
         // Recommendation lists are a Pro feature. Free users can still use
         // ordinary stock questions, but must upgrade before requesting the
         // platform's actionable recommendation feed.
-        if (billingOn && !isUnlimited && message && !detectPortfolioIntent(message) && /(?:توصيات|توصية|إشارات|recommendations?|signals?)/i.test(message)) {
+        const normalizedForGate = normalizeArabicIntent(message);
+        const asksProRecs = /(?:توصيات|توصيه|اشارات|اشاره|ترشيحات|recommendations?|signals?)/i.test(normalizedForGate)
+            && !/(?:يعني\s*ايه|ما\s*معنى|ما\s*هو|شرح|تعريف)/i.test(normalizedForGate);
+        if (billingOn && !isUnlimited && message && !detectPortfolioIntent(message) && asksProRecs) {
             try {
                 const { data: planRows } = await authClient.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", userId);
                 if (!gateIsPro(planRows || [])) {
