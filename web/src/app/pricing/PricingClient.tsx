@@ -770,17 +770,23 @@ export default function PricingClient() {
                 <>
                   اشترك الآن في خطة <strong>Pro بـ 50 ج.م فقط شهرياً</strong> مدى الحياة (بدلاً من 200 ج.م). 
                   <span className="inline-block bg-black text-white px-2 py-0.5 font-black text-xs ms-1.5 shadow-[1px_1px_0_0_#fff]">
-                    متبقي 93 مقعداً فقط
+                    متبقي 90 مقعداً فقط
                   </span>
                   ، بعدها سيغلق العرض ويعود السعر الرسمي لـ 200 ج.م لجميع المشتركين الجدد.
+                  <span className="block mt-1 text-[11px] font-bold text-black/80">
+                    ⏱️ <strong>شرط استمرار السعر:</strong> استمرار التجديد الشهري، مع <strong>مهلة سماح 72 ساعة</strong> بعد انتهاء كل شهر للتجديد بسعر 50 ج.م قبل فقدان ميزة المؤسس وتطبيق السعر الرسمي (200 ج.م).
+                  </span>
                 </>
               ) : (
                 <>
                   Lock in <strong>Pro for just 50 EGP/mo for life</strong> (standard price 200 EGP). 
                   <span className="inline-block bg-black text-white px-2 py-0.5 font-black text-xs ms-1.5 shadow-[1px_1px_0_0_#fff]">
-                    Only 93 spots remaining
+                    Only 90 spots remaining
                   </span>
                   . Price reverts to 200 EGP once filled.
+                  <span className="block mt-1 text-[11px] font-bold text-black/80">
+                    ⏱️ <strong>Retention Rule:</strong> 72 hours renewal grace period upon expiry to maintain your 50 EGP/mo rate before standard 200 EGP rate applies.
+                  </span>
                 </>
               )}
             </p>

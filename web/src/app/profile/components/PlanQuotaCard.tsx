@@ -374,20 +374,41 @@ export default function PlanQuotaCard({ refreshTrigger = 0 }: Props) {
 
       {/* ── Pro Plan Subscription Details Footer ── */}
       {isPro && data?.plan?.current_period_end && (
-        <div className="mt-5 pt-4 border-t-2 border-emerald-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-bold text-zinc-600 dark:text-zinc-300">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <span>
-              {isAr ? "تاريخ تجديد / انتهاء الاشتراك:" : "Renewal / Expiry date:"}{" "}
-              <strong className="text-black dark:text-white">
-                {formatDate(data.plan.current_period_end)}
-              </strong>
+        <div className="mt-5 pt-4 border-t-2 border-emerald-500/30 space-y-2">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-bold text-zinc-600 dark:text-zinc-300">
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>
+                {isAr ? "تاريخ تجديد / انتهاء الاشتراك:" : "Renewal / Expiry date:"}{" "}
+                <strong className="text-black dark:text-white">
+                  {formatDate(data.plan.current_period_end)}
+                </strong>
+              </span>
+            </div>
+            <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              {isAr ? "الاشتراك نشط ومفعل" : "Subscription is active"}
             </span>
           </div>
-          <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            {isAr ? "الاشتراك نشط ومفعل" : "Subscription is active"}
-          </span>
+
+          {data?.plan?.is_founding_member && (
+            <div className="border border-amber-400/50 bg-amber-500/10 dark:bg-amber-950/20 p-2.5 rounded-none flex items-center justify-between gap-2 text-[11px] font-bold text-amber-900 dark:text-amber-300">
+              <span className="flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                <span>
+                  {isAr 
+                    ? "مهلة تجديد المؤسسين: تمنح 72 ساعة سماح بعد تاريخ الانتهاء لتجديد اشتراكك بـ 50 ج.م فقط قبل تحويل الحساب للسعر الرسمي (200 ج.م)."
+                    : "Founding member grace period: 72 hours window after expiry to renew at 50 EGP before standard 200 EGP pricing applies."}
+                </span>
+              </span>
+              <Link 
+                href="/pricing"
+                className="shrink-0 px-2.5 py-1 bg-amber-400 hover:bg-amber-300 text-black font-black text-[10px] border border-black shadow-[1px_1px_0_0_#000] transition-transform active:translate-y-0.5"
+              >
+                {isAr ? "تجديد الآن" : "Renew Now"}
+              </Link>
+            </div>
+          )}
         </div>
       )}
     </div>
