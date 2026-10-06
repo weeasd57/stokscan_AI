@@ -144,22 +144,30 @@ export function buildUserAnalytics(input: {
     plans[plan] = (plans[plan] || 0) + 1;
   }
 
-  // ── Revenue ──
+  // ── Revenue (Excluding Admin users and applying 4% payment gateway deduction) ──
   const successfulKashier = (input.kashierPayments || []).filter(
-    (p) => String(p.status || "").toLowerCase() === "success"
+    (p) => String(p.status || "").toLowerCase() === "success" && !excludedIds.has(String(p.user_id || ""))
   );
   const approvedLocal = (input.paymentOrders || []).filter(
-    (p) => String(p.status || "").toLowerCase() === "approved"
+    (p) => String(p.status || "").toLowerCase() === "approved" && !excludedIds.has(String(p.user_id || ""))
   );
-  const totalRevenue =
+
+  const grossRevenue =
     successfulKashier.reduce((sum, p) => sum + Number(p.amount_paid || 0), 0) +
     approvedLocal.reduce((sum, p) => sum + Number(p.amount_egp || 0), 0);
+
+  // 4% gateway fee discount
+  const GATEWAY_FEE_RATE = 0.04;
+  const netRevenue = Math.round(grossRevenue * (1 - GATEWAY_FEE_RATE) * 100) / 100;
+
+  // totalRevenue returns the net revenue after gateway fee deduction
+  const totalRevenue = netRevenue;
   const totalPaidOrders = successfulKashier.length + approvedLocal.length;
   const pendingOrders = (input.paymentOrders || []).filter(
-    (p) => String(p.status || "").toLowerCase() === "pending"
+    (p) => String(p.status || "").toLowerCase() === "pending" && !excludedIds.has(String(p.user_id || ""))
   ).length;
   const rejectedOrders = (input.paymentOrders || []).filter(
-    (p) => String(p.status || "").toLowerCase() === "rejected"
+    (p) => String(p.status || "").toLowerCase() === "rejected" && !excludedIds.has(String(p.user_id || ""))
   ).length;
   const avgOrderValue = totalPaidOrders ? Math.round(totalRevenue / totalPaidOrders) : 0;
 

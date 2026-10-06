@@ -383,14 +383,14 @@ export default function UsersTab() {
                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-4 mb-6">
                     <div className="border-4 border-black dark:border-white bg-emerald-50 dark:bg-emerald-950/40 p-4 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
                         <div className="flex items-center justify-between text-zinc-500 mb-1">
-                            <span className="font-black text-[10px] uppercase tracking-wider">{isAr ? "إجمالي الإيرادات" : "Total Revenue"}</span>
+                            <span className="font-black text-[10px] uppercase tracking-wider">{isAr ? "صافي الإيرادات (بعد خصم 4%)" : "Net Revenue (-4% fee)"}</span>
                             <DollarSign className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                         </div>
                         <div className="text-3xl font-black text-black dark:text-white font-mono">
-                            {statsLoading ? "..." : `${(stats?.totalRevenue || 0).toLocaleString()}`}
+                            {statsLoading ? "..." : `${Number(stats?.totalRevenue || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                         </div>
                         <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1">
-                            <ArrowUpRight className="w-3 h-3" /> {isAr ? `ج.م · ${stats?.totalPaidOrders || 0} طلب مدفوع` : `EGP · ${stats?.totalPaidOrders || 0} paid orders`}
+                            <ArrowUpRight className="w-3 h-3" /> {isAr ? `ج.م · ${stats?.totalPaidOrders || 0} طلب مؤكد (بدون الأدمن)` : `EGP · ${stats?.totalPaidOrders || 0} paid orders (excl. admin)`}
                         </div>
                     </div>
 
