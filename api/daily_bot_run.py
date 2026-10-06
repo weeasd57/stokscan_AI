@@ -3015,7 +3015,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 "completed_at": dt.datetime.utcnow().isoformat() if status in ("completed", "failed") else None,
                 "steps": json.dumps(steps_log),
                 "total_symbols": total_symbols,
-                "trigger": trigger,
+                "trigger": "manual" if str(trigger).lower() == "manual" else "scheduled",
                 "error": last_failed.get("details") if last_failed else None,
             }).execute()
         except Exception as e:

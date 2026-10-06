@@ -640,14 +640,15 @@ export function buildV2FinalMessages(
             "هذه مراكز المستخدم الفعلية المسجلة في النظام. عند تحليل سهم موجود هنا، ابدأ بذكر الكمية ومتوسط الشراء واربط الربح/الخطر بسعر التكلفة الفعلي، ولا تتعامل معه كسهم عام فقط.",
             "🚫 قاعدة صارمة لمنع هلوسة المراكز: يُمنع تماماً افتراض أن المستخدم 'خسران' أو 'رابح' في أي سهم إلا إذا توفرت بيانات المركز الفعلية أعلاه. إذا ذكر المستخدم سهماً بدون ظهوره في هذا القسم، تعامل معه على أنه استفسار تحليلي عام فقط.",
             ...(isPortfolioAnalysisRequest(userMessage) ? [
-                ownedPositions.length >= 5
-                    ? `🚨 قاعدة إلزامية لهيكلة تقرير المحفظة (${ownedPositions.length} أسهم):
-1. ابدأ بجدول ماركداون شامل يضم كل المراكز بلا استثناء (${ownedPositions.map((p: any) => p.symbol).join("، ")}):
-   | السهم | الكمية | سعر الشراء | آخر سعر | الربح/الخسارة % | RSI | الذكاء الاصطناعي | الدعم | المقاومة |
-2. قدّم قراءة نوعية سريعة لأهم 3 إلى 5 مراكز استراتيجية ومؤثرة في المحفظة (أعلى أرباح/خسائر أو تشبع فني أو أحداث جوهرية).
-3. اختم بتوجيهات عملية لإدارة المخاطر وتوزيع السيولة.
-التزم بهذا التنسيق لضمان تغطية جميع المراكز بدون إطالة مفرطة.`
-                    : `🚨 قاعدة إلزامية لتغطية المحفظة: طلب المستخدم هو تحليل المحفظة، لذلك يجب بالضرورة تحليل وتغطية كل مركز من هذه المراكز بلا استثناء: (${ownedPositions.map((p: any) => p.symbol).join("، ")}). اذكر كل رمز بالاسم وقدم قراءته الفنية ومستوياته.`
+                `🚨 قاعدة إلزامية لهيكلة تقرير تحليل المحفظة (${ownedPositions.length} أسهم):
+1. ابدأ بملخص شامل لرأس المال والمحفظة (إجمالي رأس المال، القيمة السوقية الحالية، إجمالي الربح/الخسارة غير المحققة بالجنيه والنسبة المئوية).
+2. جدول ماركداون شامل يضم كل المراكز بلا استثناء (${ownedPositions.map((p: any) => p.symbol).join("، ")}):
+   | السهم | الكمية | سعر الشراء | آخر سعر | الربح/الخسارة % | وزن المركز % | RSI | الذكاء الاصطناعي | الدعم | المقاومة |
+3. تحليل تفصيلي وعملي لكل مركز على حدة:
+   - وضّح المسافة من سعر الشراء ومستويات الدعم والمقاومة.
+   - قيّم الزخم (RSI، الحجم، الاتجاه) وخطة التعامل (وقف خسارة محدد عند كسر الدعم، ومستهدفات جني الأرباح قرب المقاومة).
+4. خطة توزيع السيولة وإدارة المخاطر (Actionable Tactical Plan):
+   - حدد بوضوح: المركز الأقوى، المركز الأكثر خطورة، وكيفية توزيع السيولة أو حماية رأس المال دون عموميات جافة.`
             ] : []),
             ...ownedPositions.map((position: any) => `- ${position.symbol}: الكمية=${position.quantity ?? "غير متاح"}، متوسط الشراء=${position.entry_price ?? "غير متاح"}، آخر سعر=${position.last_price ?? "غير متاح"}، قيمة المركز=${position.market_value ?? "غير متاح"}, الربح/الخسارة غير المحققة=${position.unrealized_pnl ?? "غير متاح"}`),
         ].join("\n"));
@@ -1989,6 +1990,33 @@ export function buildDeterministicPortfolioAnalysisResponse(
 
     if (!positions || positions.length === 0) return null;
 
+    // Calculate Portfolio-level totals
+    let totalInvestedCost = 0;
+    let totalMarketValue = 0;
+    let hasCostData = false;
+
+    for (const pos of positions) {
+        const symbol = String(pos.symbol || "").toUpperCase();
+        const stock = stockMap.get(symbol) || {};
+        const price = stock.price != null ? Number(stock.price) : (pos.last_price != null ? Number(pos.last_price) : null);
+        const entry = pos.entry_price != null ? Number(pos.entry_price) : null;
+        const qty = pos.quantity != null ? Number(pos.quantity) : null;
+
+        if (qty != null && qty > 0 && entry != null && entry > 0) {
+            totalInvestedCost += qty * entry;
+            hasCostData = true;
+            if (price != null && price > 0) {
+                totalMarketValue += qty * price;
+            } else {
+                totalMarketValue += qty * entry;
+            }
+        }
+    }
+
+    const totalUnrealizedPnl = totalMarketValue - totalInvestedCost;
+    const totalPnlPct = hasCostData && totalInvestedCost > 0 ? (totalUnrealizedPnl / totalInvestedCost) * 100 : null;
+
+    // Build Table Rows with Weights & Status
     const rows = positions.map((pos: any) => {
         const symbol = String(pos.symbol || "").toUpperCase();
         const stock = stockMap.get(symbol) || {};
@@ -1996,11 +2024,23 @@ export function buildDeterministicPortfolioAnalysisResponse(
         const price = stock.price != null ? Number(stock.price) : (pos.last_price != null ? Number(pos.last_price) : null);
         const entry = pos.entry_price != null ? Number(pos.entry_price) : null;
         const qty = pos.quantity != null ? Number(pos.quantity) : null;
+
         let pnlText = "—";
+        let posValue = 0;
+        if (qty != null && qty > 0 && price != null && price > 0) {
+            posValue = qty * price;
+        }
+
+        let weightText = "—";
+        if (hasCostData && totalMarketValue > 0 && posValue > 0) {
+            weightText = `${((posValue / totalMarketValue) * 100).toFixed(1)}%`;
+        }
+
         if (price != null && entry != null && entry > 0) {
             const pnlPct = ((price - entry) / entry) * 100;
             pnlText = `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%`;
         }
+
         const rsi = stock.rsi_14 != null ? Number(stock.rsi_14).toFixed(1) : "—";
         const king = Number(stock.king_ai_score ?? stock.king_score);
         const egx = Number(stock.egx_ai_score ?? stock.egx_score);
@@ -2013,45 +2053,146 @@ export function buildDeterministicPortfolioAnalysisResponse(
         const entryText = entry != null ? entry.toFixed(2) : "—";
         const qtyText = qty != null ? qty.toLocaleString() : "—";
 
-        return `| **${symbol}** | ${qtyText} | ${entryText} | ${priceText} | ${pnlText} | ${rsi} | ${aiScore} | ${supp} | ${resis} |`;
+        return `| **${symbol}** | ${qtyText} | ${entryText} | ${priceText} | ${pnlText} | ${weightText} | ${rsi} | ${aiScore} | ${supp} | ${resis} |`;
     });
 
     const table = [
-        "| السهم | الكمية | سعر الشراء | آخر سعر | الربح/الخسارة | RSI | الذكاء الاصطناعي (KING/EGX) | الدعم | المقاومة |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| السهم | الكمية | سعر الشراء | آخر سعر | الربح/الخسارة % | وزن المحفظة % | RSI | الذكاء الاصطناعي (KING/EGX) | الدعم | المقاومة |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
         ...rows
     ].join("\n");
 
-    const insights: string[] = [];
+    // Comprehensive Per-Stock Breakdown
+    const perStockBreakdowns: string[] = [];
+    const stockScores: { symbol: string; score: number; risk: number; name: string }[] = [];
+
     for (const pos of positions) {
         const symbol = String(pos.symbol || "").toUpperCase();
         const stock = stockMap.get(symbol) || {};
         const level = levelMap.get(symbol) || {};
         const rsi = Number(stock.rsi_14);
         const entry = pos.entry_price != null ? Number(pos.entry_price) : null;
-        const price = stock.price != null ? Number(stock.price) : null;
-        
-        if (Number.isFinite(rsi) && rsi < 30) {
-            insights.push(`• **${symbol}:** في منطقة تشبع بيعي حاد (RSI: ${rsi.toFixed(1)}) مع دعم حسابي عند ${level.support != null ? Number(level.support).toFixed(2) : "غير متاح"} ج.م، مما قد يتيح فرص ارتداد فني شريطة تماسك الدعم.`);
-        } else if (Number.isFinite(rsi) && rsi > 70) {
-            insights.push(`• **${symbol}:** دخل منطقة تشبع شرائي (RSI: ${rsi.toFixed(1)}) قرب مقاومة ${level.resistance != null ? Number(level.resistance).toFixed(2) : "غير متاح"} ج.م، ويُفضل حماية الأرباح عند ضعف العزم.`);
-        } else if (entry != null && price != null && ((price - entry) / entry) > 0.2) {
-            const gain = (((price - entry) / entry) * 100).toFixed(1);
-            insights.push(`• **${symbol}:** محقق ربح غير محقق قوي (+${gain}%)؛ يُنصح برفع مستوى وقف الأرباح (Trailing Stop) لحماية المكاسب.`);
+        const price = stock.price != null ? Number(stock.price) : (pos.last_price != null ? Number(pos.last_price) : null);
+        const supp = level.support != null ? Number(level.support) : null;
+        const resis = level.resistance != null ? Number(level.resistance) : null;
+        const volRatio = Number(String(stock.vol_ratio ?? stock.volume_ratio ?? "").replace(/x$/i, ""));
+        const king = Number(stock.king_ai_score ?? stock.king_score);
+        const egx = Number(stock.egx_ai_score ?? stock.egx_score);
+
+        // Scoring for tactical plan
+        let compositeScore = 50;
+        let riskScore = 30;
+
+        const posNotes: string[] = [];
+
+        // 1. Position PnL & Distance Context
+        if (entry != null && price != null && entry > 0) {
+            const pnlPct = ((price - entry) / entry) * 100;
+            if (pnlPct >= 5) {
+                posNotes.push(`محقق مكسب غير محقق (+${pnlPct.toFixed(1)}%)؛ المركز في وضع مريح فوق سعر الشراء (${entry.toFixed(2)} ج.م).`);
+                compositeScore += 15;
+            } else if (pnlPct <= -5) {
+                posNotes.push(`تسجيل تراجع غير محقق (${pnlPct.toFixed(1)}%) عن سعر الشراء (${entry.toFixed(2)} ج.م).`);
+                compositeScore -= 15;
+                riskScore += 25;
+            } else {
+                posNotes.push(`المركز قريب من نقطة التعادل (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%) من سعر الشراء (${entry.toFixed(2)} ج.م).`);
+            }
         }
+
+        // 2. Technical Support / Resistance Dynamics
+        if (price != null && supp != null && resis != null && resis > supp) {
+            const distToSupp = ((price - supp) / supp) * 100;
+            const distToResis = ((resis - price) / price) * 100;
+
+            if (distToSupp <= 3 && distToSupp >= -1) {
+                posNotes.push(`السعر يختبر الدعم الحسابي (${supp.toFixed(2)} ج.م) — كسر هذا المستوى بإغلاق يستوجب تفعيل وقف الخسارة لتفادي مزيد من التراجع.`);
+                riskScore += 20;
+            } else if (distToResis <= 3 && distToResis >= -1) {
+                posNotes.push(`السعر يقترب من المقاومة الفنية (${resis.toFixed(2)} ج.م) — فرصة مناسبة لجني أرباح جزئي أو رفع وقف الأرباح.`);
+                compositeScore += 10;
+            } else {
+                posNotes.push(`نطاق الحركة محصور بين دعم ${supp.toFixed(2)} ج.م ومقاومة ${resis.toFixed(2)} ج.م (المسافة للدعم: ${distToSupp >= 0 ? "+" : ""}${distToSupp.toFixed(1)}%).`);
+            }
+        } else if (supp != null) {
+            posNotes.push(`الدعم الأقرب عند ${supp.toFixed(2)} ج.م كحزام أمان رئيسي.`);
+        }
+
+        // 3. Momentum & Volume Profile
+        if (Number.isFinite(rsi)) {
+            if (rsi >= 70) {
+                posNotes.push(`مؤشر الزخم RSI (${rsi.toFixed(1)}) في منطقة تشبع شرائي تعكس سخونة الصعود وتستدعي الحذر من جني الأرباح المفاجئ.`);
+                riskScore += 15;
+            } else if (rsi <= 35) {
+                posNotes.push(`مؤشر RSI (${rsi.toFixed(1)}) في منطقة تشبع بيعي، مما يتيح فرصة ارتداد فني مشروطة بعدم كسر الدعم.`);
+                compositeScore += 5;
+            } else {
+                posNotes.push(`الزخم متوازن (RSI: ${rsi.toFixed(1)}).`);
+            }
+        }
+
+        if (Number.isFinite(volRatio) && volRatio > 0) {
+            if (volRatio >= 1.2) {
+                posNotes.push(`السيولة نشطة (${volRatio.toFixed(2)}x من المتوسط) تدعم حركة السهم.`);
+                compositeScore += 10;
+            } else if (volRatio < 0.6) {
+                posNotes.push(`أحجام التداول ضعيفة (${volRatio.toFixed(2)}x من المتوسط)، ما يشير إلى هدوء نسبي في تحركات السيولة.`);
+                riskScore += 10;
+            }
+        }
+
+        // Action Recommendation Line
+        let actionVerdict = "احتفاظ ومراقبة مستويات الدعم والمقاومة";
+        if (riskScore >= 60) {
+            actionVerdict = `⚠️ حذر ومراقبة لصيقة: الالتزام الصارم بوقف الخسارة عند كسر ${supp != null ? supp.toFixed(2) : "الدعم"} ج.م دون تعزيز المركز حالياً`;
+        } else if (compositeScore >= 65) {
+            actionVerdict = `🟢 إيجابي ومستقر: الاحتفاظ مع استهداف المقاومة عند ${resis != null ? resis.toFixed(2) : "المستهدف"} ج.م ورفع وقف الأرباح`;
+        }
+
+        stockScores.push({ symbol, score: compositeScore, risk: riskScore, name: stock.name || symbol });
+
+        perStockBreakdowns.push([
+            `#### 🔹 سهم **${symbol}** ${stock.name ? `(${stock.name})` : ""}:`,
+            `- **الحالة الفنية:** ${posNotes.join(" ")}`,
+            `- **التوجيه التكتيكي:** ${actionVerdict}.`
+        ].join("\n"));
+    }
+
+    // Sort to identify strongest and highest risk
+    stockScores.sort((a, b) => b.score - a.score);
+    const strongestStock = stockScores[0];
+    const riskiestStock = [...stockScores].sort((a, b) => b.risk - a.risk)[0];
+
+    // Build Capital Summary Header
+    const capitalSummaryLines: string[] = [
+        "📊 **تقرير التحليل الفني الشامل وإدارة مخاطر المحفظة:**",
+        ""
+    ];
+
+    if (hasCostData) {
+        const pnlSign = totalUnrealizedPnl >= 0 ? "+" : "";
+        capitalSummaryLines.push(
+            `💰 **ملخص رأس المال والأداء الإجمالي:**`,
+            `- **إجمالي التكلفة المستثمرة:** ${totalInvestedCost.toLocaleString("ar-EG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م`,
+            `- **القيمة السوقية الحالية:** ${totalMarketValue.toLocaleString("ar-EG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م`,
+            `- **العائد الإجمالي غير المحقق:** **${pnlSign}${totalUnrealizedPnl.toLocaleString("ar-EG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م** (${pnlSign}${totalPnlPct?.toFixed(2)}%)`,
+            ""
+        );
     }
 
     const lines = [
-        "📊 **تقرير التحليل الفني الشامل لمراكز المحفظة:**",
-        "",
+        ...capitalSummaryLines,
         table,
         "",
-        insights.length > 0 ? "🔍 **ملاحظات وإشارات فنية محورية:**\n" + insights.slice(0, 4).join("\n") + "\n" : null,
-        "💡 **إدارة المخاطر وتوزيع السيولة:**",
-        "- يُنصح بعدم تركيز السيولة في مراكز متعثرة دون وقف خسارة واضح عند كسر الدعوم الحسابية.",
-        "- متابعة حركة كل مركز بالنسبة لمقاوماته لتحديد نقاط جني الأرباح الجزئي تدريجياً.",
+        "🔍 **التحليل التفصيلي والتكتيكي لكل مركز:**",
+        perStockBreakdowns.join("\n\n"),
         "",
-        "الأرقام استرشادية مبنية على البيانات المسجلة، والقرار الاستثماري النهائي يعود لك وفق خطتك المالية."
+        "🎯 **خطة التحرك وتوزيع السيولة (Tactical Action Plan):**",
+        strongestStock ? `- **المركز الأقوى تماسكاً:** **${strongestStock.symbol}** يظهر أفضل توازن فني وزخم في المحفظة حالياً؛ يُفضل جعله الركيزة الأساسية مع حماية الأرباح.` : null,
+        riskiestStock && riskiestStock.symbol !== strongestStock?.symbol ? `- **المركز الأكثر حساسية للمخاطر:** **${riskiestStock.symbol}** يتطلب انضباطاً صارماً بوقف الخسارة؛ لا يُنصح بتعديل المتوسط (Averaging Down) ما لم تظهر إشارات ارتداد بأحجام تداول مؤكدة.` : null,
+        "- **إدارة الكاش والسيولة:** تجنب تجميد سيولة إضافية في مراكز كاسرة للدعوم؛ استهدف جني الأرباح تدريجياً قرب مقاومات كل سهم لإعادة تكوين سيولة اقتناص جديدة.",
+        "",
+        "الأرقام استرشادية مبنية على البيانات المسجلة، والقرار الاستثماري النهائي يعود لك وفق أهدافك المالية ومستوى تحملك للمخاطر."
     ].filter(Boolean);
 
     return lines.join("\n");
@@ -2291,6 +2432,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         return "التحليل السابق مكتمل بالبيانات المتاحة حالياً. لو تقصد استكمال نقطة معينة، اكتب اسم السهم أو السؤال المطلوب.";
     }
     if (plan.service_degraded_message) {
+        if (plan.intent === "clarification" && !userMessage.trim()) {
+            return "تعذر قراءة الصورة المرفقة بوضوح هذه المرة، لذلك لم أستخرج منها أسهماً أو أرقاماً حتى لا أخمّن. أرسل نسخة أوضح أو اكتب اسم السهم وما تريد تحليله، وسأعتمد على السؤال النصي مباشرة.";
+        }
         return plan.service_degraded_message;
     }
     const decisionReply = buildDecisionFallback(userMessage, plan, toolResults);

@@ -199,7 +199,7 @@ def run_startup_catchup() -> bool:
         import asyncio
         from api.daily_bot_run import run_daily_job
         try:
-            asyncio.run(run_daily_job(trigger="startup_catchup", model_filter=model_filter))
+            asyncio.run(run_daily_job(trigger="scheduled", model_filter=model_filter))
             _record_run("startup_catchup", "completed")
         except Exception as exc:
             print(f"[DAILY-JOB-SCHEDULER] Startup catch-up failed: {exc}")
