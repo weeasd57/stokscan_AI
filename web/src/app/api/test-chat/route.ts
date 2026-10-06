@@ -37,7 +37,8 @@ export async function POST(req: NextRequest) {
                 const t0 = Date.now();
                 const result = await runPipeline(
                     message.trim(), [], convState, null, convHistory.slice(-8),
-                    supabase, apiKeys, "test-user", "", `test-${Date.now()}`
+                    supabase, apiKeys, body.user_id || "test-user", "", `test-${Date.now()}`,
+                    undefined, { isPro: body.is_pro ?? false }
                 );
                 convHistory.push({ role: "user", content: message.trim() });
                 convHistory.push({ role: "assistant", content: (result.response || "").slice(0, 400) });
@@ -97,9 +98,11 @@ export async function POST(req: NextRequest) {
             [],
             supabase,
             apiKeys,
-            "test-user",
+            body.user_id || "test-user",
             "",
-            `test-${Date.now()}`
+            `test-${Date.now()}`,
+            undefined,
+            { isPro: body.is_pro ?? false }
         );
 
         return NextResponse.json({

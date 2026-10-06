@@ -1866,7 +1866,11 @@ export function buildFastConversationalAdvisorResponse(
     if ((isSectorBuyQuery || isBestBuyStockQuestion(userMessage)) && !hasSpecificSymbols) {
         const recResult = toolResults.find(r => r.tool === "get_recommendations" || r.tool === "get_signals");
         const recs = Array.isArray(recResult?.data) ? recResult.data : [];
-        if (recs.length > 0) {
+        if (recs.length > 0 || recResult?.pro_locked) {
+            return null;
+        }
+        const accResult = toolResults.find(r => r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks");
+        if (accResult && Array.isArray(accResult.data?.stocks) && accResult.data.stocks.length > 0) {
             return null;
         }
 
@@ -2335,7 +2339,12 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
 
         if (stocks.length > 0) {
         const countWord = stocks.length === 1 ? "سهم واحد" : stocks.length === 2 ? "سهمان" : `${stocks.length} أسهم`;
-        const lines = [`المسح الحالي يعرض ${countWord} بإشارة ${actionAr}:`];
+        const lines: string[] = [];
+        const proRec = toolResults.find(r => (r.tool === "get_recommendations" || r.tool === "get_signals") && r.pro_locked);
+        if (proRec?.error) {
+            lines.push(proRec.error + "\n");
+        }
+        lines.push(`المسح الحالي يعرض ${countWord} بإشارة ${actionAr}:`);
 
         stocks.slice(0, 15).forEach((stock: any) => {
             const score = stock[scoreField];

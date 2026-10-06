@@ -828,7 +828,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             intent: "market_summary",
             confidence: 1,
             entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, recommendation_order: "newest", recommendation_filter: "open" },
-            tools: asksTomorrowRecommendations ? ["get_recommendations", "get_market", "get_accumulation_stocks"] : ["get_recommendations"],
+            tools: asksTomorrowRecommendations ? ["get_recommendations", "get_accumulation_stocks"] : ["get_recommendations"],
             session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message },
         } as any;
     }
@@ -1652,7 +1652,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         }
         return {
             intent: oldestRequest ? "historical_recall" : "market_summary",
-            tools: oldestRequest ? ["get_recommendations", "get_signals"] : ["get_recommendations", "get_market", "get_accumulation_stocks"],
+            tools: oldestRequest ? ["get_recommendations", "get_signals"] : ["get_recommendations", "get_accumulation_stocks"],
             replaceTools: true,
             recommendation_order: oldestRequest ? "oldest" : "newest",
             recommendation_filter: recFilter
@@ -1686,7 +1686,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         if (hasSymbol) {
             return { intent: "stock_analysis", tools: ["get_stock", "get_recommendations", "get_stock_levels"], replaceTools: true, recommendation_filter: recFilter };
         }
-        return { intent: "market_summary", tools: ["get_recommendations", "get_market", "get_accumulation_stocks"], replaceTools: true, recommendation_filter: recFilter };
+        return { intent: "market_summary", tools: ["get_recommendations", "get_accumulation_stocks"], replaceTools: true, recommendation_filter: recFilter };
     }
     if (/(?:سبب|اسباب|لماذا|ليه\s+(?:نزل|طلع|هبط|صعد|وقع|طالع|نازل|بيخسر|بيهبط|بينزل|خسران|بيصعد)|ايه\s+سبب)/i.test(normalized) && hasSymbol) return { intent: "stock_news", tools: ["get_stock", "get_news", "get_stock_levels"], replaceTools: true };
     const isMultiStockLiquidityComparison = /(?:سيول|تداول|liquidity)/i.test(normalized)
@@ -2815,13 +2815,13 @@ async function* runPipelineCore(
         && !plannerResult.entities.sector && !compoundRequest;
     if (unspecifiedOpportunities) {
         mergedSymbols = [];
-        plannedTools.splice(0, plannedTools.length, "get_recommendations", "get_market", "get_accumulation_stocks");
+        plannedTools.splice(0, plannedTools.length, "get_recommendations", "get_accumulation_stocks");
         effectiveIntent = "market_summary";
         plannerResult.clarification_needed = false;
-        plannerResult.clarification_options = ["توصيات المنصة المفتوحة", "أسهم التجميع المؤسسي", "أعلى الأسهم ارتفاعاً اليوم"];
+        plannerResult.clarification_options = ["توصيات المنصة المفتوحة", "أسهم التجميع المؤسسي"];
         plannerResult.entities.recommendation_filter = "open";
         plannerResult.request = {
-            goal: userMessage, reference: "market", ranking_metric: "unspecified", required_facts: ["recommendations", "market_summary", "accumulation"],
+            goal: userMessage, reference: "market", ranking_metric: "unspecified", required_facts: ["recommendations", "accumulation"],
             clarification_reason: null,
         };
     }
