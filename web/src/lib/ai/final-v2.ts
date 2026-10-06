@@ -2905,18 +2905,62 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             const dateLabel = plan.entities.requested_date
                 ? `مقارنة مباشرة من البيانات المتاحة بتاريخ ${plan.entities.requested_date}:`
                 : isLiquidityFocus
-                    ? "مقارنة السيولة وأحجام التداول المعتمدة بين السهمين:"
-                    : "مقارنة مباشرة مع بيان تاريخ ونوع سعر كل سهم:";
+                    ? "مقارنة السيولة وأحجام التداول المعتمدة بين الأسهم المطلوبة:"
+                    : "مقارنة فنية مباشرة بين الأسهم المطلوبة:";
             const missing = entries
                 .map((entry, index) => ({ entry, symbol: symbolsList[index] || `سهم ${index + 1}` }))
                 .filter(({ entry }) => !entry.price && !entry.tech)
                 .map(({ symbol }) => symbol);
+
+            // Compute analytical leaders across all valid entries
+            const validEntries = entries
+                .map((entry, index) => {
+                    const symbol = entry.info?.symbol || symbolsList[index] || `سهم ${index + 1}`;
+                    const rsi = entry.tech?.rsi_14 != null ? Number(entry.tech.rsi_14) : null;
+                    const volRatio = entry.tech?.volume_ratio ?? (entry.tech?.volume && entry.tech?.vol_sma20 && Number(entry.tech.vol_sma20) > 0 ? Number(entry.tech.volume) / Number(entry.tech.vol_sma20) : null);
+                    const changePct = entry.tech?.change_pct != null ? Number(entry.tech.change_pct) : null;
+                    return { symbol, rsi, volRatio: volRatio != null ? Number(volRatio) : null, changePct };
+                })
+                .filter(e => e.rsi != null || e.volRatio != null);
+
+            const insights: string[] = [];
+            if (validEntries.length >= 2) {
+                // Volume leader
+                const withVol = validEntries.filter(e => e.volRatio != null && Number.isFinite(e.volRatio)).sort((a, b) => b.volRatio! - a.volRatio!);
+                if (withVol.length >= 2 && withVol[0].volRatio! > withVol[1].volRatio!) {
+                    insights.push(`- **نشاط السيولة والحجم**: **${withVol[0].symbol}** يتصدر بنشاط نسبي **${withVol[0].volRatio!.toFixed(2)}x** من متوسطه مقارنة ببقية الأسهم المقارنة.`);
+                }
+
+                // RSI status & zones
+                const overbought = validEntries.filter(e => e.rsi != null && e.rsi >= 70);
+                const oversold = validEntries.filter(e => e.rsi != null && e.rsi <= 30);
+                const neutral = validEntries.filter(e => e.rsi != null && e.rsi > 30 && e.rsi < 70);
+
+                if (overbought.length > 0) {
+                    insights.push(`- **مناطق التشبع الشرائي (RSI ≥ 70)**: ${overbought.map(e => `**${e.symbol}** (${e.rsi!.toFixed(1)})`).join("، ")} — تعكس سخونة الزخم ومخاطر جني أرباح قرب المقاومات.`);
+                }
+                if (oversold.length > 0) {
+                    insights.push(`- **مناطق التشبع البيعي (RSI ≤ 30)**: ${oversold.map(e => `**${e.symbol}** (${e.rsi!.toFixed(1)})`).join("، ")} — فرصة ارتداد فني مشروطة بظهور أحجام شراء إيجابية.`);
+                }
+                if (neutral.length > 0 && (overbought.length > 0 || oversold.length > 0)) {
+                    insights.push(`- **الزخم المعتدل والمحايد**: ${neutral.map(e => `**${e.symbol}** (${e.rsi!.toFixed(1)})`).join("، ")} — حركة متوازنة تتطلب تأكيد الكسر أو الاختراق.`);
+                }
+            }
+
+            const analyticalSummary = insights.length > 0
+                ? ["\n💡 **الخلاصة التحليلية والمفاضلة:**", ...insights].join("\n")
+                : "ملاحظة: نسبة الحجم تعبر عن زخم التداول بالنسبة لمتوسط 20 جلسة، وارتفاع RSI يعكس قوة الزخم فقط ولا يكفي منفرداً لاتخاذ قرار دون مراجعة مستويات الدعم والمقاومة.";
+
             const missingNote = missing.length > 0
-                ? `لا توجد بيانات مسجلة لـ ${missing.join(" و")} في قاعدة البيانات لهذا التاريخ؛ لم أستخدم تاريخاً آخر.`
-                : isLiquidityFocus
-                    ? "ملاحظة: نسبة الحجم تعبر عن زخم التداول بالنسبة لمتوسط 20 جلسة، ولا تعني وحدها حتمية الصعود أو الهبوط دون قراءة مستويات الدعم والمقاومة."
-                    : "ارتفاع RSI يعكس قوة الزخم فقط ولا يكفي منفرداً لاتخاذ قرار.";
-            return [dateLabel, ...entries.slice(0, 4).map((e, idx) => describe(e, symbolsList[idx] || `سهم ${idx + 1}`)), missingNote].join("\n");
+                ? `\n⚠️ لا توجد بيانات مسجلة لـ ${missing.join(" و")} في قاعدة البيانات لهذا التاريخ؛ لم أستخدم تاريخاً آخر.`
+                : "";
+
+            return [
+                dateLabel,
+                ...entries.slice(0, 6).map((e, idx) => describe(e, symbolsList[idx] || `سهم ${idx + 1}`)),
+                analyticalSummary,
+                missingNote
+            ].filter(Boolean).join("\n");
         }
     }
 

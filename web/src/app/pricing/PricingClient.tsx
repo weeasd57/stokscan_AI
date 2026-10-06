@@ -338,7 +338,8 @@ export default function PricingClient() {
   const freeLimits = localConfig.limits?.free || { signal_delay_days: 15, chat_messages_per_month: 50, portfolio_stocks: 5 };
   const proLimits = localConfig.limits?.pro || { chat_messages_per_month: 350, portfolio_stocks: 10 };
   const freeFeatures = [
-    { icon: <Zap className="w-4 h-4" />, text: isAr ? `تأخير الإشارات ${freeLimits.signal_delay_days} يوماً` : `Signals delayed ${freeLimits.signal_delay_days} days`, included: true },
+    { icon: <Zap className="w-4 h-4" />, text: isAr ? `تأخير الإشارات المتوسطة ${freeLimits.signal_delay_days} يوماً` : `Medium swings delayed ${freeLimits.signal_delay_days} days`, included: true },
+    { icon: <Zap className="w-4 h-4" />, text: isAr ? "الصفقات القصيرة ⚡ PRO (متاحة بأرشيف متأخر 15 يوماً فقط)" : "Short Swings ⚡ PRO (15-day delayed archive only)", included: false },
     { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? "5 رسائل شات بوت يومياً" : "5 chatbot messages / day", included: true },
     { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? `حتى ${freeLimits.portfolio_stocks} أسهم في المحفظة` : `Up to ${freeLimits.portfolio_stocks} portfolio stocks`, included: true },
     { icon: <Activity className="w-4 h-4" />, text: isAr ? "النشاط غير الطبيعي (أسهم ارتفع حجمها بشكل غير طبيعي)" : "Unusual Activity (volume spike detection)", included: false },
@@ -347,6 +348,7 @@ export default function PricingClient() {
 
   const proFeatures = [
     { icon: <ShieldCheck className="w-4 h-4" />, text: isAr ? "قناة VIP على تليجرام (إشارات وتوصيات يومية فور صدورها بدون تأخير)" : "VIP Telegram Channel (instant daily signals without delay)", included: true },
+    { icon: <Zap className="w-4 h-4" />, text: isAr ? "الصفقات القصيرة ⚡ PRO — صفقات زخم، وقف صارم 4%، وتتبع أرباح EMA10 بدون تشفير" : "Short Swings ⚡ PRO — momentum trades, tight 4% stop, and EMA10 runners unmasked", included: true },
     { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? `${proLimits.chat_messages_per_month} رسالة شات بوت ذكي شهرياً` : `${proLimits.chat_messages_per_month} smart chatbot messages / month`, included: true },
     { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? `حتى ${proLimits.portfolio_stocks} أسهم نشطة في المحفظة` : `Up to ${proLimits.portfolio_stocks} active portfolio stocks`, included: true },
     { icon: <Activity className="w-4 h-4" />, text: isAr ? "النشاط غير الطبيعي — أسهم بحجم تداول غير طبيعي + تقييم AI" : "Unusual Activity — volume spikes + AI scoring", included: true },
@@ -713,6 +715,10 @@ export default function PricingClient() {
                 <div className="flex items-center gap-2 text-zinc-300">
                   <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                   <span>{isAr ? "قناة VIP على تليجرام (إشارات وتوصيات يومية فور صدورها بدون تأخير)" : "VIP Telegram Channel (instant daily signals without delay)"}</span>
+                </div>
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>{isAr ? "الصفقات القصيرة ⚡ PRO (إشارات الزخم السريعة والوقف المتحرك بدون تشفير)" : "Short Swings ⚡ PRO (instant momentum runners unmasked)"}</span>
                 </div>
                 <div className="flex items-center gap-2 text-zinc-300">
                   <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />

@@ -32,8 +32,6 @@ import { isShariaCompliant } from "@/lib/shariaStocks";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
-import { fetchRecommendationBenchmarks, type RecommendationBenchmarkAsset } from "@/lib/api";
-import { pairTradeReturns } from "@/lib/recommendationBenchmark";
 
 interface RecommendationCalendarProps {
     recommendations: any[];
@@ -94,12 +92,6 @@ export default function RecommendationCalendar({
     const [sentEvents, setSentEvents] = useState<RecommendationEvent[]>([]);
     const [trackedRecommendationIds, setTrackedRecommendationIds] = useState<string[]>([]);
     const [eventsUnavailable, setEventsUnavailable] = useState(false);
-    const [benchmarkAssets, setBenchmarkAssets] = useState<RecommendationBenchmarkAsset[]>([]);
-    const [benchmarkLoading, setBenchmarkLoading] = useState(false);
-    const [benchmarkError, setBenchmarkError] = useState(false);
-    const [riskCapital, setRiskCapital] = useState("10000");
-    const [riskPercent, setRiskPercent] = useState("1");
-    const [riskSymbol, setRiskSymbol] = useState("");
 
     const loadSentEvents = useCallback(async (signal?: AbortSignal) => {
         try {
@@ -274,122 +266,6 @@ export default function RecommendationCalendar({
         return null;
     }, [filterPreset, customFrom, customTo]);
 
-    const comparisonTrades = useMemo(() => {
-        const inRange = (value: unknown) => {
-            if (!dateRangeBoundaries) return true;
-            if (!value) return false;
-            const date = new Date(String(value));
-            return !Number.isNaN(date.getTime()) && date >= dateRangeBoundaries.start && date <= dateRangeBoundaries.end;
-        };
-        const latestByRecommendation = new Map<string, any>();
-        closureTimeline.forEach((trade) => {
-            const status = String(trade.status || "").toLowerCase();
-            const closeAt = trade._calendarEventAt;
-            if (!(["win", "loss"].includes(status)) || !inRange(closeAt) || trade.profit_loss_pct == null) return;
-            const startAt = trade.created_at || trade.entry_date;
-            const returnPct = Number(trade.profit_loss_pct);
-            if (!startAt || !Number.isFinite(returnPct)) return;
-            const id = String(trade.recommendation_id || trade.id || trade._timelineKey);
-            const current = latestByRecommendation.get(id);
-            if (!current || new Date(closeAt).getTime() > new Date(current._calendarEventAt).getTime()) {
-                latestByRecommendation.set(id, { ...trade, _benchmarkStart: String(startAt).slice(0, 10), _benchmarkEnd: String(closeAt).slice(0, 10), _returnPct: returnPct });
-            }
-        });
-        return [...latestByRecommendation.values()].filter((trade) => trade._benchmarkStart <= trade._benchmarkEnd);
-    }, [closureTimeline, dateRangeBoundaries]);
-
-    const benchmarkRange = useMemo(() => {
-        if (!comparisonTrades.length) return null;
-        return {
-            from: comparisonTrades.reduce((min, trade) => trade._benchmarkStart < min ? trade._benchmarkStart : min, comparisonTrades[0]._benchmarkStart),
-            to: comparisonTrades.reduce((max, trade) => trade._benchmarkEnd > max ? trade._benchmarkEnd : max, comparisonTrades[0]._benchmarkEnd),
-        };
-    }, [comparisonTrades]);
-
-    useEffect(() => {
-        if (!isPro || !benchmarkRange) {
-            setBenchmarkAssets([]);
-            setBenchmarkLoading(false);
-            setBenchmarkError(false);
-            return;
-        }
-        const controller = new AbortController();
-        setBenchmarkLoading(true);
-        setBenchmarkError(false);
-        fetchRecommendationBenchmarks(benchmarkRange.from, benchmarkRange.to, controller.signal)
-            .then(setBenchmarkAssets)
-            .catch((error) => {
-                if (error?.name !== "AbortError") {
-                    setBenchmarkAssets([]);
-                    setBenchmarkError(true);
-                }
-            })
-            .finally(() => {
-                if (!controller.signal.aborted) setBenchmarkLoading(false);
-            });
-        return () => controller.abort();
-    }, [benchmarkRange, isPro]);
-
-    const benchmarkResults = useMemo(() => {
-        return benchmarkAssets.map((asset) => {
-            const paired = pairTradeReturns(comparisonTrades.map((trade) => ({
-                startDate: trade._benchmarkStart,
-                endDate: trade._benchmarkEnd,
-                returnPct: trade._returnPct,
-            })), asset.prices);
-            const mean = (key: "strategy" | "benchmark") => paired.length
-                ? paired.reduce((sum, row) => sum + row[key], 0) / paired.length
-                : null;
-            const median = (key: "strategy" | "benchmark") => {
-                const values = paired.map((row) => row[key]).sort((a, b) => a - b);
-                if (!values.length) return null;
-                const middle = Math.floor(values.length / 2);
-                return values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
-            };
-            const benchmarkMean = mean("benchmark");
-            const strategyMean = mean("strategy");
-            return {
-                ...asset,
-                sampleSize: paired.length,
-                strategyReturn: strategyMean,
-                strategyMedian: median("strategy"),
-                benchmarkReturn: benchmarkMean,
-                benchmarkMedian: median("benchmark"),
-                alpha: strategyMean == null || benchmarkMean == null ? null : strategyMean - benchmarkMean,
-            };
-        });
-    }, [benchmarkAssets, comparisonTrades]);
-
-    const activeRiskCandidates = useMemo(() => filteredBaseRecs.filter((trade) => {
-        const status = String(trade.status || "").toLowerCase();
-        return !["win", "loss", "closed", "stale"].includes(status)
-            && Number(trade.entry_price) > 0
-            && Number(trade.stop_loss) > 0
-            && Number(trade.entry_price) > Number(trade.stop_loss);
-    }), [filteredBaseRecs]);
-
-    useEffect(() => {
-        if (!activeRiskCandidates.some((trade) => String(trade.id) === riskSymbol)) {
-            setRiskSymbol(String(activeRiskCandidates[0]?.id || ""));
-        }
-    }, [activeRiskCandidates, riskSymbol]);
-
-    const positionRisk = useMemo(() => {
-        const trade = activeRiskCandidates.find((item) => String(item.id) === riskSymbol);
-        const capital = Number(riskCapital);
-        const riskPct = Number(riskPercent);
-        if (!trade || !Number.isFinite(capital) || capital <= 0 || !Number.isFinite(riskPct) || riskPct <= 0 || riskPct > 100) return null;
-        const entry = Number(trade.entry_price);
-        const stop = Number(trade.stop_loss);
-        const riskPerShare = entry - stop;
-        if (riskPerShare <= 0) return null;
-        const units = Math.min(
-            Math.floor((capital * riskPct / 100) / riskPerShare),
-            Math.floor(capital / entry),
-        );
-        return { trade, units, value: units * entry, maxLoss: units * riskPerShare };
-    }, [activeRiskCandidates, riskCapital, riskPercent, riskSymbol]);
-
     const adjustmentTimeline = useMemo(
         () => filteredSentEvents
             .filter(event => event.event_type === "target_or_stop_adjusted")
@@ -535,10 +411,12 @@ export default function RecommendationCalendar({
         for (let i = startingDayOfWeek - 1; i >= 0; i--) {
             const dayNum = prevMonthLastDay - i;
             const prevDate = new Date(year, month - 1, dayNum);
+            const dayOfWeek = prevDate.getDay();
             days.push({
                 date: prevDate,
                 dateStr: formatYMD(prevDate),
                 isCurrentMonth: false,
+                isWeekend: dayOfWeek === 5 || dayOfWeek === 6,
                 dayNum
             });
         }
@@ -546,10 +424,12 @@ export default function RecommendationCalendar({
         // Current month days
         for (let d = 1; d <= totalDays; d++) {
             const currDate = new Date(year, month, d);
+            const dayOfWeek = currDate.getDay();
             days.push({
                 date: currDate,
                 dateStr: formatYMD(currDate),
                 isCurrentMonth: true,
+                isWeekend: dayOfWeek === 5 || dayOfWeek === 6,
                 dayNum: d
             });
         }
@@ -559,10 +439,12 @@ export default function RecommendationCalendar({
         const nextPadding = totalCells - days.length;
         for (let n = 1; n <= nextPadding; n++) {
             const nextDate = new Date(year, month + 1, n);
+            const dayOfWeek = nextDate.getDay();
             days.push({
                 date: nextDate,
                 dateStr: formatYMD(nextDate),
                 isCurrentMonth: false,
+                isWeekend: dayOfWeek === 5 || dayOfWeek === 6,
                 dayNum: n
             });
         }
@@ -625,7 +507,44 @@ export default function RecommendationCalendar({
         selectCalendarMonth(new Date(year, month + 1, 1));
     };
 
+    const goToToday = () => {
+        const now = new Date();
+        selectCalendarMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+        setFilterPreset("this_month");
+        setCustomFrom("");
+        setCustomTo("");
+        setSelectedDayDateStr(formatYMD(now));
+    };
+
     const todayDateStr = formatYMD(new Date());
+
+    const monthStats = useMemo(() => {
+        let total = 0;
+        let wins = 0;
+        let losses = 0;
+        let netReturn = 0;
+        let bestTrade: any = null;
+
+        calendarDays.forEach((cell) => {
+            if (!cell.isCurrentMonth) return;
+            const info = dayMap.get(cell.dateStr);
+            if (!info) return;
+            total += info.closed.length;
+            wins += info.wins.length;
+            losses += info.losses.length;
+            netReturn += info.netProfitPct;
+            info.closed.forEach((t) => {
+                if (t.profit_loss_pct != null) {
+                    if (!bestTrade || t.profit_loss_pct > (bestTrade.profit_loss_pct ?? -Infinity)) {
+                        bestTrade = t;
+                    }
+                }
+            });
+        });
+
+        const winRate = total > 0 ? (wins / total) * 100 : 0;
+        return { total, wins, losses, winRate, netReturn, bestTrade };
+    }, [calendarDays, dayMap]);
 
     return (
         <div className="w-full space-y-4 sm:space-y-6 select-text text-zinc-900 dark:text-zinc-100" dir={isAr ? "rtl" : "ltr"}>
@@ -636,344 +555,164 @@ export default function RecommendationCalendar({
                         : "Verified delivery history is unavailable; legacy recommendation data is shown temporarily."}
                 </div>
             )}
-            {/* ── HEADER & DASHBOARD STATS BAR ── */}
-            <div className="p-3.5 sm:p-5 md:p-6 rounded-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 shadow-xl dark:shadow-2xl relative overflow-hidden space-y-4 sm:space-y-6">
-                {/* Background ambient glow */}
-                <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/5 blur-3xl pointer-events-none rounded-full" />
-                <div className="absolute bottom-0 left-0 w-96 h-96 bg-emerald-500/5 blur-3xl pointer-events-none rounded-full" />
 
-                {/* Top Control Bar */}
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 sm:gap-4 border-b border-zinc-200 dark:border-zinc-800/80 pb-4 sm:pb-5">
-                    <div>
-                        <div className="flex items-center gap-2 sm:gap-2.5">
-                            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
-                                <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5" />
+            {/* ── CALENDAR VIEW (Neo-Brutalist Design matching Short Swings) ── */}
+            {viewMode === "calendar" ? (
+                <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-4 sm:p-6 shadow-[4px_4px_0px_#000] dark:shadow-[4px_4px_0px_#fff] space-y-6">
+                    {/* ── 1. Top Control Bar: Title, Presets & View Switcher ── */}
+                    <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4 border-b-2 border-black dark:border-white pb-4">
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-9 h-9 border-2 border-black bg-amber-400 flex items-center justify-center font-black shrink-0">
+                                <CalendarIcon className="w-5 h-5 text-black" />
                             </div>
-                            <h2 className="text-lg sm:text-xl md:text-2xl font-black text-zinc-900 dark:text-white tracking-tight">
-                                {isAr ? "تقويم أرباح وإحصائيات التوصيات" : "Recommendations Profit Calendar"}
-                            </h2>
-                        </div>
-                        <p className="text-[11px] sm:text-xs text-zinc-500 dark:text-zinc-400 mt-1 font-medium">
-                            {isAr 
-                                ? "تتبع الأرباح اليومية، والتوصيات المنشأة والمغلقة بدقة عالية"
-                                : "Track daily profits, created and closed recommendations accurately"}
-                        </p>
-                    </div>
-
-                    {/* Presets & View Controls */}
-                    <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                        {/* Sharia Toggle */}
-                        <button
-                            onClick={() => setShariaOnly(!shariaOnly)}
-                            className={`flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] sm:text-xs font-black transition-all border shrink-0 ${
-                                shariaOnly
-                                    ? "bg-emerald-500/10 dark:bg-emerald-500/20 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 shadow-md shadow-emerald-500/10"
-                                    : "bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200/70 dark:hover:bg-zinc-800"
-                            }`}
-                        >
-                            <ShieldCheck className="w-3.5 h-3.5" />
-                            <span>{isAr ? "شرعي فقط" : "Sharia"}</span>
-                        </button>
-
-                        {/* Presets buttons */}
-                        <div className="flex items-center bg-zinc-100 dark:bg-zinc-900 p-0.5 sm:p-1 rounded-xl border border-zinc-200 dark:border-zinc-800 text-[10px] sm:text-xs font-bold overflow-x-auto max-w-full">
-                            <button
-                                onClick={() => setFilterPreset("this_month")}
-                                className={`px-2 sm:px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
-                                    filterPreset === "this_month"
-                                        ? "bg-amber-500 text-black font-black shadow-md"
-                                        : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
-                                }`}
-                            >
-                                {isAr ? "هذا الشهر" : "This Month"}
-                            </button>
-                            <button
-                                onClick={() => setFilterPreset("last_month")}
-                                className={`px-2 sm:px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
-                                    filterPreset === "last_month"
-                                        ? "bg-amber-500 text-black font-black shadow-md"
-                                        : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
-                                }`}
-                            >
-                                {isAr ? "الشهر الماضي" : "Last Month"}
-                            </button>
-                            <button
-                                onClick={() => setFilterPreset("30days")}
-                                className={`px-2 sm:px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
-                                    filterPreset === "30days"
-                                        ? "bg-amber-500 text-black font-black shadow-md"
-                                        : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
-                                }`}
-                            >
-                                {isAr ? "آخر 30 يوم" : "Last 30D"}
-                            </button>
-                            <button
-                                onClick={() => setFilterPreset("all")}
-                                className={`px-2 sm:px-2.5 py-1 rounded-lg transition-all whitespace-nowrap ${
-                                    filterPreset === "all"
-                                        ? "bg-amber-500 text-black font-black shadow-md"
-                                        : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
-                                }`}
-                            >
-                                {isAr ? "الكل" : "All"}
-                            </button>
-                        </div>
-
-                        {/* View Switcher: Calendar vs Agenda */}
-                        <div className="flex items-center bg-zinc-100 dark:bg-zinc-900 p-0.5 sm:p-1 rounded-xl border border-zinc-200 dark:border-zinc-800 shrink-0">
-                            <button
-                                onClick={() => setViewMode("calendar")}
-                                title={isAr ? "عرض التقويم" : "Calendar View"}
-                                className={`p-1.5 rounded-lg transition-all ${
-                                    viewMode === "calendar"
-                                        ? "bg-white dark:bg-zinc-800 text-amber-600 dark:text-amber-400 shadow-sm font-bold"
-                                        : "text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                                }`}
-                            >
-                                <Grid className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                            </button>
-                            <button
-                                onClick={() => setViewMode("agenda")}
-                                title={isAr ? "عرض القائمة" : "Agenda View"}
-                                className={`p-1.5 rounded-lg transition-all ${
-                                    viewMode === "agenda"
-                                        ? "bg-white dark:bg-zinc-800 text-amber-600 dark:text-amber-400 shadow-sm font-bold"
-                                        : "text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                                }`}
-                            >
-                                <List className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                {/* DYNAMIC GENERAL STATS CARDS */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
-                    {/* Card 1: Created */}
-                    <div className="p-2.5 sm:p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800/80 flex flex-col justify-between shadow-sm dark:shadow-none">
-                        <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400 text-[11px] sm:text-xs font-bold">
-                            <span>{isAr ? "المنشأة" : "Created"}</span>
-                            <Target className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
-                        </div>
-                        <div className="mt-1.5 flex items-baseline justify-between">
-                            <span className="text-lg sm:text-xl font-black text-zinc-900 dark:text-white font-mono">{globalStats.createdCount}</span>
-                            <span className="text-[9px] sm:text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">{isAr ? "صفقة" : "trades"}</span>
-                        </div>
-                    </div>
-
-                    {/* Card 2: Closed */}
-                    <div className="p-2.5 sm:p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800/80 flex flex-col justify-between shadow-sm dark:shadow-none">
-                        <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400 text-[11px] sm:text-xs font-bold">
-                            <span>{isAr ? "المغلقة" : "Closed"}</span>
-                            <Clock className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
-                        </div>
-                        <div className="mt-1.5 flex items-baseline justify-between">
-                            <span className="text-lg sm:text-xl font-black text-zinc-900 dark:text-white font-mono">{globalStats.closedCount}</span>
-                            <div className="flex gap-1 text-[9px] sm:text-[10px] font-bold">
-                                <span className="text-emerald-600 dark:text-emerald-400">{globalStats.winCount}W</span>
-                                <span className="text-zinc-400 dark:text-zinc-600">/</span>
-                                <span className="text-rose-600 dark:text-rose-400">{globalStats.lossCount}L</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Card 3: Win Rate */}
-                    <div className="p-2.5 sm:p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800/80 flex flex-col justify-between shadow-sm dark:shadow-none">
-                        <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400 text-[11px] sm:text-xs font-bold">
-                            <span>{isAr ? "نسبة النجاح" : "Win Rate"}</span>
-                            <Award className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
-                        </div>
-                        <div className="mt-1.5 flex items-baseline justify-between">
-                            <span className="text-lg sm:text-xl font-black text-amber-600 dark:text-amber-400 font-mono">
-                                {globalStats.winRate.toFixed(1)}%
-                            </span>
-                            <span className="text-[9px] sm:text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">{isAr ? "دقة" : "acc"}</span>
-                        </div>
-                    </div>
-
-                    {/* Card 4: Unweighted Sum of Trade Returns */}
-                    <div className={`p-2.5 sm:p-3.5 rounded-xl border flex flex-col justify-between transition-all shadow-sm dark:shadow-none ${
-                        globalStats.netProfitPct >= 0
-                            ? "bg-emerald-50 dark:bg-emerald-500/5 border-emerald-300 dark:border-emerald-500/30"
-                            : "bg-rose-50 dark:bg-rose-500/5 border-rose-300 dark:border-rose-500/30"
-                    }`}>
-                        <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400 text-[11px] sm:text-xs font-bold">
-                            <span>{isAr ? "مجموع عوائد الصفقات" : "Sum of Trade Returns"}</span>
-                            {globalStats.netProfitPct >= 0 ? (
-                                <TrendingUp className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" />
-                            ) : (
-                                <TrendingDown className="w-3.5 h-3.5 text-rose-500 dark:text-rose-400" />
-                            )}
-                        </div>
-                        <div className="mt-1.5 flex items-baseline justify-between">
-                            <span className={`text-lg sm:text-xl font-black font-mono ${
-                                globalStats.netProfitPct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-                            }`}>
-                                {globalStats.netProfitPct >= 0 ? "+" : ""}{globalStats.netProfitPct.toFixed(1)}%
-                            </span>
-                            <span className="text-[9px] sm:text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">{isAr ? "غير مركب" : "uncompounded"}</span>
-                        </div>
-                    </div>
-
-                    {/* Card 5: Avg Return per Trade */}
-                    <div className="p-2.5 sm:p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800/80 flex flex-col justify-between shadow-sm dark:shadow-none">
-                        <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400 text-[11px] sm:text-xs font-bold">
-                            <span>{isAr ? "متوسط الصفقة" : "Avg Return"}</span>
-                            <BarChart2 className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
-                        </div>
-                        <div className="mt-1.5 flex items-baseline justify-between">
-                            <span className={`text-lg sm:text-xl font-black font-mono ${
-                                globalStats.avgReturnPct >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-                            }`}>
-                                {globalStats.avgReturnPct >= 0 ? "+" : ""}{globalStats.avgReturnPct.toFixed(1)}%
-                            </span>
-                            <span className="text-[9px] sm:text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">{isAr ? "صفقة" : "trade"}</span>
-                        </div>
-                    </div>
-
-                    {/* Card 6: Best Trade */}
-                    <div className="p-2.5 sm:p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800/80 flex flex-col justify-between shadow-sm dark:shadow-none">
-                        <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400 text-[11px] sm:text-xs font-bold">
-                            <span>{isAr ? "أفضل صفقة" : "Best Trade"}</span>
-                            <Sparkles className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400" />
-                        </div>
-                        <div className="mt-1.5 flex items-baseline justify-between">
-                            {globalStats.bestTrade ? (
-                                <>
-                                    <span className="text-xs sm:text-sm font-black text-emerald-600 dark:text-emerald-400 font-mono truncate max-w-[65px] sm:max-w-[80px]">
-                                        {globalStats.bestTrade.identity_locked ? (isAr ? "سهم مشفر" : "Hidden stock") : globalStats.bestTrade.symbol}
-                                    </span>
-                                    <span className="text-xs sm:text-xs font-black text-emerald-600 dark:text-emerald-400 font-mono">
-                                        +{globalStats.bestTrade.profit_loss_pct?.toFixed(1)}%
-                                    </span>
-                                </>
-                            ) : (
-                                <span className="text-xs text-zinc-400 dark:text-zinc-600 font-bold">-</span>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 sm:gap-4">
-                    <section className="xl:col-span-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/50 p-3 sm:p-4">
-                        <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
                             <div>
-                                <h3 className="text-sm font-black text-zinc-900 dark:text-white">{isAr ? "متوسط عائد التوصيات المغلقة مقابل السوق والصناديق" : "Closed recommendation returns vs market and funds"}</h3>
-                                <p className="text-[10px] text-zinc-500 mt-1">
-                                    {isAr ? "متوسط عائد التوصيات المغلقة مقابل تغير الأصل في نفس تواريخ الدخول والخروج؛ كل صفقة لها وزن متساوٍ." : "Average closed-trade return versus each asset over the same entry and exit dates; trades are equally weighted."}
+                                <h3 className="text-base sm:text-lg font-black text-black dark:text-white">
+                                    {isAr ? "تقويم أرباح وإحصائيات الصفقات المتوسطة" : "Medium Swings Calendar & Performance"}
+                                </h3>
+                                <p className="text-[11px] font-bold text-zinc-500">
+                                    {isAr
+                                        ? "تتبع الأرباح اليومية، والصفقات الرابحة والخاسرة لشهري 8 و 9 وكامل عام 2026"
+                                        : "Track daily returns, win/loss trades for Aug, Sep and full 2026"}
                                 </p>
                             </div>
-                            <span className="text-[10px] font-bold text-zinc-500">{comparisonTrades.length} {isAr ? "صفقة قابلة للمقارنة" : "comparable trades"}</span>
                         </div>
-                        {!isPro ? (
-                            <div className="py-7 text-center text-xs text-zinc-500">{isAr ? "مقارنة الأداء التفصيلية متاحة لمشتركي Pro." : "Detailed performance comparison is available to Pro subscribers."}</div>
-                        ) : benchmarkLoading ? (
-                            <div className="py-7 text-center text-xs text-zinc-500">{isAr ? "جاري تحميل بيانات المقارنة…" : "Loading benchmark history…"}</div>
-                        ) : benchmarkError ? (
-                            <div className="py-7 text-center text-xs text-amber-600 dark:text-amber-400">{isAr ? "تعذر تحميل بيانات المؤشر والصناديق الآن." : "Benchmark data is temporarily unavailable."}</div>
-                        ) : !comparisonTrades.length ? (
-                            <div className="py-7 text-center text-xs text-zinc-500">{isAr ? "لا توجد توصيات مغلقة في الفترة المختارة لها تاريخ دخول وعائد موثق." : "No closed recommendations with verified entry dates and returns in this period."}</div>
-                        ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                                {benchmarkResults.map((item) => (
-                                    <div key={`${item.exchange}:${item.symbol}`} className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <span className="text-xs font-black text-zinc-900 dark:text-white">{isAr ? item.nameAr : item.nameEn}</span>
-                                            <span className="text-[9px] font-mono text-zinc-500">{item.symbol}</span>
-                                        </div>
-                                        {item.sampleSize > 0 ? <>
-                                            <div className="grid grid-cols-2 gap-2 mt-3 text-[10px]">
-                                                <div>
-                                                    <span className="block text-zinc-500">{isAr ? "النظام، متوسط الصفقة" : "System avg. trade"}</span>
-                                                    <b className={item.strategyReturn! >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>{item.strategyReturn! >= 0 ? "+" : ""}{item.strategyReturn!.toFixed(2)}%</b>
-                                                </div>
-                                                <div>
-                                                    <span className="block text-zinc-500">{isAr ? "الأصل، نفس الفترات" : "Asset, same periods"}</span>
-                                                    <b className={item.benchmarkReturn! >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>{item.benchmarkReturn! >= 0 ? "+" : ""}{item.benchmarkReturn!.toFixed(2)}%</b>
-                                                </div>
-                                            </div>
-                                            <div className="mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between text-[10px]">
-                                                <span className="text-zinc-500">{isAr ? "التفوق بمتوسط العائد" : "Average return difference"}</span>
-                                                <b className={item.alpha! >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>{item.alpha! >= 0 ? "+" : ""}{item.alpha!.toFixed(2)}%</b>
-                                            </div>
-                                            <p className="mt-1 text-[9px] text-zinc-500">
-                                                {isAr ? "الوسيط — النظام / الأصل: " : "Median — system / asset: "}
-                                                {item.strategyMedian! >= 0 ? "+" : ""}{item.strategyMedian!.toFixed(2)}% / {item.benchmarkMedian! >= 0 ? "+" : ""}{item.benchmarkMedian!.toFixed(2)}%
-                                            </p>
-                                            <p className="mt-2 text-[9px] text-zinc-500">n={item.sampleSize} {isAr ? "من" : "of"} {comparisonTrades.length}</p>
-                                            <p className="mt-1 text-[9px] text-zinc-500">{isAr ? "آخر سعر محفوظ: " : "Latest stored close: "}{item.asOf || "—"}</p>
-                                        </> : <p className="mt-3 text-[10px] text-zinc-500">{isAr ? "لا توجد أسعار قريبة بما يكفي من تواريخ الصفقات (خلال 7 أيام)." : "No stored prices within seven days of the trade dates."}</p>}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                        <p className="mt-3 text-[9px] leading-relaxed text-zinc-500">
-                            {isAr ? "متوسط بسيط لعوائد الصفقات المغلقة المتساوية الوزن، وليس عائد محفظة قابلة للاستثمار؛ لا يشمل التوصيات المفتوحة أو التوزيعات أو الرسوم. لا تُقارن الصفقة إذا كان أقرب سعر محفوظ أقدم من 7 أيام. الصناديق المعروضة شهادات مدرجة متاحة في قاعدة الأسعار، وليست كل صناديق الاستثمار المفتوحة." : "Simple equal-weight average of closed-trade returns, not an investable portfolio return; excludes open recommendations, distributions and fees. Trades are omitted if the nearest stored close is over seven days old. Fund entries are listed certificates in the price database, not all open-ended mutual funds."}
-                        </p>
-                    </section>
 
-                    <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/50 p-3 sm:p-4">
-                        <h3 className="text-sm font-black text-zinc-900 dark:text-white">{isAr ? "حاسبة حجم المركز" : "Position Size Calculator"}</h3>
-                        <p className="text-[10px] text-zinc-500 mt-1">{isAr ? "تحسب عدد الأسهم من سعر الدخول والوقف المسجلين للتوصية." : "Uses the recommendation's recorded entry and stop prices."}</p>
-                        <div className="grid grid-cols-2 gap-2 mt-3">
-                            <label className="text-[10px] text-zinc-500">{isAr ? "رأس المال (ج.م)" : "Capital (EGP)"}
-                                <input type="number" min="1" value={riskCapital} onChange={(event) => setRiskCapital(event.target.value)} className="mt-1 w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2.5 py-2 text-xs text-zinc-900 dark:text-white" />
-                            </label>
-                            <label className="text-[10px] text-zinc-500">{isAr ? "مخاطرة رأس المال %" : "Capital risk %"}
-                                <input type="number" min="0.01" max="100" step="0.1" value={riskPercent} onChange={(event) => setRiskPercent(event.target.value)} className="mt-1 w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2.5 py-2 text-xs text-zinc-900 dark:text-white" />
-                            </label>
+                        {/* Presets, Sharia Toggle, and View Switcher */}
+                        <div className="flex flex-wrap items-center gap-2">
+                            {/* Presets buttons */}
+                            <div className="flex items-center border-2 border-black bg-zinc-100 dark:bg-zinc-900 p-0.5 text-xs font-bold overflow-x-auto">
+                                <button
+                                    onClick={goToToday}
+                                    className={`px-2.5 sm:px-3 py-1 transition-all whitespace-nowrap ${
+                                        filterPreset === "this_month" && month === new Date().getMonth() && year === new Date().getFullYear()
+                                            ? "bg-[#FFE600] text-black font-black border border-black shadow-sm"
+                                            : "text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white"
+                                    }`}
+                                >
+                                    {isAr ? "اليوم" : "Today"}
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        selectCalendarMonth(new Date(2026, 8, 1));
+                                        setSelectedDayDateStr(null);
+                                    }}
+                                    className={`px-2.5 sm:px-3 py-1 transition-all whitespace-nowrap ${
+                                        year === 2026 && month === 8
+                                            ? "bg-[#FFE600] text-black font-black border border-black shadow-sm"
+                                            : "text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white"
+                                    }`}
+                                >
+                                    {isAr ? "شهر 9 (سبتمبر 2026)" : "Sep 2026"}
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        selectCalendarMonth(new Date(2026, 7, 1));
+                                        setSelectedDayDateStr(null);
+                                    }}
+                                    className={`px-2.5 sm:px-3 py-1 transition-all whitespace-nowrap ${
+                                        year === 2026 && month === 7
+                                            ? "bg-[#FFE600] text-black font-black border border-black shadow-sm"
+                                            : "text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white"
+                                    }`}
+                                >
+                                    {isAr ? "شهر 8 (أغسطس 2026)" : "Aug 2026"}
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setFilterPreset("30days");
+                                        setCurrentDate(new Date());
+                                        setSelectedDayDateStr(null);
+                                    }}
+                                    className={`px-2.5 sm:px-3 py-1 transition-all whitespace-nowrap ${
+                                        filterPreset === "30days"
+                                            ? "bg-[#FFE600] text-black font-black border border-black shadow-sm"
+                                            : "text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white"
+                                    }`}
+                                >
+                                    {isAr ? "آخر 30 يوم" : "Last 30 Days"}
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setFilterPreset("all");
+                                        setSelectedDayDateStr(null);
+                                    }}
+                                    className={`px-2.5 sm:px-3 py-1 transition-all whitespace-nowrap ${
+                                        filterPreset === "all"
+                                            ? "bg-[#FFE600] text-black font-black border border-black shadow-sm"
+                                            : "text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white"
+                                    }`}
+                                >
+                                    {isAr ? "كامل عام 2026" : "Full 2026"}
+                                </button>
+                            </div>
+
+                            {/* Sharia Toggle Button */}
+                            <button
+                                onClick={() => setShariaOnly(!shariaOnly)}
+                                className={`h-8 px-2.5 border-2 border-black text-xs font-black flex items-center gap-1.5 transition-all shadow-[2px_2px_0px_#000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
+                                    shariaOnly ? "bg-emerald-400 text-black" : "bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300"
+                                }`}
+                            >
+                                <ShieldCheck className="w-3.5 h-3.5" />
+                                <span>{isAr ? "حلال فقط" : "Halal Only"}</span>
+                            </button>
+
+                            {/* View Switcher: Grid vs List */}
+                            <div className="flex items-center border-2 border-black bg-zinc-100 dark:bg-zinc-900 p-0.5 shrink-0">
+                                <button
+                                    onClick={() => setViewMode("calendar")}
+                                    title={isAr ? "عرض التقويم" : "Calendar View"}
+                                    className={`p-1.5 transition-all ${
+                                        viewMode === "calendar"
+                                            ? "bg-[#FFE600] text-black font-black border border-black"
+                                            : "text-zinc-400 hover:text-black dark:hover:text-white"
+                                    }`}
+                                >
+                                    <Grid className="w-4 h-4" />
+                                </button>
+                                <button
+                                    onClick={() => setViewMode("agenda")}
+                                    title={isAr ? "عرض القائمة" : "List View"}
+                                    className={`p-1.5 transition-all ${
+                                        (viewMode as string) === "agenda"
+                                            ? "bg-[#FFE600] text-black font-black border border-black"
+                                            : "text-zinc-400 hover:text-black dark:hover:text-white"
+                                    }`}
+                                >
+                                    <List className="w-4 h-4" />
+                                </button>
+                            </div>
                         </div>
-                        <label className="block mt-2 text-[10px] text-zinc-500">{isAr ? "التوصية المفتوحة" : "Open recommendation"}
-                            <select value={riskSymbol} onChange={(event) => setRiskSymbol(event.target.value)} disabled={!activeRiskCandidates.length} className="mt-1 w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2.5 py-2 text-xs text-zinc-900 dark:text-white disabled:opacity-50">
-                                {activeRiskCandidates.map((trade) => <option key={trade.id} value={String(trade.id)}>{trade.symbol} · {Number(trade.entry_price).toFixed(2)} / {Number(trade.stop_loss).toFixed(2)}</option>)}
-                            </select>
-                        </label>
-                        {positionRisk ? (
-                            <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 grid grid-cols-2 gap-2 text-[10px]">
-                                <div><span className="block text-zinc-500">{isAr ? "الكمية القصوى" : "Max shares"}</span><b className="text-zinc-900 dark:text-white">{positionRisk.units.toLocaleString()}</b></div>
-                                <div><span className="block text-zinc-500">{isAr ? "قيمة المركز" : "Position value"}</span><b className="text-zinc-900 dark:text-white">{positionRisk.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} {isAr ? "ج.م" : "EGP"}</b></div>
-                                <div className="col-span-2"><span className="block text-zinc-500">{isAr ? "الخسارة عند الوقف حسب هذه الكمية" : "Loss at stop for this size"}</span><b className="text-rose-600 dark:text-rose-400">{positionRisk.maxLoss.toLocaleString(undefined, { maximumFractionDigits: 2 })} {isAr ? "ج.م" : "EGP"}</b></div>
-                            </div>
-                        ) : <p className="mt-3 text-[10px] text-zinc-500">{isAr ? "لا توجد توصية مفتوحة بوقف صالح للحساب." : "No open recommendation has valid entry and stop prices."}</p>}
-                        <p className="mt-2 text-[9px] text-zinc-500">{isAr ? "حساب تعليمي قبل العمولات والانزلاق السعري، وليس توصية استثمار." : "Educational estimate before fees and slippage; not investment advice."}</p>
-                    </section>
-                </div>
-            </div>
+                    </div>
 
-            {/* ── CALENDAR VIEW ── */}
-            {viewMode === "calendar" ? (
-                <div className="p-2.5 sm:p-4 md:p-6 rounded-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 shadow-xl dark:shadow-2xl space-y-3 sm:space-y-4">
-                    {/* Month Navigation */}
-                    <div className="flex items-center justify-between px-1 sm:px-2">
+                    {/* ── 2. Month Navigation Bar ── */}
+                    <div className="flex items-center justify-between border-b-2 border-black dark:border-white pb-3 sm:pb-4">
                         <div className="flex items-center gap-2 sm:gap-3">
-                            <h3 className="text-base sm:text-lg md:text-xl font-black text-zinc-900 dark:text-white">
+                            <h3 className="text-base sm:text-lg md:text-xl font-black text-black dark:text-white">
                                 {currentMonthName} {year}
                             </h3>
-                            <span className="text-[10px] sm:text-xs font-bold text-zinc-600 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-900 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg border border-zinc-200 dark:border-zinc-800">
-                                {viewedMonthCreatedCount} {isAr ? "توصية في الشهر" : "monthly signals"}
+                            <span className="text-[10px] sm:text-xs font-bold text-black dark:text-white bg-zinc-100 dark:bg-zinc-800 px-2 sm:px-2.5 py-0.5 sm:py-1 border border-black dark:border-white">
+                                {monthStats.total} {isAr ? "صفقة مغلقة في الشهر" : "monthly closed trades"}
                             </span>
                         </div>
 
-                        <div className="flex items-center gap-1 sm:gap-2">
+                        <div className="flex items-center gap-1.5 sm:gap-2">
                             <button
                                 onClick={prevMonth}
-                                className="p-1.5 sm:p-2 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-all"
+                                className="p-1.5 sm:p-2 border-2 border-black bg-white dark:bg-zinc-900 text-black dark:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 shadow-[2px_2px_0px_#000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all"
                                 title={isAr ? "الشهر السابق" : "Previous Month"}
                             >
                                 {isAr ? <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" /> : <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />}
                             </button>
                             <button
-                                onClick={() => {
-                                    setCurrentDate(new Date());
-                                    setFilterPreset("this_month");
-                                }}
-                                className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-[10px] sm:text-xs font-black text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-all"
+                                onClick={goToToday}
+                                className="px-2.5 sm:px-3 py-1 sm:py-1.5 border-2 border-black bg-zinc-100 dark:bg-zinc-900 text-black dark:text-white hover:bg-zinc-200 text-xs font-black shadow-[2px_2px_0px_#000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all"
                             >
                                 {isAr ? "اليوم" : "Today"}
                             </button>
                             <button
                                 onClick={nextMonth}
-                                className="p-1.5 sm:p-2 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-all"
+                                className="p-1.5 sm:p-2 border-2 border-black bg-white dark:bg-zinc-900 text-black dark:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 shadow-[2px_2px_0px_#000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all"
                                 title={isAr ? "الشهر التالي" : "Next Month"}
                             >
                                 {isAr ? <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" /> : <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />}
@@ -981,117 +720,182 @@ export default function RecommendationCalendar({
                         </div>
                     </div>
 
-                    {/* Days of Week Header */}
-                    <div className="grid grid-cols-7 gap-0.5 sm:gap-1 md:gap-2 text-center text-[10px] sm:text-xs font-black text-zinc-500 dark:text-zinc-400 py-1.5 sm:py-2 border-b border-zinc-200 dark:border-zinc-800/60">
-                        {currentDaysOfWeek.map((day, idx) => (
-                            <div key={idx} className="py-0.5 sm:py-1">
-                                <span className="hidden md:inline">{day}</span>
-                                <span className="md:hidden">{day.slice(0, 3)}</span>
+                    {/* ── 3. Month Summary Bar (With LTR formatting) ── */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-zinc-100 dark:bg-zinc-900 border-2 border-black dark:border-zinc-700 p-3 sm:p-4">
+                        <div>
+                            <span className="text-[10px] font-bold text-zinc-500 uppercase block">{isAr ? "صفقات الشهر" : "Month Trades"}</span>
+                            <span className="text-xl font-black font-mono text-black dark:text-white">{monthStats.total} {isAr ? "صفقة" : "trades"}</span>
+                        </div>
+                        <div>
+                            <span className="text-[10px] font-bold text-zinc-500 uppercase block">{isAr ? "نسبة النجاح للشهر" : "Month Win Rate"}</span>
+                            <div className="flex items-center gap-1.5" dir="ltr">
+                                <span className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400">
+                                    {monthStats.winRate.toFixed(1)}%
+                                </span>
+                                <span className="text-xs font-bold text-zinc-500 font-sans">
+                                    ({monthStats.wins} {isAr ? "رابحة" : "wins"})
+                                </span>
                             </div>
-                        ))}
+                        </div>
+                        <div>
+                            <span className="text-[10px] font-bold text-zinc-500 uppercase block">{isAr ? "صافي العائد الإجمالي" : "Net Total Return"}</span>
+                            <span
+                                dir="ltr"
+                                className={`text-xl font-black font-mono block ${
+                                    monthStats.netReturn >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                                }`}
+                            >
+                                {monthStats.netReturn >= 0 ? "+" : ""}{monthStats.netReturn.toFixed(1)}%
+                            </span>
+                        </div>
+                        <div>
+                            <span className="text-[10px] font-bold text-zinc-500 uppercase block">{isAr ? "أفضل صفقة في الشهر" : "Best Trade"}</span>
+                            <span className="text-base sm:text-lg font-black font-mono text-indigo-600 dark:text-indigo-400 truncate block">
+                                {monthStats.bestTrade ? (
+                                    <span dir="ltr">
+                                        {monthStats.bestTrade.symbol} ({monthStats.bestTrade.profit_loss_pct >= 0 ? "+" : ""}{Number(monthStats.bestTrade.profit_loss_pct).toFixed(1)}%)
+                                    </span>
+                                ) : (
+                                    "—"
+                                )}
+                            </span>
+                        </div>
                     </div>
 
-                    {/* Grid of Calendar Days */}
-                    <div className="grid grid-cols-7 gap-0.5 sm:gap-1 md:gap-2">
+                    {/* ── 4. Day Names Header ── */}
+                    <div className="grid grid-cols-7 gap-1.5 sm:gap-2 text-center font-black text-xs text-zinc-600 dark:text-zinc-400">
+                        <div className="p-1.5 bg-zinc-200 dark:bg-zinc-800 border-2 border-black dark:border-white">الأحد</div>
+                        <div className="p-1.5 bg-zinc-200 dark:bg-zinc-800 border-2 border-black dark:border-white">الإثنين</div>
+                        <div className="p-1.5 bg-zinc-200 dark:bg-zinc-800 border-2 border-black dark:border-white">الثلاثاء</div>
+                        <div className="p-1.5 bg-zinc-200 dark:bg-zinc-800 border-2 border-black dark:border-white">الأربعاء</div>
+                        <div className="p-1.5 bg-zinc-200 dark:bg-zinc-800 border-2 border-black dark:border-white">الخميس</div>
+                        <div className="p-1.5 bg-zinc-100 dark:bg-zinc-900 border-2 border-zinc-400 dark:border-zinc-700 text-zinc-400">الجمعة (عطلة)</div>
+                        <div className="p-1.5 bg-zinc-100 dark:bg-zinc-900 border-2 border-zinc-400 dark:border-zinc-700 text-zinc-400">السبت (عطلة)</div>
+                    </div>
+
+                    {/* ── 5. Grid of Calendar Days ── */}
+                    <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
                         {calendarDays.map((cell, idx) => {
                             const dayInfo = dayMap.get(cell.dateStr);
-                            const hasCreated = dayInfo && dayInfo.created.length > 0;
                             const hasClosed = dayInfo && dayInfo.closed.length > 0;
+                            const hasCreated = dayInfo && dayInfo.created.length > 0;
                             const hasAdjusted = dayInfo && dayInfo.adjusted.length > 0;
+                            const wins = dayInfo ? dayInfo.wins.length : 0;
+                            const losses = dayInfo ? dayInfo.losses.length : 0;
+                            const netPl = dayInfo ? dayInfo.netProfitPct : 0;
                             const isToday = cell.dateStr === todayDateStr;
                             const isSelected = cell.dateStr === selectedDayDateStr;
                             const isDelayed = isDelayedForPlan(cell.dateStr);
 
-                            // Net return formatting for day cell
-                            const netPl = dayInfo ? dayInfo.netProfitPct : 0;
-                            const isPositive = netPl > 0;
-                            const isNegative = netPl < 0;
-
-                            // Cell background styling based on profit/loss
-                            let cellBg = cell.isCurrentMonth
-                                ? "bg-zinc-50/80 dark:bg-zinc-900/60 border-zinc-200 dark:border-zinc-800/80 hover:bg-zinc-100/90 dark:hover:bg-zinc-800/80"
-                                : "bg-zinc-100/40 dark:bg-zinc-950/40 border-zinc-200/50 dark:border-zinc-900/50 text-zinc-400 dark:text-zinc-600 opacity-40";
-
-                            if (cell.isCurrentMonth && hasClosed) {
-                                if (isPositive) {
-                                    cellBg = "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 hover:bg-emerald-100/80 dark:hover:bg-emerald-500/20";
-                                } else if (isNegative) {
-                                    cellBg = "bg-rose-50 dark:bg-rose-500/10 border-rose-300 dark:border-rose-500/30 hover:bg-rose-100/80 dark:hover:bg-rose-500/20";
-                                }
+                            let maxGainTrade: any = null;
+                            if (dayInfo && dayInfo.closed.length > 0) {
+                                maxGainTrade = [...dayInfo.closed].sort((a, b) => (Number(b.profit_loss_pct) || 0) - (Number(a.profit_loss_pct) || 0))[0];
                             }
+                            const isBigRunnerDay = maxGainTrade && Number(maxGainTrade.profit_loss_pct) >= 15;
 
                             return (
                                 <div
-                                    key={idx}
-                                    onClick={() => cell.isCurrentMonth && setSelectedDayDateStr(cell.dateStr)}
-                                    className={`relative min-h-[58px] sm:min-h-[72px] md:min-h-[92px] p-1 sm:p-1.5 md:p-2 rounded-lg sm:rounded-xl border transition-all duration-150 cursor-pointer flex flex-col justify-between overflow-hidden ${cellBg} ${
-                                        isToday ? "ring-2 ring-amber-400 shadow-md shadow-amber-400/10" : ""
-                                    } ${isSelected ? "ring-2 ring-indigo-500" : ""}`}
+                                    key={`${cell.dateStr}-${idx}`}
+                                    onClick={() => {
+                                        setSelectedDayDateStr(cell.dateStr);
+                                    }}
+                                    className={`min-h-[75px] sm:min-h-[100px] p-2 border-2 flex flex-col justify-between transition-all select-none relative cursor-pointer ${
+                                        isToday
+                                            ? "ring-4 ring-amber-400 dark:ring-amber-300 shadow-md shadow-amber-400/20 z-10"
+                                            : ""
+                                    } ${
+                                        isSelected && !isToday
+                                            ? "ring-2 ring-indigo-500 shadow-sm"
+                                            : ""
+                                    } ${
+                                        !cell.isCurrentMonth
+                                            ? "border-zinc-200 dark:border-zinc-800/60 bg-zinc-100/30 dark:bg-zinc-900/20 text-zinc-400 dark:text-zinc-600 opacity-30"
+                                            : cell.isWeekend
+                                            ? "border-zinc-300 dark:border-zinc-800 bg-zinc-100/70 dark:bg-zinc-900/40 text-zinc-400"
+                                            : hasClosed
+                                            ? netPl >= 0
+                                                ? "border-black dark:border-white bg-emerald-50/70 dark:bg-emerald-950/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 shadow-[2px_2px_0px_#000] dark:shadow-[2px_2px_0px_#fff] hover:-translate-x-0.5 hover:-translate-y-0.5"
+                                                : "border-black dark:border-white bg-rose-50/70 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-900/30 shadow-[2px_2px_0px_#000] dark:shadow-[2px_2px_0px_#fff] hover:-translate-x-0.5 hover:-translate-y-0.5"
+                                            : "border-zinc-200 dark:border-zinc-800 bg-white/40 dark:bg-zinc-950/40 text-zinc-400"
+                                    }`}
                                 >
-                                    {/* Top Row: Day Number & Indicators */}
-                                    <div className="flex items-center justify-between gap-0.5 leading-none">
-                                        <span className={`text-[10px] sm:text-xs md:text-sm font-black font-mono ${
-                                            isToday
-                                                ? "text-amber-600 dark:text-amber-400 bg-amber-400/10 px-1 py-0.5 rounded"
-                                                : cell.isCurrentMonth ? "text-zinc-800 dark:text-zinc-200" : "text-zinc-400 dark:text-zinc-600"
-                                        }`}>
-                                            {cell.dayNum}
-                                        </span>
-
-                                        {/* Created / Closed count badges */}
-                                        <div className="flex items-center gap-0.5 shrink-0">
-                                            {hasCreated && (
-                                                <span className="text-[8px] sm:text-[9px] md:text-[10px] font-black text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 px-0.5 sm:px-1 rounded" title={`${dayInfo.created.length} ${isAr ? "توصية منشأة" : "created"}`}>
-                                                    +{dayInfo.created.length}
+                                    {/* Top: Day Number & Trades Badge */}
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-1">
+                                            <span
+                                                className={`text-xs font-black font-mono px-1 py-0.5 ${
+                                                    isToday
+                                                        ? "bg-amber-400 text-black border border-black shadow-[1px_1px_0px_#000]"
+                                                        : cell.isCurrentMonth
+                                                        ? hasClosed
+                                                            ? "text-black dark:text-white"
+                                                            : "text-zinc-500"
+                                                        : "text-zinc-400"
+                                                }`}
+                                            >
+                                                {cell.dayNum}
+                                            </span>
+                                            {isToday && (
+                                                <span className="px-1.5 py-0.5 border border-black bg-[#FFE600] text-black text-[9px] font-black uppercase shadow-[1px_1px_0px_#000]">
+                                                    {isAr ? "اليوم" : "TODAY"}
                                                 </span>
+                                            )}
+                                        </div>
+
+                                        <div className="flex items-center gap-1">
+                                            {isDelayed && (hasClosed || hasCreated) && (
+                                                <Lock className="w-3 h-3 text-amber-600 dark:text-amber-400" />
                                             )}
                                             {hasClosed && (
-                                                <span className="text-[8px] sm:text-[9px] md:text-[10px] font-black text-indigo-700 dark:text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-0.5 sm:px-1 rounded" title={`${dayInfo.closed.length} ${isAr ? "صفقة مغلقة" : "closed"}`}>
-                                                    {dayInfo.closed.length}🏁
+                                                <span className="px-1.5 py-0.2 border border-black bg-black text-[#FFE600] text-[9px] font-black">
+                                                    {dayInfo!.closed.length} صفقات
                                                 </span>
                                             )}
-                                            {hasAdjusted && (
-                                                <span className="text-[8px] sm:text-[9px] md:text-[10px] font-black text-sky-700 dark:text-sky-400 bg-sky-500/10 border border-sky-500/20 px-0.5 sm:px-1 rounded" title={`${dayInfo.adjusted.length} ${isAr ? "تحديث توصية" : "adjustments"}`}>
-                                                    {dayInfo.adjusted.length}🔧
+                                            {hasCreated && !hasClosed && (
+                                                <span className="px-1.5 py-0.2 border border-black bg-amber-400 text-black text-[9px] font-black">
+                                                    +{dayInfo!.created.length}
+                                                </span>
+                                            )}
+                                            {hasAdjusted && !hasClosed && !hasCreated && (
+                                                <span className="px-1.5 py-0.2 border border-black bg-sky-400 text-black text-[9px] font-black">
+                                                    {dayInfo!.adjusted.length}🔧
                                                 </span>
                                             )}
                                         </div>
                                     </div>
 
-                                    {/* Middle/Bottom: Net Daily Return */}
-                            {cell.isCurrentMonth && hasClosed && (
-                                <div className="my-auto flex flex-col items-center justify-center leading-tight">
-                                    <span className={`text-[10px] sm:text-xs md:text-sm font-black font-mono tracking-tight ${
-                                        isPositive ? "text-emerald-600 dark:text-emerald-400" : isNegative ? "text-rose-600 dark:text-rose-400" : "text-zinc-600 dark:text-zinc-400"
-                                    }`}>
-                                        {isPositive ? "+" : ""}{netPl.toFixed(1)}%
-                                    </span>
-                                    <span className="text-[7px] sm:text-[8px] text-zinc-500 dark:text-zinc-400 font-bold hidden sm:inline">
-                                        {isDelayed && <span className="text-amber-600 dark:text-amber-400">{isAr ? "مؤجل" : "Delayed"} · </span>}
-                                        {dayInfo.wins.length}W / {dayInfo.losses.length}L
-                                    </span>
-                                </div>
-                            )}
+                                    {/* Middle: Win/Loss & Return */}
+                                    {hasClosed ? (
+                                        <div className="space-y-1 my-1">
+                                            <div className="flex items-center justify-between text-[10px] font-black">
+                                                <span className="text-emerald-600 dark:text-emerald-400">{wins} رابحة</span>
+                                                {losses > 0 && <span className="text-rose-500">{losses} خاسرة</span>}
+                                            </div>
 
-                            {cell.isCurrentMonth && isDelayed && (hasCreated || hasClosed || hasAdjusted) && (
-                                <div className="absolute top-1 right-1 text-amber-600 dark:text-amber-400" title={isAr ? "بيانات هذا اليوم مؤجلة 15 يوماً" : "This day's statistics are delayed by 15 days"}>
-                                    <Lock className="w-3 h-3" />
-                                </div>
-                            )}
-
-                                    {/* Empty indicator for days without closed trades but with created trades */}
-                                    {cell.isCurrentMonth && hasCreated && !hasClosed && (
-                                        <div className="my-auto text-center">
-                                            <span className="text-[8px] sm:text-[9px] font-bold text-amber-600/90 dark:text-amber-400/80 block truncate">
-                                                {dayInfo.created.length} {isAr ? "نشطة" : "Active"}
-                                            </span>
+                                            <div
+                                                dir="ltr"
+                                                className={`text-xs font-black font-mono text-center px-1 py-0.5 border border-black ${
+                                                    netPl >= 0
+                                                        ? "bg-emerald-200 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-100"
+                                                        : "bg-rose-200 dark:bg-rose-900 text-rose-900 dark:text-rose-100"
+                                                }`}
+                                            >
+                                                {netPl >= 0 ? "+" : ""}{netPl.toFixed(1)}%
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-[10px] text-zinc-400 dark:text-zinc-600 font-bold text-center">
+                                            {!cell.isCurrentMonth ? "" : cell.isWeekend ? "عطلة" : hasCreated ? `${dayInfo!.created.length} نشطة` : "لا إغلاقات"}
                                         </div>
                                     )}
-                                    {cell.isCurrentMonth && hasAdjusted && !hasClosed && !hasCreated && (
-                                        <div className="my-auto text-center">
-                                            <span className="text-[8px] sm:text-[9px] font-bold text-sky-600 dark:text-sky-400 block truncate">
-                                                {dayInfo.adjusted.length} {isAr ? "تحديث" : "Updated"}
-                                            </span>
+
+                                    {/* Bottom: Big Runner highlight */}
+                                    {isBigRunnerDay && (
+                                        <div
+                                            dir="ltr"
+                                            className="text-[9px] font-black bg-amber-400 text-black px-1 py-0.5 border border-black text-center truncate"
+                                        >
+                                            🔥 {maxGainTrade.symbol} +{Number(maxGainTrade.profit_loss_pct).toFixed(0)}%
                                         </div>
                                     )}
                                 </div>
@@ -1100,19 +904,36 @@ export default function RecommendationCalendar({
                     </div>
                 </div>
             ) : (
-                /* ── AGENDA / LIST VIEW (FOR MOBILE OR EASY SCROLLING) ── */
-                <div className="p-3.5 sm:p-4 md:p-6 rounded-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 shadow-xl dark:shadow-2xl space-y-3 sm:space-y-4">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-base sm:text-lg font-black text-zinc-900 dark:text-white flex items-center gap-2">
-                            <List className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 dark:text-amber-400" />
-                            {isAr ? "جدول التوصيات اليومية الحية" : "Live Recommendations Table"}
-                        </h3>
-                        <span className="text-[10px] sm:text-xs text-zinc-500 dark:text-zinc-400 font-bold">
-                            {isAr ? "اضغط لعرض التفاصيل" : "Click to view"}
-                        </span>
+                /* ── AGENDA / LIST VIEW (Neo-Brutalist) ── */
+                <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-4 sm:p-6 shadow-[4px_4px_0px_#000] dark:shadow-[4px_4px_0px_#fff] space-y-4">
+                    <div className="flex items-center justify-between border-b-2 border-black dark:border-white pb-3">
+                        <div className="flex items-center gap-2">
+                            <List className="w-5 h-5 text-amber-500 dark:text-amber-400" />
+                            <h3 className="text-base sm:text-lg font-black text-black dark:text-white">
+                                {isAr ? "جدول التوصيات اليومية الحية" : "Live Recommendations Table"}
+                            </h3>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center border-2 border-black bg-zinc-100 dark:bg-zinc-900 p-0.5 shrink-0">
+                                <button
+                                    onClick={() => setViewMode("calendar")}
+                                    title={isAr ? "عرض التقويم" : "Calendar View"}
+                                    className="p-1.5 transition-all text-zinc-400 hover:text-black dark:hover:text-white"
+                                >
+                                    <Grid className="w-4 h-4" />
+                                </button>
+                                <button
+                                    onClick={() => setViewMode("agenda")}
+                                    title={isAr ? "عرض القائمة" : "List View"}
+                                    className="p-1.5 transition-all bg-[#FFE600] text-black font-black border border-black"
+                                >
+                                    <List className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
-                    <div className="divide-y divide-zinc-200 dark:divide-zinc-800/80 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden bg-zinc-50/50 dark:bg-zinc-900/40">
+                    <div className="divide-y-2 divide-black dark:divide-white border-2 border-black dark:border-white">
                         {Array.from(dayMap.entries())
                             .sort((a, b) => new Date(b[0]).getTime() - new Date(a[0]).getTime())
                             .slice(0, 30)
@@ -1125,46 +946,48 @@ export default function RecommendationCalendar({
                                     <div
                                         key={dateStr}
                                         onClick={() => setSelectedDayDateStr(dateStr)}
-                                        className="p-3 sm:p-4 hover:bg-zinc-100/80 dark:hover:bg-zinc-800/50 transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3"
+                                        className="p-3 sm:p-4 bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                                     >
-                                        <div className="flex items-center gap-2.5 sm:gap-3">
-                                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex flex-col items-center justify-center font-mono shrink-0">
-                                                <span className="text-[9px] sm:text-[10px] text-zinc-500 dark:text-zinc-400 uppercase">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 border-2 border-black bg-amber-400 flex flex-col items-center justify-center font-mono shrink-0 shadow-[2px_2px_0px_#000]">
+                                                <span className="text-[9px] text-black font-black uppercase">
                                                     {new Date(dateStr).toLocaleDateString(isAr ? "ar-EG" : "en-US", { month: "short" })}
                                                 </span>
-                                                <span className="text-xs sm:text-sm font-black text-zinc-900 dark:text-white leading-none">
+                                                <span className="text-sm font-black text-black leading-none">
                                                     {new Date(dateStr).getDate()}
                                                 </span>
                                             </div>
                                             <div>
-                                                <div className="text-xs sm:text-sm font-black text-zinc-900 dark:text-white">
+                                                <div className="text-sm font-black text-black dark:text-white">
                                                     {new Date(dateStr).toLocaleDateString(isAr ? "ar-EG" : "en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
                                                 </div>
-                                                <div className="flex items-center gap-2 text-[11px] sm:text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                                                    <span>{isAr ? "أنشئت:" : "Created:"} <strong className="text-amber-600 dark:text-amber-400 font-mono">{dayData.created.length}</strong></span>
+                                                <div className="flex items-center gap-2 text-xs text-zinc-500 mt-0.5">
+                                                    <span>{isAr ? "أنشئت:" : "Created:"} <strong className="text-amber-600 font-mono font-black">{dayData.created.length}</strong></span>
                                                     <span>•</span>
-                                                    <span>{isAr ? "أغلقت:" : "Closed:"} <strong className="text-indigo-600 dark:text-indigo-400 font-mono">{dayData.closed.length}</strong></span>
+                                                    <span>{isAr ? "أغلقت:" : "Closed:"} <strong className="text-indigo-600 font-mono font-black">{dayData.closed.length}</strong></span>
                                                 </div>
                                             </div>
                                         </div>
 
                                         <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4">
-                                            <div className="flex gap-1 sm:gap-1.5 text-[11px] sm:text-xs font-bold">
-                                                <span className="px-1.5 sm:px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
+                                            <div className="flex gap-1.5 text-xs font-bold">
+                                                <span className="px-2 py-0.5 border border-black bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-black">
                                                     {dayData.wins.length} {isAr ? "رابحة" : "Wins"}
                                                 </span>
-                                                <span className="px-1.5 sm:px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/20">
+                                                <span className="px-2 py-0.5 border border-black bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-black">
                                                     {dayData.losses.length} {isAr ? "خاسرة" : "Losses"}
                                                 </span>
                                             </div>
 
                                             <div className="text-left font-mono">
-                                                <span className={`text-sm sm:text-base font-black ${
-                                                    isPos ? "text-emerald-600 dark:text-emerald-400" : isNeg ? "text-rose-600 dark:text-rose-400" : "text-zinc-600 dark:text-zinc-400"
-                                                }`}>
+                                                <span
+                                                    dir="ltr"
+                                                    className={`text-base font-black px-2 py-0.5 border border-black block ${
+                                                        isPos ? "bg-emerald-200 text-emerald-900" : isNeg ? "bg-rose-200 text-rose-900" : "bg-zinc-200 text-zinc-900"
+                                                    }`}
+                                                >
                                                     {isPos ? "+" : ""}{netPl.toFixed(1)}%
                                                 </span>
-                                                <span className="text-[9px] sm:text-[10px] text-zinc-500 dark:text-zinc-500 block">{isAr ? "مجموع عوائد الصفقات" : "Sum of Trade Returns"}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -1174,29 +997,29 @@ export default function RecommendationCalendar({
                 </div>
             )}
 
-            {/* ── SELECTED DAY DETAILS FULLSCREEN PORTAL MODAL ── */}
+            {/* ── SELECTED DAY DETAILS FULLSCREEN PORTAL MODAL (Neo-Brutalist) ── */}
             {mounted && selectedDayData && createPortal(
                 <div 
                     onClick={() => setSelectedDayDateStr(null)}
-                    className="fixed inset-0 z-[2147483647] bg-black/60 dark:bg-black/85 backdrop-blur-md flex items-center justify-center p-2.5 sm:p-4 md:p-6 overflow-y-auto animate-in fade-in duration-200"
+                    className="fixed inset-0 z-[2147483647] bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 overflow-y-auto animate-in fade-in duration-150"
                     dir={isAr ? "rtl" : "ltr"}
                 >
                     <div 
                         onClick={(e) => e.stopPropagation()}
-                        className="relative w-full max-w-3xl rounded-2xl bg-white dark:bg-zinc-950 border-2 border-zinc-200 dark:border-zinc-800 shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col text-zinc-900 dark:text-white"
+                        className="relative w-full max-w-3xl border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[8px_8px_0px_#000] dark:shadow-[8px_8px_0px_#fff] overflow-hidden my-auto max-h-[92vh] flex flex-col text-black dark:text-white"
                     >
                         {/* Modal Header */}
-                        <div className="p-3.5 sm:p-5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/70 flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 dark:text-amber-400 shrink-0">
-                                    <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5" />
+                        <div className="p-4 sm:p-5 border-b-4 border-black dark:border-white bg-[#FFE600] text-black flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-10 h-10 border-2 border-black bg-black text-[#FFE600] flex items-center justify-center shrink-0 shadow-[2px_2px_0px_#000]">
+                                    <CalendarIcon className="w-5 h-5" />
                                 </div>
                                 <div className="min-w-0">
-                                    <h3 className="text-sm sm:text-lg font-black text-zinc-900 dark:text-white truncate">
+                                    <h3 className="text-base sm:text-lg font-black truncate">
                                         {isAr ? "إحصائيات وتوصيات يوم " : "Signals & Statistics for "}
                                         {new Date(selectedDayData.dateStr).toLocaleDateString(isAr ? "ar-EG" : "en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
                                     </h3>
-                                    <p className="text-[10px] sm:text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 font-medium truncate">
+                                    <p className="text-xs text-zinc-800 font-bold truncate">
                                         {isAr ? "تفاصيل الأداء الفني والصفقات المسجلة لهذا اليوم" : "Technical performance details & logged trades"}
                                     </p>
                                 </div>
@@ -1204,95 +1027,100 @@ export default function RecommendationCalendar({
 
                             <button
                                 onClick={() => setSelectedDayDateStr(null)}
-                                className="p-1.5 sm:p-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-all shrink-0"
+                                className="w-9 h-9 border-2 border-black bg-white hover:bg-zinc-100 text-black flex items-center justify-center shadow-[2px_2px_0px_#000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all font-black shrink-0"
                                 aria-label={isAr ? "إغلاق" : "Close"}
                             >
-                                <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                                <X className="w-5 h-5" />
                             </button>
                         </div>
 
                         {/* Modal Day Summary Bar */}
-                        <div className="p-2.5 sm:p-4 bg-zinc-100/50 dark:bg-zinc-900/40 border-b border-zinc-200 dark:border-zinc-800/80 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 text-center">
+                        <div className="p-3 sm:p-4 bg-zinc-100 dark:bg-zinc-900 border-b-2 border-black dark:border-white grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 text-center">
                             {selectedDayData.delayed ? (
-                                <div className="col-span-2 sm:col-span-4 p-4 border-2 border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 font-black text-xs sm:text-sm flex items-center justify-center gap-2">
+                                <div className="col-span-2 sm:col-span-4 p-4 border-2 border-amber-500 bg-amber-50 dark:bg-amber-950/20 text-amber-900 dark:text-amber-200 font-black text-xs sm:text-sm flex items-center justify-center gap-2">
                                     <Lock className="w-4 h-4 shrink-0" />
                                     {isAr ? "إحصائيات هذا اليوم مشفرة ومؤجلة 15 يوماً لمستخدمي الخطة المجانية." : "This day's statistics are locked and delayed by 15 days on the Free plan."}
                                 </div>
-                            ) : <>
-                            <div className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800/80 shadow-sm dark:shadow-none">
-                                <span className="text-[9px] sm:text-[10px] text-zinc-500 dark:text-zinc-400 font-bold block">{isAr ? "المنشأة" : "Created"}</span>
-                                <span className="text-sm sm:text-base font-black text-amber-600 dark:text-amber-400 font-mono mt-0.5 block">
-                                    {selectedDayData.data.created.length} {isAr ? "صفقة" : "trades"}
-                                </span>
-                            </div>
+                            ) : (
+                                <>
+                                    <div className="p-2.5 border-2 border-black bg-white dark:bg-zinc-950">
+                                        <span className="text-[10px] text-zinc-500 font-black uppercase block">{isAr ? "المنشأة" : "Created"}</span>
+                                        <span className="text-base font-black text-amber-600 font-mono mt-0.5 block">
+                                            {selectedDayData.data.created.length} {isAr ? "صفقة" : "trades"}
+                                        </span>
+                                    </div>
 
-                            <div className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800/80 shadow-sm dark:shadow-none">
-                                <span className="text-[9px] sm:text-[10px] text-zinc-500 dark:text-zinc-400 font-bold block">{isAr ? "المغلقة" : "Closed"}</span>
-                                <span className="text-sm sm:text-base font-black text-zinc-900 dark:text-white font-mono mt-0.5 block">
-                                    {selectedDayData.closedCount} ({selectedDayData.winCount}W / {selectedDayData.lossCount}L)
-                                </span>
-                            </div>
+                                    <div className="p-2.5 border-2 border-black bg-white dark:bg-zinc-950">
+                                        <span className="text-[10px] text-zinc-500 font-black uppercase block">{isAr ? "المغلقة" : "Closed"}</span>
+                                        <span className="text-base font-black text-black dark:text-white font-mono mt-0.5 block">
+                                            {selectedDayData.closedCount} ({selectedDayData.winCount}W / {selectedDayData.lossCount}L)
+                                        </span>
+                                    </div>
 
-                            <div className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800/80 shadow-sm dark:shadow-none">
-                                <span className="text-[9px] sm:text-[10px] text-zinc-500 dark:text-zinc-400 font-bold block">{isAr ? "نسبة النجاح" : "Win Rate"}</span>
-                                <span className="text-sm sm:text-base font-black text-amber-600 dark:text-amber-400 font-mono mt-0.5 block">
-                                    {selectedDayData.dayWinRate.toFixed(1)}%
-                                </span>
-                            </div>
+                                    <div className="p-2.5 border-2 border-black bg-white dark:bg-zinc-950">
+                                        <span className="text-[10px] text-zinc-500 font-black uppercase block">{isAr ? "نسبة النجاح" : "Win Rate"}</span>
+                                        <span className="text-base font-black text-emerald-600 font-mono mt-0.5 block">
+                                            {selectedDayData.dayWinRate.toFixed(1)}%
+                                        </span>
+                                    </div>
 
-                            <div className={`p-2 sm:p-2.5 rounded-xl border shadow-sm dark:shadow-none ${
-                                selectedDayData.data.netProfitPct >= 0
-                                    ? "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
-                                    : "bg-rose-50 dark:bg-rose-500/10 border-rose-300 dark:border-rose-500/30 text-rose-600 dark:text-rose-400"
-                            }`}>
-                                <span className="text-[9px] sm:text-[10px] text-zinc-500 dark:text-zinc-400 font-bold block">{isAr ? "مجموع عوائد الصفقات" : "Sum of Trade Returns"}</span>
-                                <span className="text-sm sm:text-base font-black font-mono mt-0.5 block">
-                                    {selectedDayData.data.netProfitPct >= 0 ? "+" : ""}
-                                    {selectedDayData.data.netProfitPct.toFixed(1)}%
-                                </span>
-                            </div>
-                            </>}
+                                    <div className={`p-2.5 border-2 border-black ${
+                                        selectedDayData.data.netProfitPct >= 0 ? "bg-emerald-100 dark:bg-emerald-950/40" : "bg-rose-100 dark:bg-rose-950/40"
+                                    }`}>
+                                        <span className="text-[10px] text-zinc-600 font-black uppercase block">{isAr ? "مجموع العوائد" : "Net Return"}</span>
+                                        <span
+                                            dir="ltr"
+                                            className={`text-base font-black font-mono mt-0.5 block ${
+                                                selectedDayData.data.netProfitPct >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-rose-700 dark:text-rose-300"
+                                            }`}
+                                        >
+                                            {selectedDayData.data.netProfitPct >= 0 ? "+" : ""}
+                                            {selectedDayData.data.netProfitPct.toFixed(1)}%
+                                        </span>
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         {/* Modal Tabs Filter */}
-                        <div className="px-3.5 sm:px-5 pt-2.5 sm:pt-3 flex items-center justify-between bg-white dark:bg-zinc-950">
-                            <div className="flex items-center gap-1 sm:gap-1.5 bg-zinc-100 dark:bg-zinc-900 p-0.5 sm:p-1 rounded-xl border border-zinc-200 dark:border-zinc-800 text-[10px] sm:text-xs font-bold overflow-x-auto max-w-full">
+                        <div className="px-4 py-3 flex items-center justify-between border-b-2 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900">
+                            <div className="flex items-center gap-1.5 border-2 border-black bg-white dark:bg-zinc-950 p-0.5 text-xs font-bold overflow-x-auto">
                                 <button
                                     onClick={() => setDayModalFilter("all")}
-                                    className={`px-2.5 sm:px-3 py-1 rounded-lg transition-all whitespace-nowrap ${
+                                    className={`px-3 py-1 transition-all whitespace-nowrap ${
                                         dayModalFilter === "all"
-                                            ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white font-black shadow-sm"
-                                            : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                                            ? "bg-[#FFE600] text-black font-black border border-black shadow-sm"
+                                            : "text-zinc-500 hover:text-black dark:hover:text-white"
                                     }`}
                                 >
                                     {isAr ? "الكل" : "All"} ({selectedDayData.allList.length})
                                 </button>
                                 <button
                                     onClick={() => setDayModalFilter("created")}
-                                    className={`px-2.5 sm:px-3 py-1 rounded-lg transition-all whitespace-nowrap ${
+                                    className={`px-3 py-1 transition-all whitespace-nowrap ${
                                         dayModalFilter === "created"
-                                            ? "bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-500/30 font-black"
-                                            : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                                            ? "bg-amber-400 text-black font-black border border-black shadow-sm"
+                                            : "text-zinc-500 hover:text-black dark:hover:text-white"
                                     }`}
                                 >
                                     {isAr ? "المنشأة" : "Created"} ({selectedDayData.data.created.length})
                                 </button>
                                 <button
                                     onClick={() => setDayModalFilter("closed")}
-                                    className={`px-2.5 sm:px-3 py-1 rounded-lg transition-all whitespace-nowrap ${
+                                    className={`px-3 py-1 transition-all whitespace-nowrap ${
                                         dayModalFilter === "closed"
-                                            ? "bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400 border border-indigo-300 dark:border-indigo-500/30 font-black"
-                                            : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                                            ? "bg-black text-[#FFE600] font-black border border-black shadow-sm"
+                                            : "text-zinc-500 hover:text-black dark:hover:text-white"
                                     }`}
                                 >
                                     {isAr ? "المغلقة" : "Closed"} ({selectedDayData.data.closed.length})
                                 </button>
                                 <button
                                     onClick={() => setDayModalFilter("adjusted")}
-                                    className={`px-2.5 sm:px-3 py-1 rounded-lg transition-all whitespace-nowrap ${
+                                    className={`px-3 py-1 transition-all whitespace-nowrap ${
                                         dayModalFilter === "adjusted"
-                                            ? "bg-sky-100 dark:bg-sky-500/20 text-sky-700 dark:text-sky-400 border border-sky-300 dark:border-sky-500/30 font-black"
-                                            : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                                            ? "bg-sky-400 text-black font-black border border-black shadow-sm"
+                                            : "text-zinc-500 hover:text-black dark:hover:text-white"
                                     }`}
                                 >
                                     {isAr ? "التحديثات" : "Updates"} ({selectedDayData.data.adjusted.length})
@@ -1300,10 +1128,10 @@ export default function RecommendationCalendar({
                             </div>
                         </div>
 
-                        {/* Trades Table List */}
-                        <div className="p-3.5 sm:p-5 overflow-y-auto space-y-2.5 sm:space-y-3 flex-1 bg-white dark:bg-zinc-950">
+                        {/* Trades Table List in Modal */}
+                        <div className="p-4 overflow-y-auto space-y-3 flex-1 bg-white dark:bg-zinc-950">
                             {selectedDayData.filteredList.length === 0 ? (
-                                <div className="py-8 sm:py-12 text-center text-zinc-400 dark:text-zinc-500 text-xs sm:text-sm font-bold">
+                                <div className="py-12 text-center text-zinc-400 text-xs sm:text-sm font-bold border-2 border-dashed border-zinc-300 dark:border-zinc-800">
                                     {isAr ? "لا توجد توصيات تطابق الاختيار لهذا اليوم" : "No recommendations match"}
                                 </div>
                             ) : (
@@ -1315,11 +1143,13 @@ export default function RecommendationCalendar({
                                     const isAdjustment = item._isAdjustedToday;
 
                                     if (item.identity_locked === true) {
-                                        return <div key={item._timelineKey || item.id} className="p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 flex items-center justify-between gap-3">
-                                            <span className="font-black text-zinc-600 dark:text-zinc-300">{isAr ? "سهم مشفر" : "Hidden stock"} · {item.exchange || "EGX"}</span>
-                                            <span className={isLoss ? "font-black text-rose-600" : "font-black text-emerald-600"}>{isLoss ? (isAr ? "خسارة" : "Loss") : (isAr ? "ربح" : "Win")}</span>
-                                            <span className="font-mono font-black">{Number(item.precision || 0) > 0 ? `${(Number(item.precision) * 100).toFixed(0)}% AI` : "—"}</span>
-                                        </div>;
+                                        return (
+                                            <div key={item._timelineKey || item.id} className="p-3 border-2 border-black bg-zinc-100 dark:bg-zinc-900 flex items-center justify-between gap-3">
+                                                <span className="font-black text-black dark:text-white">{isAr ? "🔒 سهم مشفر" : "🔒 Hidden stock"} · {item.exchange || "EGX"}</span>
+                                                <span className={isLoss ? "font-black text-rose-600" : "font-black text-emerald-600"}>{isLoss ? (isAr ? "خسارة" : "Loss") : (isAr ? "ربح" : "Win")}</span>
+                                                <span className="font-mono font-black">{Number(item.precision || 0) > 0 ? `${(Number(item.precision) * 100).toFixed(0)}% AI` : "—"}</span>
+                                            </div>
+                                        );
                                     }
 
                                     return (
@@ -1328,69 +1158,72 @@ export default function RecommendationCalendar({
                                             onClick={() => {
                                                 if (onSelectStock) onSelectStock(item);
                                             }}
-                                            className="p-2.5 sm:p-3.5 rounded-xl bg-zinc-50 hover:bg-zinc-100/90 dark:bg-zinc-900/70 dark:hover:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-800/80 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 cursor-pointer shadow-sm dark:shadow-none"
+                                            className="p-3 sm:p-4 border-2 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer shadow-[2px_2px_0px_#000] dark:shadow-[2px_2px_0px_#fff]"
                                         >
-                                            <div className="flex items-center gap-2.5 sm:gap-3">
+                                            <div className="flex items-center gap-3">
                                                 <StockLogo symbol={item.symbol} logoUrl={item.logo_url} size="md" />
                                                 <div className="min-w-0">
-                                                    <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                                                        <span className="text-sm sm:text-base font-black text-indigo-600 dark:text-indigo-400">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className="text-base font-black text-indigo-600 dark:text-indigo-400">
                                                             {item.symbol}
                                                         </span>
                                                         {isShariaCompliant(item.symbol) && (
-                                                            <span className="inline-flex items-center gap-0.5 px-1 sm:px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[8px] sm:text-[9px] font-bold">
+                                                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 border border-black bg-emerald-400 text-black text-[9px] font-black uppercase">
                                                                 <ShieldCheck className="w-2.5 h-2.5" />
                                                                 {isAr ? "حلال" : "Halal"}
                                                             </span>
                                                         )}
-                                                        <span className={`px-1.5 sm:px-2 py-0.5 rounded text-[9px] sm:text-[10px] font-black ${
+                                                        <span className={`px-2 py-0.5 border border-black text-[10px] font-black ${
                                                             item.signal === "BUY"
-                                                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                                                                : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20"
+                                                                ? "bg-emerald-300 text-black"
+                                                                : "bg-rose-300 text-black"
                                                         }`}>
                                                             {item.signal === "BUY" ? (isAr ? "شراء" : "BUY") : (isAr ? "بيع" : "SELL")}
                                                         </span>
                                                         {isAdjustment && (
-                                                            <span className="px-1.5 sm:px-2 py-0.5 rounded text-[9px] sm:text-[10px] font-black bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20">
+                                                            <span className="px-2 py-0.5 border border-black bg-sky-300 text-black text-[10px] font-black">
                                                                 {isAr ? "تحديث مُرسل 🔧" : "Sent update 🔧"}
                                                             </span>
                                                         )}
                                                     </div>
-                                                    <div className="text-[11px] sm:text-xs text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[170px] sm:max-w-[200px]" title={item.name}>
+                                                    <div className="text-xs text-zinc-500 font-bold truncate max-w-[200px]" title={item.name}>
                                                         {item.name}
                                                     </div>
                                                 </div>
                                             </div>
 
                                             {/* Trade Numbers */}
-                                            <div className="flex items-center justify-between sm:justify-end gap-2.5 sm:gap-4 text-xs font-mono border-t sm:border-t-0 border-zinc-200 dark:border-zinc-800 pt-2 sm:pt-0">
+                                            <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4 text-xs font-mono border-t sm:border-t-0 border-zinc-300 dark:border-zinc-700 pt-2 sm:pt-0">
                                                 <div>
-                                                    <span className="text-[9px] sm:text-[10px] text-zinc-400 dark:text-zinc-500 block">{isAr ? "دخول" : "Entry"}</span>
-                                                    <span className="font-bold text-zinc-900 dark:text-white text-[11px] sm:text-xs">{item.entry_price ? Number(item.entry_price).toFixed(2) : "-"}</span>
+                                                    <span className="text-[10px] text-zinc-500 font-bold block">{isAr ? "دخول" : "Entry"}</span>
+                                                    <span className="font-black text-black dark:text-white">{item.entry_price ? Number(item.entry_price).toFixed(2) : "-"}</span>
                                                 </div>
 
                                                 <div>
-                                                    <span className="text-[9px] sm:text-[10px] text-zinc-400 dark:text-zinc-500 block">{isAr ? "الهدف" : "Target"}</span>
-                                                    <span className="font-bold text-emerald-600 dark:text-emerald-400 text-[11px] sm:text-xs">{item.target_price ? Number(item.target_price).toFixed(2) : "-"}</span>
+                                                    <span className="text-[10px] text-zinc-500 font-bold block">{isAr ? "الهدف" : "Target"}</span>
+                                                    <span className="font-black text-emerald-600 dark:text-emerald-400">{item.target_price ? Number(item.target_price).toFixed(2) : "-"}</span>
                                                 </div>
 
                                                 <div>
-                                                    <span className="text-[9px] sm:text-[10px] text-zinc-400 dark:text-zinc-500 block">{isAr ? "الوقف" : "Stop"}</span>
-                                                    <span className="font-bold text-rose-600 dark:text-rose-400 text-[11px] sm:text-xs">{item.stop_loss ? Number(item.stop_loss).toFixed(2) : "-"}</span>
+                                                    <span className="text-[10px] text-zinc-500 font-bold block">{isAr ? "الوقف" : "Stop"}</span>
+                                                    <span className="font-black text-rose-600 dark:text-rose-400">{item.stop_loss ? Number(item.stop_loss).toFixed(2) : "-"}</span>
                                                 </div>
 
                                                 {/* P/L badge */}
-                                                <div className="text-left min-w-[55px] sm:min-w-[70px]">
-                                                    <span className="text-[9px] sm:text-[10px] text-zinc-400 dark:text-zinc-500 block">{isAr ? "الحالة" : "P/L"}</span>
+                                                <div className="text-left min-w-[65px]">
+                                                    <span className="text-[10px] text-zinc-500 font-bold block">{isAr ? "الحالة" : "P/L"}</span>
                                                     {isClosed ? (
-                                                        <span className={`inline-flex items-center gap-0.5 font-black text-[11px] sm:text-xs ${
-                                                            isWin ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-                                                        }`}>
+                                                        <span
+                                                            dir="ltr"
+                                                            className={`inline-flex items-center gap-0.5 font-black px-1.5 py-0.5 border border-black ${
+                                                                isWin ? "bg-emerald-300 text-black" : "bg-rose-300 text-black"
+                                                            }`}
+                                                        >
                                                             {isWin ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
                                                             {item.profit_loss_pct != null ? `${item.profit_loss_pct > 0 ? "+" : ""}${Number(item.profit_loss_pct).toFixed(1)}%` : (isWin ? (isAr ? "ربح" : "Win") : (isAr ? "خسارة" : "Loss"))}
                                                         </span>
                                                     ) : isAdjustment ? (
-                                                        <span className="text-sky-600 dark:text-sky-400 font-bold text-[11px] sm:text-xs">
+                                                        <span className="text-sky-600 dark:text-sky-400 font-black text-xs">
                                                             {item.old_target != null && item.new_target != null
                                                                 ? `${Number(item.old_target).toFixed(2)} → ${Number(item.new_target).toFixed(2)}`
                                                                 : item.old_stop != null && item.new_stop != null
@@ -1398,10 +1231,10 @@ export default function RecommendationCalendar({
                                                                     : (isAr ? "تم التحديث" : "Updated")}
                                                         </span>
                                                     ) : (
-                                                        <span className="text-amber-600 dark:text-amber-400 font-bold text-[11px] sm:text-xs">{isAr ? "نشطة 🎯" : "Active 🎯"}</span>
+                                                        <span className="text-amber-600 dark:text-amber-400 font-black text-xs">{isAr ? "نشطة 🎯" : "Active 🎯"}</span>
                                                     )}
                                                     {isClosed && item.exit_reason_ar && (
-                                                        <span className="mt-1 block max-w-[260px] text-[9px] font-semibold leading-snug text-amber-700 dark:text-amber-300">
+                                                        <span className="mt-1 block max-w-[260px] text-[9px] font-bold text-amber-700 dark:text-amber-300">
                                                             {isAr ? `سبب الإغلاق: ${item.exit_reason_ar}` : `Exit reason: ${item.exit_reason_en || item.exit_reason}`}
                                                         </span>
                                                     )}

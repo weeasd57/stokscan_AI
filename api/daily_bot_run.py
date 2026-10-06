@@ -1181,6 +1181,8 @@ _VIP_TELEGRAM_SERVICE_TYPES = frozenset({
     "recommendation_exit_vip",
     "weekly_performance_report",
     "daily_market_outlook_vip",
+    "short_swings_vip_entry",
+    "short_swings_vip_exit",
 })
 
 _FREE_TELEGRAM_SERVICE_TYPES = frozenset({
@@ -1188,6 +1190,8 @@ _FREE_TELEGRAM_SERVICE_TYPES = frozenset({
     "weekly_performance_report_free",
     "free_summary",
     "daily_market_outlook_free",
+    "short_swings_free_teaser",
+    "short_swings_free_exit",
 })
 
 def _resolve_vip_chat_target() -> str:
@@ -3289,6 +3293,17 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             _record_step("generate_recommendations", False, str(e)[:200], 0)
             print(f"[RECOMMENDATIONS] Error: {e}")
             _send_market_buy_hold({"no_buy_reason": "تعذر استكمال فحص المرشحين بسبب خطأ تقني؛ لم تُنشأ توصيات شراء، ولا يعني ذلك ضعفًا مؤكدًا في السوق."}, dt.datetime.now(ZoneInfo("Africa/Cairo")).date().isoformat())
+
+        # 5.5 Run Short Swings Engine & Dispatch Telegram Alerts
+        print("\n>>> STEP 5.5: Running Short Swings engine & Telegram dispatch (الصفقات القصيرة)...")
+        _start_step("short_swings_daily", "Running short swings engine and sending VIP/Free telegram alerts")
+        try:
+            from api.short_swings_daily import run_daily_short_swings
+            swings_res = run_daily_short_swings(trigger=trigger, dry_run=dry_run)
+            _record_step("short_swings_daily", swings_res.get("success", True), swings_res.get("message", "Done"), swings_res.get("count", 0))
+        except Exception as e_swings:
+            _record_step("short_swings_daily", False, str(e_swings)[:200], 0)
+            print(f"[SHORT_SWINGS] Error running daily short swings: {e_swings}")
 
         # 6. Run Historical Similarity Scan
         print("\n>>> STEP 6: Running Historical Similarity market scan...")

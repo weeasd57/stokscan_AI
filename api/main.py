@@ -462,7 +462,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 
-from api.routers import admin, bot, easykash, scan_ai, scan_ai_fast, scan_tech, similarity_admin, support, chatbot
+from api.routers import admin, bot, easykash, scan_ai, scan_ai_fast, scan_tech, similarity_admin, support, chatbot, short_swings
 
 
 
@@ -484,6 +484,7 @@ app.include_router(similarity_admin.router)
 
 app.include_router(support.router)
 app.include_router(chatbot.router)  # New Anti-Hallucination Chatbot
+app.include_router(short_swings.router)
 app.include_router(health_router)
 
 

@@ -15,13 +15,15 @@ import { useTheme } from "@/contexts/ThemeContext";
 import TradingViewChart from "./TradingViewChartDynamic";
 import TelegramServiceToggle from "./TelegramServiceToggle";
 import RecommendationCalendar from "./RecommendationCalendar";
+import ShortSwingsTab from "./ShortSwingsTab";
+import SystemsComparisonTab from "./SystemsComparisonTab";
 import {
     Search, Filter, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight, Clock,
     TrendingUp, TrendingDown, Layers, Info, CheckCircle2, X, BarChart2,
     Target, ShieldAlert, Cpu, BookOpen, TrendingUp as Bullish, Calendar,
     Award, ArrowUpRight, ArrowDownRight, Minus, ExternalLink, ShieldCheck,
     Share2, Loader2, Download, Check, Copy, Send, MessageCircle, Lock, Crown,
-    LineChart, PieChart, BarChart3, Activity, History, Trophy, Zap
+    LineChart, PieChart, BarChart3, Activity, History, Trophy, Zap, Scale
 } from "lucide-react";
 import { isShariaCompliant } from "@/lib/shariaStocks";
 import { toPng } from "html-to-image";
@@ -372,12 +374,33 @@ function RecommendationsTableContent({ isLandingPage = false, limit = Infinity, 
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedSector, setSelectedSector] = useState("");
     const [selectedSignal, setSelectedSignal] = useState("");
-    const [activeTab, setActiveTab] = useState<"active" | "closed" | "all" | "analytics">(analyticsOnly || tabParam === "analytics" ? "analytics" : "active");
+    const [mainTab, setMainTab] = useState<"medium_swings" | "short_swings" | "comparison">(() => {
+        if (tabParam === "short_swings") return "short_swings";
+        if (tabParam === "comparison") return "comparison";
+        return "medium_swings";
+    });
+    const [activeTab, setActiveTab] = useState<"active" | "closed" | "all" | "analytics">(
+        analyticsOnly || tabParam === "analytics" ? "analytics" : tabParam === "closed" ? "closed" : tabParam === "all" ? "all" : "active"
+    );
     useEffect(() => {
-        if (tabParam === "analytics") {
+        if (tabParam === "short_swings") {
+            setMainTab("short_swings");
+        } else if (tabParam === "comparison") {
+            setMainTab("comparison");
+        } else if (tabParam === "analytics") {
+            setMainTab("medium_swings");
             setActiveTab("analytics");
+        } else if (tabParam === "closed") {
+            setMainTab("medium_swings");
+            setActiveTab("closed");
+        } else if (tabParam === "all") {
+            setMainTab("medium_swings");
+            setActiveTab("all");
+        } else if (tabParam === "active") {
+            setMainTab("medium_swings");
+            setActiveTab("active");
         }
-    }, [tabParam]);
+    }, [tabParam, analyticsOnly]);
     const [analyticsSubTab, setAnalyticsSubTab] = useState<"calendar" | "performance" | "distribution">("calendar");
     const [timeRange, setTimeRange] = useState<"all" | "7d" | "30d">("all");
     const [sortBy, setSortBy] = useState("precision");
@@ -2207,127 +2230,83 @@ function RecommendationsTableContent({ isLandingPage = false, limit = Infinity, 
                 <MarketOverviewSummary isAr={isAr} onOpen={() => router.push("/scanner/market")} />
             )}
 
+            {/* ── Top-Level Systems Navigation Bar ────────────────────────── */}
             {limit === Infinity && (!isLandingPage || user) && (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
-                    {/* Active Trades */}
-                    <SpotlightCard className="p-3 sm:p-4 border-2 sm:border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[3px_3px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] dark:sm:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:shadow-[4px_4px_0px_rgba(245,158,11,1)] transition-all duration-300">
-                        <div className="relative z-10 flex items-center gap-2.5 sm:gap-3 w-full min-w-0">
-                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-none bg-amber-500/10 dark:bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center flex-shrink-0">
-                                <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                                <p className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-wider leading-none mb-1.5 truncate">
-                                    {isAr ? "الصفقات النشطة" : "Active Trades"}
-                                </p>
-                                <p className="text-lg sm:text-2xl font-black font-mono leading-none">{stats.activeCount}</p>
-                            </div>
-                        </div>
-                    </SpotlightCard>
-
-                    {/* Closed Trades */}
-                    <SpotlightCard className="p-3 sm:p-4 border-2 sm:border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[3px_3px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] dark:sm:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:shadow-[4px_4px_0px_rgba(245,158,11,1)] transition-all duration-300">
-                        <div className="relative z-10 flex items-center gap-2.5 sm:gap-3 w-full min-w-0">
-                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-none bg-amber-500/10 dark:bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center flex-shrink-0">
-                                <Layers className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                                <p className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-wider leading-none mb-1.5 truncate">
-                                    {isAr ? "الصفقات المغلقة" : "Closed Trades"}
-                                </p>
-                                <p className="text-lg sm:text-2xl font-black font-mono leading-none">{stats.closedCount}</p>
-                            </div>
-                        </div>
-                    </SpotlightCard>
-
-                    {/* Win Rate */}
-                    <SpotlightCard className="p-3 sm:p-4 border-2 sm:border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[3px_3px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] dark:sm:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:shadow-[4px_4px_0px_rgba(245,158,11,1)] transition-all duration-300">
-                        <div className="relative z-10 flex items-center gap-2.5 sm:gap-3 w-full min-w-0">
-                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-none bg-amber-500/10 dark:bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center flex-shrink-0">
-                                <Target className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                                <p className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-wider leading-none mb-1.5 truncate">
-                                    {isAr ? "نسبة النجاح" : "Win Rate"}
-                                </p>
-                                <p className="text-lg sm:text-2xl font-black font-mono text-emerald-500 leading-none truncate" dir="ltr">
-                                    {stats.winRate.toFixed(1)}%
-                                </p>
-                            </div>
-                        </div>
-                    </SpotlightCard>
-
-                    {/* Average Return */}
-                    <SpotlightCard className="p-3 sm:p-4 border-2 sm:border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[3px_3px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] dark:sm:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:shadow-[4px_4px_0px_rgba(245,158,11,1)] transition-all duration-300">
-                        <div className="relative z-10 flex items-center gap-2.5 sm:gap-3 w-full min-w-0">
-                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-none bg-amber-500/10 dark:bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center flex-shrink-0">
-                                <Award className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                                <p className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-wider leading-none mb-1.5 truncate">
-                                    {isAr ? "متوسط العائد" : "Avg Return"}
-                                </p>
-                                <p className={`text-lg sm:text-2xl font-black font-mono leading-none truncate ${stats.avgReturn == null || stats.avgReturn >= 0 ? "text-emerald-500" : "text-rose-500"}`} dir="ltr">
-                                    {stats.avgReturn == null ? "—" : `${stats.avgReturn >= 0 ? "+" : ""}${stats.avgReturn.toFixed(1)}%`}
-                                </p>
-                            </div>
-                        </div>
-                    </SpotlightCard>
-                </div>
-            )}
-
-            {/* Tabs Navigation Bar */}
-            {limit === Infinity && (!isLandingPage || user) && (
-                <div className="grid grid-cols-2 lg:grid-cols-4 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] p-1.5 gap-2 select-none mb-6">
+                <div className="grid grid-cols-3 border-2 sm:border-4 border-black dark:border-white bg-zinc-100/95 dark:bg-zinc-900/95 backdrop-blur-md shadow-[3px_3px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] dark:sm:shadow-[4px_4px_0px_rgba(255,255,255,1)] p-1 sm:p-1.5 gap-1 sm:gap-2 select-none mb-4 sm:mb-6 sticky top-14 sm:top-16 z-30">
                     {[
-                        { id: "active", label: isAr ? "الصفقات النشطة (المفتوحة)" : "Active Trades (Open)", count: tabCounts.activeCount, icon: Activity },
-                        { id: "closed", label: isAr ? "أرشيف الصفقات (المغلقة)" : "Closed Trades", count: tabCounts.closedCount, icon: History },
-                        { id: "all", label: isAr ? "جميع الصفقات" : "All Trades", count: tabCounts.totalCount, icon: Layers },
-                        { id: "analytics", label: isAr ? "تحليلات أداء الصفقات" : "Trade Analytics", count: null, icon: BarChart3, isSpecial: true },
+                        {
+                            id: "medium_swings",
+                            shortLabel: isAr ? "المتوسطة 📈" : "Medium 📈",
+                            label: isAr ? "الصفقات المتوسطة 📈" : "Medium Swings 📈",
+                            subtitle: isAr ? "النظام الأساسي (أفق هادئ وتجميع)" : "Core System (Swing Trend)",
+                            icon: Layers,
+                        },
+                        {
+                            id: "short_swings",
+                            shortLabel: isAr ? "القصيرة ⚡" : "Short ⚡",
+                            label: isAr ? "الصفقات القصيرة ⚡" : "Short Swings ⚡",
+                            subtitle: isAr ? "نظام الزخم (سرعة وتدوير سيولة)" : "Momentum Runners (Fast)",
+                            icon: Zap,
+                            isSpecial: true,
+                            isShortSwings: true,
+                        },
+                        {
+                            id: "comparison",
+                            shortLabel: isAr ? "المقارنة ⚖️" : "Compare ⚖️",
+                            label: isAr ? "مقارنة أداء النظامين ⚖️" : "Systems Comparison ⚖️",
+                            subtitle: isAr ? "أرقام وتفاصيل شهور 8 و 9 و 2026" : "Head-to-head empirical metrics",
+                            icon: Scale,
+                        },
                     ].map(tab => {
-                        const isSelected = activeTab === tab.id;
+                        const isSelected = mainTab === tab.id;
                         const Icon = tab.icon;
                         return (
                             <button
                                 key={tab.id}
                                 onClick={() => {
-                                    setActiveTab(tab.id as any);
+                                    setMainTab(tab.id as any);
                                     setCurrentPage(1);
                                     if (typeof window !== "undefined" && window.history?.replaceState) {
                                         const url = new URL(window.location.href);
-                                        if (tab.id === "analytics") {
-                                            url.searchParams.set("tab", "analytics");
+                                        if (tab.id === "short_swings" || tab.id === "comparison") {
+                                            url.searchParams.set("tab", tab.id);
                                         } else {
-                                            url.searchParams.delete("tab");
+                                            if (activeTab === "analytics") {
+                                                url.searchParams.set("tab", "analytics");
+                                            } else {
+                                                url.searchParams.delete("tab");
+                                            }
                                         }
                                         window.history.replaceState({}, "", url.toString());
                                     }
                                 }}
-                                className={`py-2.5 sm:py-3 px-3 sm:px-4 font-black text-xs sm:text-sm flex items-center justify-between gap-2 transition-all duration-100 active:scale-98 border-2 ${
+                                className={`py-1.5 px-1 sm:py-3 sm:px-4 font-black text-xs sm:text-sm flex items-center justify-between gap-1 sm:gap-2 transition-all duration-100 active:scale-98 border-2 ${
                                     isSelected
-                                        ? (tab.isSpecial
+                                        ? ((tab as any).isShortSwings
+                                            ? "bg-gradient-to-r from-amber-500 to-orange-500 text-black border-black shadow-[2px_2px_0px_#000]"
+                                            : tab.id === "comparison"
                                             ? "bg-[#FFE600] text-black border-black shadow-[2px_2px_0px_#000]"
                                             : "bg-black dark:bg-white border-black dark:border-white text-white dark:text-black shadow-[2px_2px_0px_rgba(0,0,0,0.2)]")
-                                        : "bg-white dark:bg-zinc-950 text-black dark:text-white border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                                        : ((tab as any).isShortSwings
+                                            ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/20"
+                                            : "bg-white dark:bg-zinc-950 text-black dark:text-white border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800")
                                 }`}
                             >
-                                <div className="flex items-center gap-2 truncate">
-                                    <Icon className={`w-4 h-4 shrink-0 ${isSelected ? (tab.isSpecial ? "text-black" : "text-amber-400 dark:text-zinc-900") : "text-zinc-500"}`} />
-                                    <span className="font-black truncate">{tab.label}</span>
+                                <div className="flex items-center gap-1 sm:gap-2 truncate">
+                                    <Icon className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${isSelected ? ((tab as any).isShortSwings ? "text-black" : tab.id === "comparison" ? "text-black" : "text-amber-400 dark:text-zinc-900") : (tab as any).isShortSwings ? "text-amber-500" : "text-zinc-500"}`} />
+                                    <div className="truncate text-start">
+                                        <span className="font-black truncate block sm:hidden text-[10px] leading-tight">{tab.shortLabel}</span>
+                                        <span className="font-black truncate hidden sm:block text-xs sm:text-sm">{tab.label}</span>
+                                        <span className={`text-[10px] font-bold hidden md:block truncate opacity-80 ${isSelected ? ((tab as any).isShortSwings ? "text-zinc-900" : tab.id === "comparison" ? "text-zinc-900" : "text-zinc-300 dark:text-zinc-700") : "text-zinc-500"}`}>
+                                            {tab.subtitle}
+                                        </span>
+                                    </div>
                                 </div>
-                                {tab.count != null && (
-                                    <span className={`px-2 py-0.5 text-xs font-bold font-mono shrink-0 ${
-                                        isSelected
-                                            ? "bg-zinc-800 dark:bg-zinc-200 text-zinc-100 dark:text-zinc-900"
-                                            : "bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800"
-                                    }`}>
-                                        {tab.count}
-                                    </span>
-                                )}
-                                {tab.isSpecial && (
-                                    <span className={`px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider shrink-0 ${
+                                {(tab as any).isSpecial && (
+                                    <span className={`px-1 py-0.2 sm:px-1.5 sm:py-0.5 text-[8px] sm:text-[10px] font-black uppercase tracking-wider shrink-0 ${
                                         isSelected
                                             ? "bg-black text-[#FFE600] border border-black"
-                                            : "bg-amber-400 text-black border border-black"
+                                            : "bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 border border-black font-black"
                                     }`}>
                                         PRO
                                     </span>
@@ -2338,8 +2317,146 @@ function RecommendationsTableContent({ isLandingPage = false, limit = Infinity, 
                 </div>
             )}
 
-            {/* ── Analytics Tab (Calendar + Charts) ───────────────────────── */}
-            {activeTab === "analytics" ? (
+            {/* ── Main View Switching ─────────────────────────────────────── */}
+            {mainTab === "short_swings" ? (
+                <ShortSwingsTab isPro={isProView} onSelectStock={handleStockClick} />
+            ) : mainTab === "comparison" ? (
+                <SystemsComparisonTab isAr={isAr} isPro={isProView} />
+            ) : (
+                <div className="space-y-6">
+                    {/* Medium Swings Sub-Tabs Navigation Bar (At Top) */}
+                    {limit === Infinity && (!isLandingPage || user) && (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] p-1.5 gap-2 select-none">
+                            {[
+                                { id: "active", label: isAr ? "الصفقات النشطة (المفتوحة)" : "Active Swings", count: tabCounts.activeCount, icon: Activity },
+                                { id: "closed", label: isAr ? "أرشيف الصفقات (المغلقة)" : "Closed Trades", count: tabCounts.closedCount, icon: History },
+                                { id: "all", label: isAr ? "جميع الصفقات" : "All Trades", count: tabCounts.totalCount, icon: Layers },
+                                { id: "analytics", label: isAr ? "تحليلات أداء الصفقات" : "Trade Analytics", count: null, icon: BarChart3, isSpecial: true },
+                            ].map(tab => {
+                                const isSelected = activeTab === tab.id;
+                                const Icon = tab.icon;
+                                return (
+                                    <button
+                                        key={tab.id}
+                                        onClick={() => {
+                                            setActiveTab(tab.id as any);
+                                            setCurrentPage(1);
+                                            if (typeof window !== "undefined" && window.history?.replaceState) {
+                                                const url = new URL(window.location.href);
+                                                if (tab.id === "analytics") {
+                                                    url.searchParams.set("tab", "analytics");
+                                                } else {
+                                                    url.searchParams.delete("tab");
+                                                }
+                                                window.history.replaceState({}, "", url.toString());
+                                            }
+                                        }}
+                                        className={`py-2.5 sm:py-3 px-3 sm:px-4 font-black text-xs sm:text-sm flex items-center justify-between gap-2 transition-all duration-100 active:scale-98 border-2 ${
+                                            isSelected
+                                                ? tab.isSpecial
+                                                    ? "bg-[#FFE600] text-black border-black shadow-[2px_2px_0px_#000]"
+                                                    : "bg-black dark:bg-white border-black dark:border-white text-white dark:text-black shadow-[2px_2px_0px_rgba(0,0,0,0.2)]"
+                                                : "bg-white dark:bg-zinc-950 text-black dark:text-white border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2 truncate">
+                                            <Icon className={`w-4 h-4 shrink-0 ${isSelected ? (tab.isSpecial ? "text-black" : "text-amber-400 dark:text-zinc-900") : "text-zinc-500"}`} />
+                                            <span className="font-black truncate">{tab.label}</span>
+                                        </div>
+                                        {tab.count != null && (
+                                            <span className={`px-2 py-0.5 text-xs font-bold font-mono shrink-0 ${
+                                                isSelected
+                                                    ? "bg-zinc-800 dark:bg-zinc-200 text-zinc-100 dark:text-zinc-900"
+                                                    : "bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800"
+                                            }`}>
+                                                {tab.count}
+                                            </span>
+                                        )}
+                                        {tab.isSpecial && (
+                                            <span className={`px-1.5 py-0.5 text-[10px] font-black uppercase tracking-wider shrink-0 ${
+                                                isSelected
+                                                    ? "bg-black text-[#FFE600] border border-black"
+                                                    : "bg-amber-400 text-black border border-black"
+                                            }`}>
+                                                PRO
+                                            </span>
+                                        )}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {/* Performance Summary Cards (Only shown for 3 trades tabs: active, closed, all - hidden in analytics tab) */}
+                    {limit === Infinity && (!isLandingPage || user) && activeTab !== "analytics" && (
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+                            {/* Active Trades */}
+                            <SpotlightCard className="p-3 sm:p-4 border-2 sm:border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[3px_3px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] dark:sm:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:shadow-[4px_4px_0px_rgba(245,158,11,1)] transition-all duration-300">
+                                <div className="relative z-10 flex items-center gap-2.5 sm:gap-3 w-full min-w-0">
+                                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-none bg-amber-500/10 dark:bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center flex-shrink-0">
+                                        <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-wider leading-none mb-1.5 truncate">
+                                            {isAr ? "الصفقات النشطة" : "Active Trades"}
+                                        </p>
+                                        <p className="text-lg sm:text-2xl font-black font-mono leading-none">{stats.activeCount}</p>
+                                    </div>
+                                </div>
+                            </SpotlightCard>
+
+                            {/* Closed Trades */}
+                            <SpotlightCard className="p-3 sm:p-4 border-2 sm:border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[3px_3px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] dark:sm:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:shadow-[4px_4px_0px_rgba(245,158,11,1)] transition-all duration-300">
+                                <div className="relative z-10 flex items-center gap-2.5 sm:gap-3 w-full min-w-0">
+                                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-none bg-amber-500/10 dark:bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center flex-shrink-0">
+                                        <Layers className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-wider leading-none mb-1.5 truncate">
+                                            {isAr ? "الصفقات المغلقة" : "Closed Trades"}
+                                        </p>
+                                        <p className="text-lg sm:text-2xl font-black font-mono leading-none">{stats.closedCount}</p>
+                                    </div>
+                                </div>
+                            </SpotlightCard>
+
+                            {/* Win Rate */}
+                            <SpotlightCard className="p-3 sm:p-4 border-2 sm:border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[3px_3px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] dark:sm:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:shadow-[4px_4px_0px_rgba(245,158,11,1)] transition-all duration-300">
+                                <div className="relative z-10 flex items-center gap-2.5 sm:gap-3 w-full min-w-0">
+                                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-none bg-amber-500/10 dark:bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center flex-shrink-0">
+                                        <Target className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-wider leading-none mb-1.5 truncate">
+                                            {isAr ? "نسبة النجاح" : "Win Rate"}
+                                        </p>
+                                        <p className="text-lg sm:text-2xl font-black font-mono text-emerald-500 leading-none truncate" dir="ltr">
+                                            {stats.winRate.toFixed(1)}%
+                                        </p>
+                                    </div>
+                                </div>
+                            </SpotlightCard>
+
+                            {/* Average Return */}
+                            <SpotlightCard className="p-3 sm:p-4 border-2 sm:border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[3px_3px_0px_rgba(0,0,0,1)] sm:shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] dark:sm:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:shadow-[4px_4px_0px_rgba(245,158,11,1)] transition-all duration-300">
+                                <div className="relative z-10 flex items-center gap-2.5 sm:gap-3 w-full min-w-0">
+                                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-none bg-amber-500/10 dark:bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center flex-shrink-0">
+                                        <Award className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-wider leading-none mb-1.5 truncate">
+                                            {isAr ? "متوسط العائد" : "Avg Return"}
+                                        </p>
+                                        <p className={`text-lg sm:text-2xl font-black font-mono leading-none truncate ${stats.avgReturn == null || stats.avgReturn >= 0 ? "text-emerald-500" : "text-rose-500"}`} dir="ltr">
+                                            {stats.avgReturn == null ? "—" : `${stats.avgReturn >= 0 ? "+" : ""}${stats.avgReturn.toFixed(1)}%`}
+                                        </p>
+                                    </div>
+                                </div>
+                            </SpotlightCard>
+                        </div>
+                    )}
+
+                    {activeTab === "analytics" ? (
                 <div className="space-y-6">
                     {(() => {
                         const cutoff15 = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
@@ -3588,6 +3705,8 @@ function RecommendationsTableContent({ isLandingPage = false, limit = Infinity, 
                 </div>
             )}
             </>
+            )}
+                </div>
             )}
         </div>
     );
