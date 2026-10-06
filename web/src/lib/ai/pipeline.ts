@@ -9,7 +9,7 @@ import { sanitizeReply } from "./sanitizer";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState, loadPersistentInvestorProfile, isUuid } from "./session";
 import { buildExcelTables, ExcelTable } from "./excel-tables";
 import { AI_CONFIG } from "./config";
-import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion, detectPortfolioIntent, detectPortfolioConfirmation, isPortfolioAnalysisRequest, isPortfolioRankingRequest, isNileExchangeQuestion, isConversationalChoiceOrFollowUp } from "./intent-policy";
+import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion, isExplicitRecommendationRequest, detectPortfolioIntent, detectPortfolioConfirmation, isPortfolioAnalysisRequest, isPortfolioRankingRequest, isNileExchangeQuestion, isConversationalChoiceOrFollowUp } from "./intent-policy";
 import { extractExcludedSectorNames, extractMentionedSectorNames } from "./sector-taxonomy";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { isEgxSessionOpen } from "./live-stock-updater";
@@ -163,7 +163,7 @@ function intersectHybridScanResults(tools: StructuredToolOutput, plan: IntentPla
 
 export function sanitizePlannerTools(message: string, tools: string[]): string[] {
     if (/(?:ثندر|thndr)/i.test(message)) return tools.filter(tool => tool === "get_market");
-    const explicitlyRequestsRecommendations = isBestBuyStockQuestion(message) || /(?:توصيات|توصيه|توصية|اشارات|إشارات|سجل التوصيات|اقدم توصيه|أقدم توصية|مناسبة للدخول|للدخول فيها|مرشحة|أسهم مرشحة|اسهم كويسة|فرص دخول|للشراء|ترشح|ترشيحات|اشتريها|اشتري|ادخل فيها|تحقق ارباح|تحقق أرباح|فرص شراء)/i.test(message);
+    const explicitlyRequestsRecommendations = isExplicitRecommendationRequest(message);
     if (explicitlyRequestsRecommendations) return tools;
     return tools.filter(tool => tool !== "get_recommendations" && tool !== "get_signals");
 }
@@ -183,7 +183,7 @@ export function getMarketRankingMode(message: string, requested?: PlannerResult[
     if (requested?.ranking_metric === "liquidity" && marketRanking) return "liquidity_unavailable";
     if (/(?:تجميع|accumulation)/i.test(normalized)) return "accumulation";
     if (!sectorScoped && !historicalPeriod && /(?:اعلى|اعلي|اقوى|اقوي|اكبر|اكبر).{0,35}(?:ارتفاع|صعود|رابح|مكسب|gainer)/i.test(normalized)) return "price_change";
-    const bareDailyGainers = /(?:اقوى|اقوي|اعلى|اعلي)\s+(?:الاسهم|اسهم)(?:\s+(?:اليوم|النهارده|النهاردة|اخر\s+جلسه|اخر\s+جلسة))?$/i.test(normalized.trim());
+    const bareDailyGainers = /(?:اقوى|اقوي|اعلى|اعلي)\s+(?:الاسهم|اسهم)(?:\s+(?:اليوم|النهارده|النهاردة|(?:اخر|لاخر)\s+(?:جلسه|جلسة|يوم)))?$/i.test(normalized.trim());
     if (!sectorScoped && !historicalPeriod && bareDailyGainers
         && !/(?:استثمار|فن[ىي]|توزيع|ارباح|عائد|سيول|حجم|تجميع|تصريف|زخم|مؤشرات)/i.test(normalized)) return "price_change";
     if (requested?.ranking_metric === "price_change" && !sectorScoped && !historicalPeriod) return "price_change";
@@ -1085,7 +1085,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             }
         };
     }
-    if (explicitSymbols.length === 0 && /(?:اقوى|أقوى|اعلى|أعلى)\s+(?:الاسهم|الأسهم|اسهم)(?:\s+(?:النهارده|اليوم|اخر\s+جلسه))?$/i.test(normalized.trim())) {
+    if (explicitSymbols.length === 0 && /(?:اقوى|اقوي|أقوى|اعلى|اعلي|أعلى)\s+(?:الاسهم|الأسهم|اسهم)\s+(?:النهارده|اليوم|(?:اخر|لاخر)\s+(?:جلسه|يوم))$/i.test(normalized.trim())) {
         return {
             intent: "market_summary", confidence: 1,
             entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
@@ -1131,6 +1131,20 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     }
     const hasPreviousReferenceEarly = /(?:^|[^\u0621-\u064A])(ده|دا|دي|هذا|السهم ده|السهم دا|السهم دي|هاته|هاتها|اخباره|أخباره|خبره|الاتنين|السهمين|عليه|فيه|ليه|عليها|فيها|ليها|عنه|عنها|به|بها|معاه|معاها|هو|هي)(?:$|[^\u0621-\u064A])/i.test(normalized) && !broadScan && (explicitSymbols.length === 0 || /(قارن|مقارنه|مقارنة).{0,20}(ده|دا|دي|هذا).{0,20}(مع|بـ|ب)/i.test(normalized));
     const isSingleStockRecReference = hasPreviousReferenceEarly && Boolean(sessionState.current_symbol);
+    const ambiguousStrongestRequest = explicitSymbols.length === 0
+        && /(?:اقوى|اقوي|أقوى|اعلى|اعلي|أعلى)\s+(?:الاسهم|الأسهم|اسهم)\s*[؟?\s]*$/i.test(normalized.trim())
+        && !/(النهارده|اليوم|جلسه|جلسة|اخر\s+(?:جلسه|يوم)|لاخر\s+(?:جلسه|يوم)|اسبوع|أسبوع|سيول|سيولة|زخم|ارتفاع|صعود)/i.test(normalized);
+    if (ambiguousStrongestRequest) {
+        return {
+            intent: "clarification",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "unspecified", requested_date: null, scan_direction: null },
+            tools: [],
+            clarification_needed: true,
+            clarification_options: ["أعلى ارتفاع سعري", "أعلى سيولة", "أقوى زخم فني", "أفضل أداء أسبوعي"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
     const recommendationRequest = isBestBuyStockQuestion(message) || /(?:توصي[اإ]?\s*ت|توصي[ةه]|ترشح|ترشيحات|فرص\s*شراء|فرص\s*دخول|اسهم\s*ادخل\s*فيها|اسهم\s*اشتريها|اشتري\s*ايه|ادخل\s*في\s*ايه|ادخل\s*فيها|اسهم\s*ممتازة|اسهم\s*كويسة|تحقق\s*ارباح|تحقق\s*أرباح|توصيات\s*كويسة|توصيات\s*شراء|اسهم\s*للشراء|فرص\s*الشراء)/i.test(normalized);
     if (recommendationRequest && explicitSymbols.length === 0 && !isSingleStockRecReference) {
         const isRecFilterOpen = /(?:مفتوح[ةه]|open)/i.test(normalized);
@@ -1152,17 +1166,6 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             entities: { symbols: [sessionState.current_symbol!], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, recommendation_order: "newest", recommendation_filter: null },
             tools: ["get_stock", "get_recommendations", "get_stock_levels"],
             session_update: { current_symbol: sessionState.current_symbol, last_symbols: [sessionState.current_symbol!], summary: message }
-        };
-    }
-    if (/(?:اقوي|اقوى|أقوى)\s+(?:الاسهم|الأسهم)\s*[؟?\s]*$/i.test(normalized.trim()) && !/(النهارده|اليوم|جلسه|جلسة|اسبوع|أسبوع|سيول|سيولة|زخم|ارتفاع)/i.test(normalized)) {
-        return {
-            intent: "clarification",
-            confidence: 1,
-            entities: { symbols: [], sector: null, wants_table: false, timeframe: "unspecified", requested_date: null, scan_direction: null },
-            tools: [],
-            clarification_needed: true,
-            clarification_options: ["أعلى ارتفاع سعري", "أعلى سيولة", "أقوى زخم فني", "أفضل أداء أسبوعي"],
-            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
         };
     }
     if (
@@ -2519,7 +2522,9 @@ async function* runPipelineCore(
         || deterministicPlannerResult?.intent === "portfolio_management"
         || deterministicPlannerResult?.guidance_intent === "terms_explainer"
         || Boolean(/شريع|sharia/i.test(normalizeArabicIntent(userMessage)))
-        || Boolean(deterministicPlannerResult?.tools?.includes("get_recommendations"))
+        || Boolean(deterministicPlannerResult?.tools?.includes("get_recommendations")
+            && (isExplicitRecommendationRequest(userMessage)
+                || deterministicPlannerResult?.intent === "historical_recall"))
         || Boolean(deterministicPlannerResult?.service_degraded_message || deterministicPlannerResult?.unresolved_stock);
     const canUseSemanticPlanner = !hasImages
         && portfolioAnalysisSymbols.length === 0

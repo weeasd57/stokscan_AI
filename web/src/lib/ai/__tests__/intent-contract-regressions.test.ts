@@ -5,7 +5,10 @@ import {
     parsePortfolioSelectionCount,
     resolveGroupReferenceSymbols,
     runPipelineStream,
+    sanitizePlannerTools,
 } from "../pipeline";
+import { isExplicitRecommendationRequest } from "../intent-policy";
+import { resolveResponseTask } from "../response-task";
 import { PlannerResult, SessionState } from "../types";
 
 const session: SessionState = {
@@ -38,12 +41,28 @@ describe("intent contract regressions", () => {
     it("keeps explicit Wyckoff scans and price gainers on their own metrics", () => {
         expect(getMarketRankingMode("هات أسهم التجميع المؤسسي Wyckoff")).toBe("accumulation");
         expect(getMarketRankingMode("أعلى الأسهم ارتفاعاً اليوم")).toBe("price_change");
+        expect(getMarketRankingMode("أقوى الأسهم لاخر يوم")).toBe("price_change");
     });
 
     it("keeps sector and historical liquidity on supported tool paths", () => {
         expect(getMarketRankingMode("أعلى القطاعات سيولة اليوم")).toBeNull();
         expect(getMarketRankingMode("أعلى الأسهم سيولة هذا الشهر")).toBeNull();
         expect(getMarketRankingMode("أعلى الأسهم سيولة النهارده")).toBe("liquidity_unavailable");
+    });
+
+    it("lets semantic routing own generic superlatives while preserving explicit recommendation gating", () => {
+        const marketPlan: any = {
+            intent: "market_summary",
+            entities: { symbols: [], sector: null, timeframe: "current" },
+            tools: ["get_market"],
+        };
+        expect(isExplicitRecommendationRequest("أقوى الأسهم النهارده")).toBe(false);
+        expect(isExplicitRecommendationRequest("أقوى الأسهم للنهارده")).toBe(false);
+        expect(isExplicitRecommendationRequest("أقوى الأسهم في آخر يوم")).toBe(false);
+        expect(resolveResponseTask("أقوى الأسهم النهارده", marketPlan).kind).toBe("fact");
+        expect(sanitizePlannerTools("أقوى الأسهم النهارده", ["get_market", "get_recommendations"])).toEqual(["get_market"]);
+        expect(isExplicitRecommendationRequest("هات توصيات المنصة المفتوحة")).toBe(true);
+        expect(resolveResponseTask("هات توصيات المنصة المفتوحة", marketPlan).kind).toBe("stock_recommendation");
     });
 
     it("does not schedule unrequested market-wide daily liquidity clarification for sector or period rankings", async () => {

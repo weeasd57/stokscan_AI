@@ -1,5 +1,5 @@
 import { IntentPlan, ToolResult } from "./types";
-import { isBestBuyStockQuestion, normalizeArabicIntent } from "./intent-policy";
+import { isExplicitRecommendationRequest, normalizeArabicIntent } from "./intent-policy";
 
 export interface ResponseTask {
     kind: "decision_comparison" | "stock_recommendation" | "comparison" | "explanation" | "fact";
@@ -28,7 +28,7 @@ export function resolveResponseTask(message: string, plan: IntentPlan,
         && /ايهما|افضل|احسن|انسب|اختار|ترشح|مين/.test(normalize(previousUser + " " + previousAssistant));
     const context = inherited ? `${normalize(previousUser)} ${text}` : text;
     const decision = symbols.length >= 2 && (choice || inherited || plan.request?.answer_kind === "decision_comparison" || plan.response_task?.kind === "decision_comparison");
-    const stockRecommendation = symbols.length === 0 && isBestBuyStockQuestion(message);
+    const stockRecommendation = symbols.length === 0 && isExplicitRecommendationRequest(message);
     const criterion: ResponseTask["criterion"] = /مخاطر|مخاطره|امن|امان|محافظ/.test(context) ? "risk"
         : /مضارب|سكالب|intraday|يومي|جلسه/.test(context) ? "intraday"
         : /سيول|حجم|تداول/.test(context) ? "relative_volume"

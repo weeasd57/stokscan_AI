@@ -215,12 +215,26 @@ export function isBestBuyStockQuestion(message: string): boolean {
         || /^(?:ايه\s+افضل\s+سهم\s+للشراء|افضل\s+سهم\s+للشراء|أفضل\s+سهم\s+للشراء|اشتري\s+ايه\s+بكره|أشتري\s+إيه\s+بكرة|مين\s+ادخله\s+بكره|مين\s+أدخله\s+بكرة|نجم\s+الاسبوع|نجم\s+الأسبوع|القطاع\s+اللي\s+هيطلع|القطاع\s+اللي\s+يرتفع|السهم\s+اللي\s+هيرتفع|افضل\s+الفرص\s+المتاحة\s+حالياً|أفضل\s+الفرص\s+المتاحة\s+حالياً|رشحلى|رشحلي|رشح)/i.test(value);
 }
 
+/**
+ * Distinguish a product recommendation request from a generic market
+ * superlative. Phrases such as "أقوى الأسهم اليوم" still need semantic
+ * resolution because they may mean price movers, liquidity, momentum, or
+ * platform recommendations.
+ */
+export function isExplicitRecommendationRequest(message: string): boolean {
+    const normalized = normalizeArabicIntent(message);
+    const directRecommendation = /(?:توصي|ترشيح|ترشح|رشح|اشارات|سجل\s+التوصيات|اقدم\s+توصيه|مناسبه?\s+للدخول|للدخول\s+(?:فيها|فيه)|مرشحه|للشراء|اشتري|ادخل\s+في|فرص\s+(?:شراء|دخول)|(?:سهم|اسهم|الاسهم).{0,25}استثمار|استثمار.{0,25}(?:سهم|اسهم|الاسهم)|نجم\s+(?:الاسبوع|الأسبوع)|افضل\s+الفرص|احسن\s+الفرص|اسهم\s+(?:كويسه|ممتازه|واعده|كسبانه)|(?:السهم|القطاع)\s+اللي\s+(?:هيطلع|هيرتفع|هيزيد)|recommendations?|signals?)/i.test(normalized);
+    const genericMarketRanking = /(?:اقوى|اقوي|افضل|احسن|اعلى|اعلي|اكبر)\s+(?:الاسهم|اسهم|السوق|البورصه)/i.test(normalized);
+    if (genericMarketRanking && !directRecommendation) return false;
+    return directRecommendation;
+}
+
 /** A superlative does not authorize inventing a ranking metric. */
 export function isUnspecifiedOpportunityRequest(message: string): boolean {
     const value = normalizeArabicIntent(message);
     return isBestBuyStockQuestion(message)
         && /اقوى|اقوي|أقوى|افضل|احسن|فرص|رشح|ترشح/.test(value)
-        && !/شريع|اسلام|إسلام|sharia|توصي|تجميع|تصريف|وايكوف|wyckoff|سيوله|حجم|دعم|مقاوم|زخم|rsi|macd|ربحيه|توزيعات|عائد|قيمه|ارخص|اعلي ارتفاع|اعلي صعود|اكثر ارتفاع|دولار|usd|امريكي|امريكا|us stocks/.test(value);
+        && !/شريع|اسلام|إسلام|sharia|توصي|تجميع|تصريف|وايكوف|wyckoff|سيوله|حجم|دعم|مقاوم|زخم|rsi|macd|ربحيه|توزيعات|عائد|قيمه|ارخص|اعلي ارتفاع|اعلي صعود|اكثر ارتفاع|النهارده|اليوم|اخر\s+(?:جلسه|يوم)|ارتفاع|صعود|رابح|gainer|دولار|usd|امريكي|امريكا|us stocks/.test(value);
 }
 
 export function isFairValueScanRequest(message: string): boolean {
