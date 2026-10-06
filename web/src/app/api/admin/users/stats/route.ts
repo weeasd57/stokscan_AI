@@ -136,13 +136,38 @@ export async function GET(req: NextRequest) {
     });
     const daysToLookBack = Math.max(Math.ceil((now.getTime() - earliestTime) / (1000 * 60 * 60 * 24)), 29);
     const signupsByDay: Record<string, number> = {};
+    const proSignupsByDay: Record<string, number> = {};
     for (let i = daysToLookBack; i >= 0; i -= 1) {
       const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
       signupsByDay[date] = 0;
+      proSignupsByDay[date] = 0;
     }
     allProfiles.forEach((profile: any) => {
       const date = new Date(profile.created_at).toISOString().split("T")[0];
       if (date in signupsByDay) signupsByDay[date] += 1;
+    });
+
+    // Track Pro subscription starts per day
+    subscriptions.forEach((sub: any) => {
+      const subDateStr = sub.current_period_start || sub.created_at;
+      if (subDateStr) {
+        const date = new Date(subDateStr).toISOString().split("T")[0];
+        if (date in proSignupsByDay) proSignupsByDay[date] += 1;
+      }
+    });
+
+    // Build cumulative active Pro subscribers over time for accurate timeline tracking
+    let cumulativePro = 0;
+    const growthTimeline = Object.entries(signupsByDay).map(([date, count]) => {
+      const newPro = proSignupsByDay[date] || 0;
+      cumulativePro += newPro;
+      return {
+        date: date.slice(5),
+        fullDate: date,
+        count, // new daily users
+        proCount: newPro, // new daily pro subscribers
+        totalPro: cumulativePro, // cumulative active pro subscribers
+      };
     });
 
     const planMap = analytics.plans;
@@ -155,7 +180,7 @@ export async function GET(req: NextRequest) {
       languages: langMap,
       plans: planMap,
       botServices: serviceMap,
-      signupGrowth: Object.entries(signupsByDay).map(([date, count]) => ({ date: date.slice(5), count })),
+      signupGrowth: growthTimeline,
       activeProUsers: analytics.activeProUsers,
       activeUsers30Days: analytics.activeUsers30Days,
       activeUsers7Days: analytics.activeUsers7Days,

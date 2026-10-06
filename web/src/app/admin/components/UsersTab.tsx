@@ -91,7 +91,7 @@ interface UserStats {
     languages: Record<string, number>;
     plans: Record<string, number>;
     botServices: Record<string, number>;
-    signupGrowth: { date: string; count: number }[];
+    signupGrowth: { date: string; fullDate?: string; count: number; proCount?: number; totalPro?: number }[];
     activeProUsers: number;
     activeUsers30Days: number;
     activeUsers7Days: number;
@@ -444,32 +444,62 @@ export default function UsersTab() {
                     </div>
                 </div>
 
-                {/* Growth Chart */}
-                <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4 mb-6">
-                    <div className="flex items-center justify-between mb-4">
-                        <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2">
-                            <Activity className="w-4 h-4 text-blue-500" />
-                            {isAr ? "نمو تسجيل المستخدمين (كل الفترات)" : "USER REGISTRATION TREND (ALL TIME)"}
-                        </h3>
-                        <span className="text-[10px] font-bold font-mono text-zinc-400">{isAr ? "التسجيلات اليومية" : "DAILY SIGNUPS"}</span>
+                {/* Growth Chart with Users and Pro Subscribers */}
+                <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4 mb-6 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                        <div>
+                            <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2 text-black dark:text-white">
+                                <Activity className="w-4 h-4 text-blue-500" />
+                                {isAr ? "نمو المستخدمين والمشتركين Pro (كل الفترات)" : "USER & PRO SUBSCRIBER GROWTH (ALL TIME)"}
+                            </h3>
+                            <p className="text-[10px] text-zinc-500 font-bold mt-0.5">
+                                {isAr ? "مقارنة مباشرة بين التسجيلات الجديدة واشتراكات Pro التراكمية عبر الزمن" : "Tracking daily registrations vs cumulative active Pro subscribers"}
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs font-black">
+                            <span className="flex items-center gap-1.5 text-blue-500">
+                                <span className="w-3 h-3 rounded-xs bg-blue-500 border border-black dark:border-white" />
+                                {isAr ? "المسجلون الجدد" : "New Signups"}
+                            </span>
+                            <span className="flex items-center gap-1.5 text-amber-500">
+                                <span className="w-3 h-3 rounded-xs bg-amber-400 border border-black dark:border-white" />
+                                <Crown className="w-3 h-3 text-amber-500" />
+                                {isAr ? `المشتركون Pro (${stats?.activeProUsers || 0})` : `Pro Subscribers (${stats?.activeProUsers || 0})`}
+                            </span>
+                        </div>
                     </div>
                     {statsLoading ? (
-                        <div className="h-44 flex items-center justify-center text-xs font-bold text-zinc-400">Loading chart...</div>
+                        <div className="h-52 flex items-center justify-center text-xs font-bold text-zinc-400">Loading chart...</div>
                     ) : (
-                        <div className="h-44 w-full pt-4">
+                        <div className="h-52 w-full pt-2">
                             <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={stats?.signupGrowth || []} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                                <AreaChart data={stats?.signupGrowth || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                     <defs>
                                         <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4}/>
                                             <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                        </linearGradient>
+                                        <linearGradient id="colorPro" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4}/>
+                                            <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
                                         </linearGradient>
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#52525b" opacity={0.2} />
                                     <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a' }} minTickGap={15} />
                                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#71717a' }} allowDecimals={false} />
-                                    <RechartsTooltip contentStyle={{ backgroundColor: '#000', border: '1px solid #fff', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }} itemStyle={{ color: '#fff' }} labelStyle={{ color: '#a1a1aa', marginBottom: '4px' }} cursor={{ stroke: '#52525b', strokeWidth: 1, strokeDasharray: '3 3' }} />
-                                    <Area type="monotone" dataKey="count" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" activeDot={{ r: 5, strokeWidth: 0, fill: '#fff' }} />
+                                    <RechartsTooltip 
+                                        contentStyle={{ backgroundColor: '#000', border: '2px solid #fff', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }} 
+                                        itemStyle={{ color: '#fff' }} 
+                                        labelStyle={{ color: '#fbbf24', marginBottom: '4px' }} 
+                                        cursor={{ stroke: '#52525b', strokeWidth: 1, strokeDasharray: '3 3' }}
+                                        formatter={(value: any, name: any) => {
+                                            if (name === "totalPro") return [value, isAr ? "إجمالي المشتركين Pro" : "Total Pro"];
+                                            if (name === "proCount") return [value, isAr ? "مشتركون Pro جدد" : "New Pro"];
+                                            return [value, isAr ? "المسجلون الجدد" : "New Signups"];
+                                        }}
+                                    />
+                                    <Area type="monotone" dataKey="count" name="count" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" activeDot={{ r: 5, strokeWidth: 0, fill: '#fff' }} />
+                                    <Area type="monotone" dataKey="totalPro" name="totalPro" stroke="#f59e0b" strokeWidth={3} fillOpacity={1} fill="url(#colorPro)" activeDot={{ r: 5, strokeWidth: 0, fill: '#f59e0b' }} />
                                 </AreaChart>
                             </ResponsiveContainer>
                         </div>

@@ -735,7 +735,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                         
                         const hasRecommendationKw = /(?:في|فى|فيه|عندك|هل\s+يوجد|موجود)?\s*(?:توصيات|توصيه|توصية|إشارة|إشارات|اشارة|اشارات|اشارات\s+النظام|إشارات\s+النظام|سجل\s+التوصيات|اقدم\s+توصيه|أقدم\s+توصية)/i.test(message || "");
                         if (hasRecommendationKw) {
-                            finalIntent = "recommendations";
+                            finalIntent = resolvedSymbols.length > 0 ? "stock_analysis" : "market_summary";
                         } else if (isTermsQuestion) {
                             finalIntent = "general_chat";
                         } else if (isHistoryQuery) {
@@ -772,7 +772,8 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
 
                         if (hasRecommendationKw && !hasImages) {
                             if (!toolsList.includes("get_recommendations")) toolsList.push("get_recommendations");
-                            if (!toolsList.includes("get_signals")) toolsList.push("get_signals");
+                            if (!toolsList.includes("get_accumulation_stocks")) toolsList.push("get_accumulation_stocks");
+                            if (resolvedSymbols.length > 0 && !toolsList.includes("get_stock")) toolsList.push("get_stock");
                         }
 
                         const imageSummary = hasImages ? (parsed.image_summary || "تحليل البيانات والصورة المرفقة من المحفظة.") : null;

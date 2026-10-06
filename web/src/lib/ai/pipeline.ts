@@ -817,18 +817,19 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             session_update: { current_symbol: null, last_symbols: [], summary: message }
         };
     }
-    // "Best stocks tomorrow" and the immediate Arabic-name follow-up must
-    // reuse the same verified public recommendation dataset used by the first
-    // answer, instead of falling through to a generic market/fallback plan.
+    // "Best stocks tomorrow", general recommendation requests ("هات توصيه" / "عايز توصية"),
+    // and the immediate Arabic-name follow-up must route deterministically to
+    // recommendations and accumulation scan data.
+    const asksRecommendations = explicitSymbols.length === 0 && /(?:توصي[اإ]?\s*ت|توصي[ةه]|ترشح|ترشيحات|فرص\s*شراء|فرص\s*دخول|اسهم\s*ادخل\s*فيها|اسهم\s*اشتريها|اشتري\s*ايه|ادخل\s*في\s*ايه|ادخل\s*فيها|اسهم\s*ممتازة|اسهم\s*كويسة|تحقق\s*ارباح|تحقق\s*أرباح|توصيات\s*كويسة|توصيات\s*شراء|اسهم\s*للشراء|فرص\s*الشراء|هات\s*توصي[ةه]|عايز\s*توصي[ةه]|في\s*توصيات|فيه\s*توصيات)/i.test(normalized);
     const asksTomorrowRecommendations = explicitSymbols.length === 0 && /(?:اقوى|أقوى|افضل|أفضل|شراء|اشترى|أسهم|اسهم).{0,35}(?:غدا|غداً|بكره|بكرة|غدًا)/i.test(normalized);
     const asksArabicNames = explicitSymbols.length === 0 && /(?:حدد|اكتب|هات|اعرض).{0,25}(?:الاسماء|الأسماء|اسماء|أسماء).{0,15}(?:بالعربى|بالعربي|العربي|العربية)/i.test(normalized);
     const hasPreviousRecommendationList = /(?:توصي|شراء|افضل\s+سهم|أقوى\s+سهم|أقوى\s+الأسهم|افضل\s+الاسهم|أفضل\s+الأسهم)/i.test(String(sessionState.summary || ""));
-    if (asksTomorrowRecommendations || (asksArabicNames && hasPreviousRecommendationList)) {
+    if (asksRecommendations || asksTomorrowRecommendations || (asksArabicNames && hasPreviousRecommendationList)) {
         return {
             intent: "market_summary",
             confidence: 1,
             entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, recommendation_order: "newest", recommendation_filter: "open" },
-            tools: asksTomorrowRecommendations ? ["get_recommendations", "get_accumulation_stocks"] : ["get_recommendations"],
+            tools: ["get_recommendations", "get_accumulation_stocks"],
             session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message },
         } as any;
     }
@@ -2499,6 +2500,7 @@ async function* runPipelineCore(
         || deterministicPlannerResult?.intent === "portfolio_management"
         || deterministicPlannerResult?.guidance_intent === "terms_explainer"
         || Boolean(/شريع|sharia/i.test(normalizeArabicIntent(userMessage)))
+        || Boolean(deterministicPlannerResult?.tools?.includes("get_recommendations"))
         || Boolean(deterministicPlannerResult?.service_degraded_message || deterministicPlannerResult?.unresolved_stock);
     const canUseSemanticPlanner = !hasImages
         && portfolioAnalysisSymbols.length === 0
@@ -3878,6 +3880,7 @@ function mapIntent(intent: string): IntentPlan["intent"] {
         "current_data": "stock_analysis",
         "previous_analysis_comparison": "historical_recall",
         "recommendation": "stock_analysis",
+        "recommendations": "market_summary",
         "accumulation": "stock_analysis",
         "accumulation_distribution": "accumulation_distribution",
         "risk_analysis": "risk_analysis",

@@ -451,7 +451,10 @@ export function buildV2FinalMessages(
             sections.push("=== HISTORICAL DATA ===");
             historicalResults.forEach(r => {
                 sections.push(`الأداة: ${r.tool} | المصدر: ${r.source} | الوقت: ${r.data_time} | نوع: ${r.data_type}`);
-                if (r.tool === "get_recommendations" && Array.isArray(r.data)) {
+                if (r.tool === "get_recommendations" && (r.pro_locked || r.error)) {
+                    sections.push(`تنبيه صلاحيات التوصيات: ${r.error || "إشارات وتوصيات المنصة الفورية المفتوحة (مع مستهدفات وأسعار الدخول ووقف الخسارة المحدثة) هي ميزة حصرية لمشتركي باقة Pro."}`);
+                    sections.push("إذا كان المستخدم غير مشترك بباقة Pro، صرّح له بوضوح وبأسلوب مهني أن التوصيات الفورية المفتوحة حصرية لمشتركي باقة Pro مع إمكانية الترقية، وقدم له فرص التجميع المؤسسي المتاحة في البيانات كبديل تحليلي قيّم.");
+                } else if (r.tool === "get_recommendations" && Array.isArray(r.data)) {
                     sections.push(recommendationSummaryText(r));
                     sections.push("انقل أعداد الحالات من الملخص الموثق. العائد المفقود ليس تعادلاً. ميّز تاريخ صدور الإشارة عن تاريخ تقييم أدائها، ولا تصف البيانات الناقصة بالقائمة الكاملة.");
                     sections.push("  recommendations_data (Use this strictly for qualitative performance analysis; DO NOT output raw table rows into the text response as the interactive Excel table is already rendered above your answer):");
@@ -2322,7 +2325,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         const symbols = plan.entities.symbols.length ? ` للسهم ${plan.entities.symbols.join(" و")}` : "";
         return `أحدث سجل متاح لمسح ${direction}${symbols} بتاريخ ${scan.data_time}، لكنه قديم ولا يصلح لوصف الحالة الحالية. لم أخلط هذه الإشارة مع مؤشرات التداول الأحدث؛ يلزم تحديث المسح قبل الحكم على وجود ${direction} الآن.`;
     }
-    if (scan && scan.data?.stocks && !plan.tools.includes("get_fair_value_scan") && plan.entities.symbols.length === 0) {
+    const recResult = toolResults.find(r => r.tool === "get_recommendations" || r.tool === "get_signals");
+    const hasActiveRecommendations = Array.isArray(recResult?.data) && recResult.data.length > 0;
+    if (scan && scan.data?.stocks && !hasActiveRecommendations && !plan.tools.includes("get_fair_value_scan") && plan.entities.symbols.length === 0) {
         const stocks = scan.data.stocks;
         const direction = scan.data.direction === "distribution" ? "تصريف" : "تجميع";
         const oppositeDirection = scan.data.direction === "distribution" ? "تجميع" : "تصريف";
@@ -2706,8 +2711,8 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     if (recommendations) {
         const rows = Array.isArray(recommendations.data) ? recommendations.data : [];
         if (rows.length === 0) return recommendations.error
-            ? `${recommendations.error} لا أعرض إشارة قديمة أو متناقضة على أنها توصية حالية.`
-            : "لا توجد إشارات تاريخية مسجلة يمكن تقييمها حالياً.";
+            ? recommendations.error
+            : "لا توجد إشارات أو توصيات مسجلة حالياً.";
         return renderRecommendationEvidence(recommendations);
     }
 
@@ -3189,10 +3194,11 @@ function shouldReturnNoData(
     relevantFacts: FactSnapshot[]
 ): boolean {
     if (visionContext || relevantFacts.length > 0) return false;
+    if (toolResults.some(r => r.pro_locked || ((r.tool === "get_recommendations" || r.tool === "get_signals") && r.error))) return false;
     if (!plan.needs_live_data && !plan.needs_historical_data) return false;
     return !toolResults.some(result => {
         if (!result.data || result.source === "empty") {
-            if ((result.tool === "get_recommendations" || result.tool === "get_signals") && (plan.entities.symbols?.length ?? 0) > 0) {
+            if ((result.tool === "get_recommendations" || result.tool === "get_signals") && ((plan.entities.symbols?.length ?? 0) > 0 || result.pro_locked)) {
                 return true;
             }
             return false;
@@ -3200,7 +3206,7 @@ function shouldReturnNoData(
         if (result.tool === "search_web" && Array.isArray((result.data as any).results) && (result.data as any).results.length === 0) return false;
         if (Array.isArray(result.data)) {
             if (result.data.length > 0) return true;
-            if ((result.tool === "get_recommendations" || result.tool === "get_signals") && (plan.entities.symbols?.length ?? 0) > 0) {
+            if ((result.tool === "get_recommendations" || result.tool === "get_signals") && ((plan.entities.symbols?.length ?? 0) > 0 || result.pro_locked)) {
                 return true;
             }
             return false;
