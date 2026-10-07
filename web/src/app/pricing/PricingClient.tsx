@@ -872,192 +872,133 @@ export default function PricingClient() {
               ? "تحليلات كمية، وتوصيات مبنية على الذكاء الاصطناعي، وقناة VIP حصرية لتداول البورصة المصرية بثقة."
               : "Quantitative analysis, AI-driven stock signals, and VIP channel access for the Egyptian Stock Exchange."}
           </p>
-
-          {/* ── LIFETIME VIP SPOTLIGHT BANNER ── */}
-          <div className="relative border-4 border-black dark:border-white bg-gradient-to-br from-purple-950 via-indigo-950 to-zinc-950 text-white p-6 sm:p-8 shadow-[8px_8px_0px_#FFE600] dark:shadow-[8px_8px_0px_#FFE600] overflow-hidden">
-            {/* Neon corner badge */}
-            <div className="absolute top-0 end-0 bg-[#FFE600] text-black font-black text-[11px] sm:text-xs px-4 py-1.5 border-b-3 border-s-3 border-black tracking-wider uppercase flex items-center gap-1.5 shadow-sm">
-              <Crown className="w-4 h-4 fill-black" />
-              {isAr ? "فرصة استثنائية · 20 مقعداً فقط" : "LIMITED TO 20 SPOTS ONLY"}
-            </div>
-
-            <div className="grid lg:grid-cols-12 gap-6 items-center pt-4 sm:pt-0">
-              <div className="lg:col-span-8 space-y-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-500/30 border border-purple-400/50 text-purple-200 text-xs font-black tracking-wide">
-                    <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-                    {isAr ? "باقة مدى الحياة (LIFETIME VIP)" : "LIFETIME VIP DEAL"}
-                  </span>
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-red-500/20 border border-red-500/50 text-red-300 text-[11px] font-black animate-pulse">
-                    <Flame className="w-3 h-3 text-red-400" />
-                    {isAr ? "محدودة لـ 20 مستثمراً فقط" : "Strictly 20 Spots"}
-                  </span>
-                </div>
-
-                <div>
-                  <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight leading-tight">
-                    {isAr ? "ادفع 2,250 ج.م مرة واحدة.. واستفد بـ Pro مدى الحياة للأبد 👑" : "Pay 2,250 EGP Once.. Access Pro Forever for Life 👑"}
-                  </h2>
-                  <p className="text-xs sm:text-sm font-semibold text-zinc-300 mt-2 leading-relaxed max-w-2xl">
-                    {isAr
-                      ? "اشتراك دائم بدون أي رسوم أو تجديدات شهرية نهائياً. تمتع بكافة إشارات وتوصيات قناة VIP الفورية، والصفقات القصيرة ⚡ PRO، و350 استشارة ذكاء اصطناعي تتجدد شهرياً تلقائياً للأبد."
-                      : "Permanent membership with zero recurring monthly fees forever. Unrestricted VIP Telegram channel signals, Short Swings PRO trades, and 350 monthly AI queries refreshed automatically for life."}
-                  </p>
-                </div>
-
-                {/* Progress & spots tracker */}
-                <div className="bg-black/60 border-2 border-purple-400/40 p-4 space-y-2.5 max-w-xl">
-                  <div className="flex items-center justify-between text-xs font-black">
-                    <span className="text-[#FFE600] flex items-center gap-1.5">
-                      <Award className="w-4 h-4 text-[#FFE600]" />
-                      {isAr ? "حالة المقاعد المتاحة:" : "Spots Availability:"}
-                    </span>
-                    <span className="font-mono text-white">
-                      {lifetimeIsOpen
-                        ? (isAr ? `متبقي ${lifetimeRemaining} من أصل ${lifetimeLimit} مقعداً` : `${lifetimeRemaining} of ${lifetimeLimit} spots left`)
-                        : (isAr ? "اكتملت جميع المقاعد (20/20) ❌" : "SOLD OUT (20/20) ❌")}
-                    </span>
-                  </div>
-                  {/* Visual Progress bar */}
-                  <div className="w-full bg-zinc-800 border border-zinc-700 h-3 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-yellow-400 to-[#FFE600] transition-all duration-500"
-                      style={{ width: `${Math.min(100, Math.max(5, (lifetimeCount / lifetimeLimit) * 100))}%` }}
-                    />
-                  </div>
-                  <p className="text-[11px] font-bold text-zinc-400">
-                    {isAr
-                      ? "⚡ بمجرد اكتمال الـ 20 مقعداً، سيتم إغلاق الباقة نهائياً ولن تُتاح مجدداً."
-                      : "⚡ Once all 20 spots are claimed, this offer will be permanently closed."}
-                  </p>
-                </div>
-              </div>
-
-              {/* Price & Action */}
-              <div className="lg:col-span-4 border-4 border-[#FFE600] bg-black/80 p-5 sm:p-6 text-center space-y-4 shadow-[6px_6px_0px_#FFE600]">
-                <div>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-[#FFE600] block">
-                    {isAr ? "سعر الباقة لمرة واحدة" : "ONE-TIME LIFETIME PRICE"}
-                  </span>
-                  <div className="flex items-baseline justify-center gap-1.5 mt-1">
-                    <span className="text-4xl sm:text-5xl font-black text-white">2,250</span>
-                    <span className="text-sm font-bold text-[#FFE600]">ج.م</span>
-                  </div>
-                  <span className="text-[11px] font-bold text-zinc-400 block mt-1">
-                    {isAr ? "دفعة واحدة فقط للأبد · بدون أي مصاريف أخرى" : "One-time payment · Zero recurring fees"}
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  disabled={!lifetimeIsOpen}
-                  onClick={() => {
-                    setSelectedPlan("lifetime");
-                    setStep("payment");
-                  }}
-                  className={`w-full flex items-center justify-center gap-2 border-3 border-black py-4 px-4 font-black uppercase text-sm tracking-wider shadow-[4px_4px_0px_#fff] transition-all ${
-                    lifetimeIsOpen
-                      ? "bg-[#FFE600] hover:bg-yellow-400 text-black hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
-                      : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
-                  }`}
-                >
-                  <Crown className="w-4 h-4 fill-current" />
-                  {lifetimeIsOpen
-                    ? (isAr ? "احجز مقعدك مدى الحياة الآن 👑" : "Claim Lifetime Deal 👑")
-                    : (isAr ? "اكتملت المقاعد (Sold Out)" : "Sold Out (20/20)")}
-                </button>
-
-                <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-zinc-400">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{isAr ? "تفعيل تلقائي وفوري عبر EasyKash" : "Instant Activation via EasyKash"}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Founding Members Hero Callout */}
-          <div className="max-w-2xl mx-auto border-3 border-black bg-gradient-to-r from-amber-300 via-[#FFE600] to-yellow-400 p-4 shadow-[4px_4px_0px_#000] text-black">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <span className="px-2 py-0.5 bg-black text-[#FFE600] text-[10px] font-black uppercase tracking-wider">
-                🔥 {isAr ? "عرض محدود جداً" : "LIMITED OFFER"}
-              </span>
-              <span className="font-black text-sm sm:text-base">
-                {isAr ? "عرض المؤسسين الأوائل (Founding Members)" : "Founding Members Offer"}
-              </span>
-            </div>
-            <p className="text-xs sm:text-sm font-bold text-zinc-900 leading-snug">
-              {isAr ? (
-                <>
-                  اشترك الآن في خطة <strong>Pro بـ 50 ج.م فقط شهرياً</strong> مدى الحياة (بدلاً من 200 ج.م). 
-                  <span className="inline-block bg-black text-white px-2 py-0.5 font-black text-xs ms-1.5 shadow-[1px_1px_0_0_#fff]">
-                    {foundersRemaining !== null
-                      ? `متبقي ${foundersRemaining} مقعداً فقط`
-                      : "مقاعد محدودة جداً"}
-                  </span>
-                  ، بعدها سيغلق العرض ويعود السعر الرسمي لـ 200 ج.م لجميع المشتركين الجدد.
-                  <span className="block mt-1 text-[11px] font-bold text-black/80">
-                    ⏱️ <strong>شرط استمرار السعر:</strong> استمرار التجديد الشهري، مع <strong>مهلة سماح 72 ساعة</strong> بعد انتهاء كل شهر للتجديد بسعر 50 ج.م قبل فقدان ميزة المؤسس وتطبيق السعر الرسمي (200 ج.م).
-                  </span>
-                </>
-              ) : (
-                <>
-                  Lock in <strong>Pro for just 50 EGP/mo for life</strong> (standard price 200 EGP). 
-                  <span className="inline-block bg-black text-white px-2 py-0.5 font-black text-xs ms-1.5 shadow-[1px_1px_0_0_#fff]">
-                    {foundersRemaining !== null
-                      ? `Only ${foundersRemaining} spots remaining`
-                      : "Very limited spots"}
-                  </span>
-                  . Price reverts to 200 EGP once filled.
-                  <span className="block mt-1 text-[11px] font-bold text-black/80">
-                    ⏱️ <strong>Retention Rule:</strong> 72 hours renewal grace period upon expiry to maintain your 50 EGP/mo rate before standard 200 EGP rate applies.
-                  </span>
-                </>
-              )}
-            </p>
-          </div>
         </div>
 
         {isPro && (
-          <div className="border-2 border-emerald-500 bg-emerald-500/10 px-5 py-4 text-center text-sm font-bold text-emerald-800 dark:text-emerald-200" role="status">
+          <div className="border-3 border-emerald-500 bg-emerald-500/10 px-5 py-3.5 text-center text-sm font-bold text-emerald-800 dark:text-emerald-200 shadow-[3px_3px_0px_#10b981]" role="status">
             {isAr ? "اشتراك Pro نشط على حسابك الآن" : "Your Pro subscription is active"}
             {subscriptionEnd && ` · ${isAr ? "ساري حتى" : "Valid until"} ${new Date(subscriptionEnd).toLocaleDateString(isAr ? "ar-EG" : "en-US")}`}
           </div>
         )}
 
-        {/* Plans Grid (5 Plans) */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 items-stretch">
-          {/* ── 01. Free Plan Card ── */}
-          <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,0.2)] p-5 sm:p-6 space-y-6 flex flex-col justify-between">
-            <div className="space-y-4">
+        {/* ── INTERACTIVE DURATION SWITCHER (سويتشر مدة الاشتراك) ── */}
+        <div className="space-y-3">
+          <div className="text-center">
+            <span className="text-xs font-black uppercase tracking-wider text-zinc-500 block mb-1">
+              {isAr ? "اختر مدة الاشتراك المفضلة لك:" : "SELECT BILLING CYCLE:"}
+            </span>
+          </div>
+
+          <div className="flex justify-center">
+            <div className="inline-flex p-1.5 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_#10b981] flex-wrap justify-center gap-1.5 sm:gap-2 max-w-full">
+              {[
+                {
+                  id: "pro",
+                  name_ar: "شهر واحد",
+                  name_en: "1 Month",
+                  badge_ar: foundersRemaining !== null ? `50 ج.م (${foundersRemaining} مقعد) 🔥` : "50 ج.م 🔥",
+                  badge_en: "50 EGP 🔥",
+                  badgeBg: "bg-amber-300 text-black",
+                  isLifetime: false,
+                },
+                {
+                  id: "pro_6m",
+                  name_ar: "6 شهور",
+                  name_en: "6 Months",
+                  badge_ar: "الأكثر طلباً ⭐",
+                  badge_en: "Most Popular ⭐",
+                  badgeBg: "bg-emerald-400 text-black",
+                  isLifetime: false,
+                },
+                {
+                  id: "pro_1y",
+                  name_ar: "سنة كاملة",
+                  name_en: "1 Year",
+                  badge_ar: "أكبر توفير 💎",
+                  badge_en: "Save 25% 💎",
+                  badgeBg: "bg-sky-400 text-black",
+                  isLifetime: false,
+                },
+                {
+                  id: "lifetime",
+                  name_ar: "مدى الحياة",
+                  name_en: "Lifetime VIP",
+                  badge_ar: lifetimeIsOpen ? `👑 20 مقعداً (باقي ${lifetimeRemaining})` : "اكتملت المقاعد",
+                  badge_en: "👑 20 Spots Only",
+                  badgeBg: "bg-[#FFE600] text-black",
+                  isLifetime: true,
+                },
+              ].map((tab) => {
+                const isSelected = selectedPlan === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setSelectedPlan(tab.id)}
+                    className={`flex items-center gap-2 px-3.5 sm:px-5 py-2.5 sm:py-3 border-2 transition-all text-xs sm:text-sm font-black active:translate-y-0.5 cursor-pointer ${
+                      isSelected
+                        ? tab.isLifetime
+                          ? "border-black bg-[#FFE600] text-black shadow-[3px_3px_0px_#7c3aed]"
+                          : "border-black dark:border-white bg-black text-white dark:bg-white dark:text-black shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_#10b981]"
+                        : "border-transparent bg-transparent hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
+                    }`}
+                  >
+                    {tab.isLifetime && <Crown className="w-4 h-4 fill-current shrink-0" />}
+                    <span>{isAr ? tab.name_ar : tab.name_en}</span>
+                    <span
+                      className={`text-[10px] font-black uppercase px-2 py-0.5 border border-black shadow-[1px_1px_0px_#000] whitespace-nowrap ${tab.badgeBg}`}
+                    >
+                      {isAr ? tab.badge_ar : tab.badge_en}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* ── 2 SPACIOUS CARDS: FREE VS SELECTED PAID PLAN ── */}
+        <div className="grid lg:grid-cols-12 gap-8 items-stretch max-w-5xl mx-auto">
+          {/* ── 01. Free Plan Card (5 Cols) ── */}
+          <div className="lg:col-span-5 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,0.2)] p-6 sm:p-7 space-y-6 flex flex-col justify-between">
+            <div className="space-y-5">
               <div className="flex items-center justify-between">
-                <h3 className="text-xl font-black text-zinc-950 dark:text-white">
-                  {isAr ? "مجاني" : "Free"}
-                </h3>
+                <div>
+                  <h3 className="text-2xl font-black text-zinc-950 dark:text-white">
+                    {isAr ? "الخطة المجانية" : "Free Plan"}
+                  </h3>
+                  <span className="text-xs font-bold text-zinc-500 block mt-0.5">
+                    {isAr ? "استكشاف المنصة وتجربة التحليلات" : "Explore platform basics"}
+                  </span>
+                </div>
                 <span className="text-[10px] font-black uppercase px-2.5 py-1 border-2 border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
                   {isPro ? (isAr ? "متاحة" : "Available") : isAr ? "الخطة الحالية" : "Current"}
                 </span>
               </div>
 
-              <div>
+              <div className="border-b-2 border-zinc-200 dark:border-zinc-800 pb-5">
                 <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-black text-zinc-950 dark:text-white">0</span>
-                  <span className="text-xs font-bold text-zinc-500">ج.م / للأبد</span>
+                  <span className="text-5xl font-black text-zinc-950 dark:text-white">0</span>
+                  <span className="text-sm font-bold text-zinc-500">ج.م / للأبد</span>
                 </div>
                 <p className="text-xs font-semibold text-zinc-500 mt-1">
-                  {isAr ? "مناسبة للتجربة واستكشاف المنصة" : "Good for exploring the basics"}
+                  {isAr ? "بدون أي بطاقة بنكية أو رسوم خفية" : "No credit card required"}
                 </p>
               </div>
 
-              <div className="border-t-2 border-zinc-200 dark:border-zinc-800 pt-4">
-                <ul className="space-y-3">
+              <div className="space-y-3">
+                <span className="text-[11px] font-black uppercase tracking-wider text-zinc-400 block">
+                  {isAr ? "الميزات المتاحة في المجاني:" : "INCLUDED IN FREE:"}
+                </span>
+                <ul className="space-y-3.5">
                   {freeFeatures.map((f, i) => (
                     <li
                       key={i}
-                      className={`flex items-start gap-2.5 text-xs font-bold leading-tight ${
+                      className={`flex items-start gap-2.5 text-xs font-bold leading-snug ${
                         f.included ? "text-zinc-700 dark:text-zinc-300" : "text-zinc-400 dark:text-zinc-600 line-through"
                       }`}
                     >
-                      <span className="shrink-0 mt-0.5">{f.included ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <X className="w-3.5 h-3.5 text-zinc-400" />}</span>
+                      <span className="shrink-0 mt-0.5">{f.included ? <Check className="w-4 h-4 text-emerald-500" /> : <X className="w-4 h-4 text-zinc-400" />}</span>
                       <span>{f.text}</span>
                     </li>
                   ))}
@@ -1068,71 +1009,83 @@ export default function PricingClient() {
             <button
               type="button"
               disabled
-              className="w-full border-3 border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 text-zinc-400 dark:text-zinc-600 py-3 text-xs font-black uppercase tracking-wider cursor-not-allowed"
+              className="w-full border-3 border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-900 text-zinc-400 dark:text-zinc-600 py-3.5 text-xs font-black uppercase tracking-wider cursor-not-allowed mt-4"
             >
               {isPro ? (isAr ? "الخطة المجانية متاحة" : "Free plan available") : (isAr ? "خطتك الحالية" : "Current Plan")}
             </button>
           </div>
 
-          {/* ── 02, 03, 04, 05. Paid Plans (Monthly, 6M, 1Y, Lifetime) ── */}
-          {paidPlans.map((plan) => {
-            const isFeatured = plan.id === "pro_6m";
-            const isLifetime = plan.isLifetime;
-            const planDiscount = plan.id === "pro" && monthlyDiscount?.active ? monthlyDiscount : null;
+          {/* ── 02. Selected Hero Paid Plan Card (7 Cols) ── */}
+          {(() => {
+            const isLifetime = selectedPlanDetails.id === "lifetime";
+            const isFeatured = selectedPlanDetails.id === "pro_6m";
+            const isAnnual = selectedPlanDetails.id === "pro_1y";
+            const isMonthly = selectedPlanDetails.id === "pro";
+            const planDiscount = isMonthly && monthlyDiscount?.active ? monthlyDiscount : null;
             const featuresList = isLifetime ? lifetimeFeatures : proFeatures;
 
             return (
               <div
-                key={plan.id}
-                className={`border-4 p-5 sm:p-6 space-y-6 flex flex-col justify-between relative transition-all ${
+                className={`lg:col-span-7 border-4 p-6 sm:p-8 space-y-6 flex flex-col justify-between relative transition-all duration-300 ${
                   isLifetime
-                    ? "border-purple-600 dark:border-purple-400 bg-gradient-to-b from-purple-50 via-white to-purple-50/50 dark:from-purple-950/40 dark:via-zinc-950 dark:to-purple-950/20 shadow-[6px_6px_0px_#7c3aed] dark:shadow-[6px_6px_0px_#a855f7]"
+                    ? "border-purple-600 dark:border-purple-400 bg-gradient-to-br from-purple-950/20 via-white to-purple-950/10 dark:from-purple-950/50 dark:via-zinc-950 dark:to-indigo-950/30 shadow-[8px_8px_0px_#FFE600] dark:shadow-[8px_8px_0px_#FFE600]"
                     : isFeatured
-                    ? "border-black dark:border-white bg-emerald-50/70 dark:bg-emerald-950/30 ring-4 ring-emerald-500 shadow-[6px_6px_0px_#10b981]"
-                    : "border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_#10b981]"
+                    ? "border-black dark:border-white bg-emerald-50/70 dark:bg-emerald-950/30 ring-4 ring-emerald-500 shadow-[8px_8px_0px_#10b981]"
+                    : "border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_#10b981]"
                 }`}
               >
-                {/* Top Badge */}
-                {(planDiscount || plan.badge) && (
-                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                    <span
-                      className={`border-2 border-black dark:border-white text-[10px] font-black uppercase px-3 py-0.5 tracking-wider shadow-[2px_2px_0px_rgba(0,0,0,1)] whitespace-nowrap flex items-center gap-1 ${
-                        isLifetime
-                          ? "bg-[#FFE600] text-black"
-                          : "bg-amber-300 text-black"
-                      }`}
-                    >
-                      {isLifetime && <Crown className="w-3 h-3 fill-black" />}
-                      {planDiscount
-                        ? (isAr
-                            ? (foundersRemaining !== null
-                                ? `عرض المؤسسين الأوائل (باقي ${foundersRemaining} مقعد)`
-                                : planDiscount.label_ar || "عرض محدود")
-                            : (foundersRemaining !== null
-                                ? `Founding Members (${foundersRemaining} spots left)`
-                                : planDiscount.label_en || "Limited offer"))
-                        : plan.badge}
-                    </span>
-                  </div>
-                )}
+                {/* Top Spotlight Badge */}
+                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
+                  <span
+                    className={`border-2 border-black text-xs font-black uppercase px-4 py-1 tracking-wider shadow-[2px_2px_0px_rgba(0,0,0,1)] whitespace-nowrap flex items-center gap-1.5 ${
+                      isLifetime
+                        ? "bg-[#FFE600] text-black"
+                        : isFeatured
+                        ? "bg-emerald-400 text-black"
+                        : isAnnual
+                        ? "bg-sky-300 text-black"
+                        : "bg-amber-300 text-black"
+                    }`}
+                  >
+                    {isLifetime ? (
+                      <>
+                        <Crown className="w-3.5 h-3.5 fill-black" />
+                        {lifetimeIsOpen
+                          ? (isAr ? `صفقة العمر · باقي ${lifetimeRemaining} مقعداً فقط` : `Lifetime VIP · ${lifetimeRemaining} Spots Left`)
+                          : (isAr ? "اكتملت المقاعد (Sold Out)" : "Sold Out (20/20)")}
+                      </>
+                    ) : isMonthly && planDiscount ? (
+                      foundersRemaining !== null
+                        ? `عرض المؤسسين الأوائل (باقي ${foundersRemaining} مقعد)`
+                        : planDiscount.label_ar || "عرض محدود"
+                    ) : isFeatured ? (
+                      isAr ? "⭐ الخطة الأكثر طلباً بين المتداولين" : "⭐ Most Popular Plan"
+                    ) : (
+                      isAr ? "💎 أكبر توفير وقيمة سنوية" : "💎 Max Value Plan"
+                    )}
+                  </span>
+                </div>
 
-                <div className="space-y-4">
+                <div className="space-y-5 pt-1">
+                  {/* Plan Name & VIP tag */}
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-xl font-black text-zinc-950 dark:text-white flex items-center gap-1.5">
-                        {isLifetime && <Crown className="w-5 h-5 text-purple-600 dark:text-yellow-400 shrink-0" />}
-                        {isLifetime ? (isAr ? "مدى الحياة VIP" : "Lifetime VIP") : `Pro · ${isAr ? plan.name_ar : plan.name_en}`}
-                      </h3>
-                      <span className="text-[11px] font-bold text-zinc-500">
+                      <h3 className="text-2xl sm:text-3xl font-black text-zinc-950 dark:text-white flex items-center gap-2">
+                        {isLifetime && <Crown className="w-6 h-6 text-purple-600 dark:text-yellow-400 shrink-0" />}
                         {isLifetime
-                          ? (isAr ? "صلاحية دائمة للأبد" : "Permanent forever")
-                          : `${plan.days} ${isAr ? "يوماً كاملة" : "days access"}`}
+                          ? (isAr ? "EGX BOTS Lifetime VIP" : "EGX BOTS Lifetime VIP")
+                          : `EGX BOTS Pro · ${isAr ? selectedPlanDetails.name_ar : selectedPlanDetails.name_en}`}
+                      </h3>
+                      <span className="text-xs font-bold text-zinc-500 block mt-0.5">
+                        {isLifetime
+                          ? (isAr ? "صلاحية دائمة للأبد (36,500 يوم)" : "Permanent access for life")
+                          : `${selectedPlanDetails.days} ${isAr ? "يوماً كاملة من التوصيات الفورية" : "days instant access"}`}
                       </span>
                     </div>
                     <span
-                      className={`text-[10px] font-black border-2 border-black dark:border-white px-2 py-0.5 ${
+                      className={`text-xs font-black border-2 border-black dark:border-white px-2.5 py-1 ${
                         isLifetime
-                          ? "bg-purple-600 text-yellow-300 shadow-[1px_1px_0px_#000]"
+                          ? "bg-purple-600 text-yellow-300 shadow-[2px_2px_0px_#000]"
                           : "bg-emerald-500 text-white"
                       }`}
                     >
@@ -1140,59 +1093,101 @@ export default function PricingClient() {
                     </span>
                   </div>
 
-                  <div>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-4xl font-black text-zinc-950 dark:text-white">
-                        {plan.amount_egp.toLocaleString()}
+                  {/* Price Section */}
+                  <div className="border-b-2 border-zinc-200 dark:border-zinc-800 pb-5">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-5xl sm:text-6xl font-black text-zinc-950 dark:text-white">
+                        {selectedPlanDetails.amount_egp.toLocaleString()}
                       </span>
-                      <span className="text-xs font-bold text-zinc-500">ج.م</span>
+                      <span className="text-sm font-bold text-zinc-500">ج.م</span>
                       {planDiscount && (
-                        <span className="ms-1 text-lg font-black text-zinc-400 line-through">
-                          {planDiscount.original_amount_egp}
+                        <span className="ms-2 text-2xl font-black text-zinc-400 line-through">
+                          {planDiscount.original_amount_egp} ج.م
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 mt-1">
+
+                    <div className="flex flex-wrap items-center gap-2.5 mt-2">
                       {isLifetime ? (
-                        <span className="text-xs font-bold text-purple-700 dark:text-purple-300 flex items-center gap-1">
-                          <Sparkles className="w-3.5 h-3.5 text-yellow-500" />
-                          {isAr ? "دفعة واحدة للأبد" : "One-time payment"}
+                        <span className="text-xs font-black text-purple-700 dark:text-yellow-400 flex items-center gap-1.5 bg-purple-500/10 border border-purple-500/30 px-2 py-0.5">
+                          <Sparkles className="w-3.5 h-3.5" />
+                          {isAr ? "دفعة واحدة فقط للأبد · بدون أي تجديد شهري" : "One-time payment · Zero renewals"}
                         </span>
                       ) : (
                         <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">
-                          {isAr ? `ما يعادل ${plan.monthlyEquivalent} ج.م / شهر` : `EGP ${plan.monthlyEquivalent}/mo`}
+                          {isAr ? `ما يعادل ${selectedPlanDetails.monthlyEquivalent} ج.م / شهر` : `EGP ${selectedPlanDetails.monthlyEquivalent}/mo`}
                         </span>
                       )}
-                      {plan.savingsPct > 0 && (
+
+                      {selectedPlanDetails.savingsPct > 0 && (
                         <span
-                          className={`border px-1.5 py-0.5 text-[10px] font-black rounded ${
+                          className={`border px-2 py-0.5 text-xs font-black rounded ${
                             isLifetime
-                              ? "border-purple-600/40 bg-purple-500/10 text-purple-700 dark:text-purple-300"
-                              : "border-emerald-600/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                              ? "border-purple-600/40 bg-purple-500/15 text-purple-700 dark:text-purple-300"
+                              : "border-emerald-600/30 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
                           }`}
                         >
                           {isLifetime
-                            ? (isAr ? "أفضل قيمة 👑" : "Best Value 👑")
-                            : (isAr ? `توفير ${plan.savingsPct}%` : `${plan.savingsPct}% OFF`)}
+                            ? (isAr ? "وفر للأبد 👑" : "Save Forever 👑")
+                            : (isAr ? `توفير ${selectedPlanDetails.savingsPct}%` : `${selectedPlanDetails.savingsPct}% OFF`)}
                         </span>
                       )}
                     </div>
                   </div>
 
-                  {/* Seat availability ticker for lifetime card */}
+                  {/* Notice Box inside Card */}
                   {isLifetime && (
-                    <div className="border border-purple-500/40 bg-purple-500/10 dark:bg-purple-950/40 p-2 text-center text-[11px] font-bold text-purple-900 dark:text-purple-200">
-                      {lifetimeIsOpen
-                        ? (isAr ? `متبقي ${lifetimeRemaining} مقعداً فقط من أصل 20` : `${lifetimeRemaining} of 20 spots remaining`)
-                        : (isAr ? "اكتملت جميع المقاعد (20/20) ❌" : "All 20 spots claimed ❌")}
+                    <div className="bg-black/80 dark:bg-purple-950/40 border-2 border-purple-500/40 p-4 space-y-2 text-white">
+                      <div className="flex items-center justify-between text-xs font-black">
+                        <span className="text-[#FFE600] flex items-center gap-1.5">
+                          <Award className="w-4 h-4 text-[#FFE600]" />
+                          {isAr ? "حالة المقاعد المتاحة:" : "Spots Availability:"}
+                        </span>
+                        <span className="font-mono text-white">
+                          {lifetimeIsOpen
+                            ? (isAr ? `متبقي ${lifetimeRemaining} من أصل ${lifetimeLimit} مقعداً` : `${lifetimeRemaining} of ${lifetimeLimit} spots left`)
+                            : (isAr ? "اكتملت جميع المقاعد (20/20) ❌" : "SOLD OUT (20/20) ❌")}
+                        </span>
+                      </div>
+                      <div className="w-full bg-zinc-800 border border-zinc-700 h-2.5 overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-yellow-400 to-[#FFE600] transition-all duration-500"
+                          style={{ width: `${Math.min(100, Math.max(5, (lifetimeCount / lifetimeLimit) * 100))}%` }}
+                        />
+                      </div>
+                      <p className="text-[11px] font-bold text-zinc-300">
+                        {isAr
+                          ? "⚡ بمجرد اكتمال الـ 20 مقعداً، سيتم إغلاق الباقة نهائياً ولن تُتاح مجدداً."
+                          : "⚡ Once all 20 spots are claimed, this offer will be permanently closed."}
+                      </p>
                     </div>
                   )}
 
-                  <div className="border-t-2 border-zinc-200 dark:border-zinc-800 pt-4">
-                    <ul className="space-y-3">
+                  {isMonthly && (
+                    <div className="bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-400 p-3.5 space-y-1 text-black dark:text-amber-200">
+                      <div className="flex items-center gap-1.5 text-xs font-black text-amber-900 dark:text-amber-300">
+                        <Clock className="w-4 h-4" />
+                        <span>{isAr ? "ميزة المؤسسين الأوائل (Founding Members):" : "Founding Member Perk:"}</span>
+                      </div>
+                      <p className="text-xs font-semibold leading-relaxed text-zinc-800 dark:text-zinc-200">
+                        {isAr
+                          ? "اشترك الآن بـ 50 ج.م فقط شهرياً مدى الحياة (بدلاً من 200 ج.م). يُمنح المشترك مهلة سماح 72 ساعة بعد انتهاء كل شهر للتجديد بهذا السعر المخفض."
+                          : "Lock in 50 EGP/mo for life. Includes 72 hours renewal grace period each month before standard 200 EGP pricing applies."}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Features List */}
+                  <div className="space-y-3">
+                    <span className="text-[11px] font-black uppercase tracking-wider text-zinc-500 dark:text-zinc-400 block">
+                      {isLifetime
+                        ? (isAr ? "الميزات الملكية المشمولة مدى الحياة:" : "INCLUDED FOR LIFE:")
+                        : (isAr ? "الميزات المشمولة في باقة Pro:" : "INCLUDED IN PRO:")}
+                    </span>
+                    <ul className="space-y-3.5">
                       {featuresList.map((f, i) => (
-                        <li key={i} className="flex items-start gap-2.5 text-xs font-bold leading-tight text-zinc-800 dark:text-zinc-200">
-                          <span className="shrink-0 mt-0.5 text-emerald-500">{f.icon || <Check className="w-3.5 h-3.5" />}</span>
+                        <li key={i} className="flex items-start gap-2.5 text-xs sm:text-sm font-bold leading-snug text-zinc-800 dark:text-zinc-200">
+                          <span className="shrink-0 mt-0.5 text-emerald-500">{f.icon || <Check className="w-4 h-4" />}</span>
                           <span>{f.text}</span>
                         </li>
                       ))}
@@ -1200,44 +1195,174 @@ export default function PricingClient() {
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  disabled={isLifetime && !lifetimeIsOpen}
-                  onClick={() => {
-                    setSelectedPlan(plan.id);
-                    setStep("payment");
-                  }}
-                  className={`w-full flex items-center justify-center gap-2 border-4 border-black dark:border-white py-3.5 px-4 text-xs font-black uppercase tracking-wider shadow-[3px_3px_0px_rgba(0,0,0,1)] hover:-translate-y-0.5 active:translate-y-0 transition-all ${
-                    isLifetime
-                      ? lifetimeIsOpen
-                        ? "bg-[#FFE600] hover:bg-yellow-400 text-black shadow-[3px_3px_0px_#000]"
-                        : "bg-zinc-300 dark:bg-zinc-800 text-zinc-500 cursor-not-allowed"
-                      : isFeatured
-                      ? "bg-emerald-500 hover:bg-emerald-600 text-zinc-950 dark:text-black font-black"
-                      : "bg-zinc-900 hover:bg-black text-white dark:bg-white dark:text-black dark:hover:bg-zinc-100"
-                  }`}
-                >
-                  {isLifetime ? (
-                    <>
-                      <Crown className="w-4 h-4 fill-current" />
-                      {lifetimeIsOpen
-                        ? isPro
-                          ? (isAr ? "ترقية لمدى الحياة (2,250 ج.م)" : "Upgrade to Lifetime")
-                          : (isAr ? "احجز مقعدك (2,250 ج.م) 👑" : "Get Lifetime Deal 👑")
-                        : (isAr ? "اكتملت المقاعد (Sold Out)" : "Sold Out (20/20)")}
-                    </>
-                  ) : (
-                    <>
-                      <LockKeyhole className="w-3.5 h-3.5" />
-                      {isPro
-                        ? isAr ? "تجديد الباقة" : "Renew Plan"
-                        : isAr ? "اشترك في هذه الخطة" : "Subscribe to Plan"}
-                    </>
-                  )}
-                </button>
+                {/* Main CTA Button */}
+                <div className="pt-4 space-y-2">
+                  <button
+                    type="button"
+                    disabled={isLifetime && !lifetimeIsOpen}
+                    onClick={() => {
+                      setSelectedPlan(selectedPlanDetails.id);
+                      setStep("payment");
+                    }}
+                    className={`w-full flex items-center justify-center gap-2.5 border-4 border-black dark:border-white py-4 px-6 text-sm sm:text-base font-black uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:-translate-y-0.5 active:translate-y-0 transition-all ${
+                      isLifetime
+                        ? lifetimeIsOpen
+                          ? "bg-[#FFE600] hover:bg-yellow-400 text-black shadow-[4px_4px_0px_#000] cursor-pointer"
+                          : "bg-zinc-300 dark:bg-zinc-800 text-zinc-500 cursor-not-allowed"
+                        : isFeatured
+                        ? "bg-emerald-500 hover:bg-emerald-600 text-zinc-950 dark:text-black font-black"
+                        : "bg-zinc-900 hover:bg-black text-white dark:bg-white dark:text-black dark:hover:bg-zinc-100"
+                    }`}
+                  >
+                    {isLifetime ? (
+                      <>
+                        <Crown className="w-5 h-5 fill-current" />
+                        {lifetimeIsOpen
+                          ? isPro
+                            ? (isAr ? "ترقية لحساب مدى الحياة (2,250 ج.م)" : "Upgrade to Lifetime")
+                            : (isAr ? "احجز مقعدك مدى الحياة الآن (2,250 ج.م) 👑" : "Get Lifetime Deal 👑")
+                          : (isAr ? "اكتملت المقاعد (Sold Out)" : "Sold Out (20/20)")}
+                      </>
+                    ) : (
+                      <>
+                        <LockKeyhole className="w-4 h-4" />
+                        {isPro
+                          ? (isAr ? `تجديد باقة (${selectedPlanDetails.amount_egp.toLocaleString()} ج.م)` : `Renew Plan (${selectedPlanDetails.amount_egp} EGP)`)
+                          : (isAr ? `المتابعة للاشتراك (${selectedPlanDetails.amount_egp.toLocaleString()} ج.م)` : `Subscribe Now (${selectedPlanDetails.amount_egp} EGP)`)}
+                      </>
+                    )}
+                  </button>
+
+                  <div className="flex items-center justify-center gap-3 text-[11px] font-bold text-zinc-500 pt-1">
+                    <span className="flex items-center gap-1">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                      {isAr ? "بوابة EasyKash مشفرة ومعتمدة" : "Secure Checkout"}
+                    </span>
+                    <span>•</span>
+                    <span>{isAr ? "تفعيل لحظي وآلي" : "Instant Activation"}</span>
+                  </div>
+                </div>
               </div>
             );
-          })}
+          })()}
+        </div>
+
+        {/* ── QUICK COMPARISON TABLE (مقارنة سريعة لجميع المدد والأسعار) ── */}
+        <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 sm:p-8 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_#10b981] space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b-2 border-zinc-200 dark:border-zinc-800 pb-4">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400 block mb-0.5">
+                {isAr ? "جدول المقارنة السريعة" : "QUICK COMPARISON"}
+              </span>
+              <h3 className="text-xl font-black text-zinc-950 dark:text-white">
+                {isAr ? "مقارنة جميع مدد الاشتراك والأسعار" : "Compare All Durations & Pricing"}
+              </h3>
+            </div>
+            <p className="text-xs font-bold text-zinc-500">
+              {isAr ? "اضغط على أي خطة لاختيارها والانتقال للدفع فوراً" : "Click any plan to select and checkout"}
+            </p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-start text-xs font-bold">
+              <thead>
+                <tr className="border-b-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 text-zinc-900 dark:text-white uppercase text-[11px]">
+                  <th className="p-3 text-start">{isAr ? "الخطة / المدة" : "Plan"}</th>
+                  <th className="p-3 text-start">{isAr ? "السعر الإجمالي" : "Total Price"}</th>
+                  <th className="p-3 text-start">{isAr ? "المعادل الشهري" : "Monthly Rate"}</th>
+                  <th className="p-3 text-start">{isAr ? "نسبة التوفير" : "Savings"}</th>
+                  <th className="p-3 text-start">{isAr ? "المقاعد والحالة" : "Availability"}</th>
+                  <th className="p-3 text-end">{isAr ? "الإجراء" : "Action"}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                {/* Free */}
+                <tr className="hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors">
+                  <td className="p-3 font-black text-zinc-950 dark:text-white flex items-center gap-1.5">
+                    <span>{isAr ? "مجاني" : "Free"}</span>
+                  </td>
+                  <td className="p-3">0 ج.م</td>
+                  <td className="p-3 text-zinc-500">0 ج.م</td>
+                  <td className="p-3 text-zinc-500">—</td>
+                  <td className="p-3"><span className="text-emerald-600">{isAr ? "متاح دائماً" : "Always Free"}</span></td>
+                  <td className="p-3 text-end">
+                    <span className="text-[10px] text-zinc-400 font-bold uppercase">{isAr ? "الأساسي" : "Basic"}</span>
+                  </td>
+                </tr>
+
+                {/* Paid Plans */}
+                {paidPlans.map((plan) => {
+                  const isCur = selectedPlan === plan.id;
+                  return (
+                    <tr
+                      key={plan.id}
+                      className={`transition-colors ${
+                        isCur
+                          ? "bg-emerald-50/60 dark:bg-emerald-950/20 font-black"
+                          : "hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+                      }`}
+                    >
+                      <td className="p-3 font-black text-zinc-950 dark:text-white">
+                        <div className="flex items-center gap-1.5">
+                          {plan.isLifetime && <Crown className="w-3.5 h-3.5 text-yellow-500 fill-yellow-500 shrink-0" />}
+                          <span>{isAr ? plan.name_ar : plan.name_en}</span>
+                          {plan.badge && (
+                            <span className="text-[9px] font-black px-1.5 py-0.2 border border-black bg-amber-300 text-black">
+                              {plan.badge}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3 font-black text-zinc-950 dark:text-white">
+                        {plan.amount_egp.toLocaleString()} ج.م
+                      </td>
+                      <td className="p-3 text-zinc-600 dark:text-zinc-400">
+                        {plan.isLifetime ? (isAr ? "دفعة واحدة للأبد" : "One-time") : `${plan.monthlyEquivalent} ج.م / شهر`}
+                      </td>
+                      <td className="p-3">
+                        {plan.savingsPct > 0 ? (
+                          <span className="text-emerald-600 dark:text-emerald-400 font-black">
+                            {plan.isLifetime ? (isAr ? "وفر للأبد 👑" : "Save 95%+") : `وفر ${plan.savingsPct}%`}
+                          </span>
+                        ) : (
+                          <span className="text-zinc-400">—</span>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        {plan.id === "lifetime" ? (
+                          <span className={lifetimeIsOpen ? "text-purple-600 dark:text-yellow-400 font-black" : "text-red-500"}>
+                            {lifetimeIsOpen ? (isAr ? `متبقي ${lifetimeRemaining} مقعداً` : `${lifetimeRemaining} left`) : (isAr ? "اكتملت المقاعد" : "Sold out")}
+                          </span>
+                        ) : plan.id === "pro" ? (
+                          <span className="text-amber-600 dark:text-amber-400 font-bold">
+                            {foundersRemaining !== null ? (isAr ? `باقي ${foundersRemaining} مؤسس` : `${foundersRemaining} spots`) : "متاح"}
+                          </span>
+                        ) : (
+                          <span className="text-emerald-600 font-bold">{isAr ? "متاح فوري" : "Available"}</span>
+                        )}
+                      </td>
+                      <td className="p-3 text-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPlan(plan.id);
+                            window.scrollTo({ top: 300, behavior: "smooth" });
+                          }}
+                          className={`px-3 py-1.5 border-2 border-black dark:border-white text-[11px] font-black transition-all ${
+                            isCur
+                              ? "bg-[#FFE600] text-black shadow-[2px_2px_0px_#000]"
+                              : "bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-900 dark:text-white"
+                          }`}
+                        >
+                          {isCur ? (isAr ? "✓ محددة الآن" : "✓ Selected") : (isAr ? "اختيار هذه الخطة" : "Select Plan")}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Notice: Market Data & Signal Nature */}
