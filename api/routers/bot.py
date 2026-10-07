@@ -1625,6 +1625,18 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150, exchange
             "timeframe": timeframe,
             "count": len(candles),
         }
+        if exchange == 'EGX' and stock_ai.supabase and raw_candles:
+            try:
+                tech = (stock_ai.supabase.table('stock_technical_indicators')
+                        .select('date,calculated_at').eq('symbol', db_symbol).eq('exchange', 'EGX')
+                        .order('date', desc=True).limit(1).execute())
+                row = (tech.data or [None])[0]
+                last_date = str(raw_candles[-1].get('date', ''))[:10]
+                if row and str(row.get('date', ''))[:10] == last_date:
+                    result['updated_at'] = row.get('calculated_at')
+                    result['price_date'] = last_date
+            except Exception as timestamp_error:
+                print(f"[CANDLES] Update timestamp unavailable: {type(timestamp_error).__name__}")
         candle_cache[cache_key] = (now, result)
         return result
     except HTTPException:

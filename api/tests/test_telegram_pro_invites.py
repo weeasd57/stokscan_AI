@@ -133,6 +133,7 @@ class TelegramProInviteTests(unittest.TestCase):
         class Query:
             def select(self, *args): return self
             def eq(self, *args): return self
+            def in_(self, *args): return self
             def execute(self):
                 return type("Response", (), {"data": [
                     {"user_id": "renewed", "status": "canceled", "current_period_end": past},

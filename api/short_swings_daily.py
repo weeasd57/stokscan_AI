@@ -311,7 +311,7 @@ def _run_daily_short_swings(trigger="manual", dry_run=False, phase="close", job_
         last_start = parse_timestamp(payload.get("started_at"))
         retry_at = parse_timestamp(payload.get("retry_at"))
         if ((payload.get("status") == "running" and last_start and now - last_start < dt.timedelta(minutes=45))
-                or (retry_at and now < retry_at) or payload.get("attempts", 0) >= 4):
+                or (retry_at and now < retry_at) or payload.get("attempts", 0) >= (2 if phase == 'midday' else 4)):
             return {"success": False, "status": "waiting", "message": "Short-swings attempt running, backing off or exhausted"}
         payload = {**payload, "status": "running", "attempts": payload.get("attempts", 0) + 1,
                    "started_at": now.isoformat(), "phase": phase, "as_of": as_of,

@@ -37,6 +37,7 @@ import {
   calculateCCI,
   Candle,
 } from "@/lib/indicators";
+import { formatMarketUpdate } from "@/lib/market-update-time";
 
 interface ChartPoint {
   x: number;
@@ -332,6 +333,7 @@ export default function TradingViewChart({
 
   // States
   const [candlesData, setCandlesData] = useState<Candle[]>([]);
+  const [marketUpdatedAt, setMarketUpdatedAt] = useState<string | null>(null);
   const [markersData, setMarkersData] = useState<any[]>([]);
   const [recommendationMarkers, setRecommendationMarkers] = useState<RecommendationChartMarker[]>([]);
   const [timeframe, setTimeframe] = useState<string>("15m");
@@ -788,6 +790,7 @@ export default function TradingViewChart({
     let isMounted = true;
     setLoading(true);
     setError(null);
+    setMarketUpdatedAt(null);
     savedLogicalRangeRef.current = null;
 
     async function fetchCandles() {
@@ -812,6 +815,7 @@ export default function TradingViewChart({
         }
 
         setCandlesData(data.candles);
+        setMarketUpdatedAt(data.updated_at || null);
         setMarkersData(data.markers || []);
         // EGX is end-of-day data; do not surface a stale intraday label.
         setTimeframe(String(exchange || "EGX").toUpperCase() === "EGX" ? "1d" : (data.timeframe || "1d"));
@@ -2580,10 +2584,10 @@ export default function TradingViewChart({
             {isEgxEndOfDay && (
               <span
                 className="inline-flex items-center gap-1 rounded-full border border-amber-300/70 bg-amber-50 px-2 py-0.5 text-[9px] font-black text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300"
-                title="بيانات أسعار EGX تتحدث بعد إغلاق جلسة التداول وليست أسعارًا لحظية"
+                title="بيانات أسعار EGX تتحدث أثناء الجلسة (12:15) وبعد إغلاقها (17:00) وليست أسعارًا لحظية"
               >
                 <Clock3 className="h-3 w-3" />
-                بيانات آخر إغلاق
+                بيانات التحديث المحفوظ
               </span>
             )}
           </div>
@@ -2756,15 +2760,20 @@ export default function TradingViewChart({
               className="pointer-events-none absolute right-3 top-3 z-30 max-w-[260px] rounded-xl border border-amber-300/70 bg-white/95 px-3 py-2 text-right shadow-lg backdrop-blur-md dark:border-amber-500/30 dark:bg-[#131722]/95"
             >
               <div className="flex items-center justify-end gap-1.5 text-[11px] font-black text-amber-800 dark:text-amber-300">
-                <span>بيانات آخر إغلاق</span>
+                <span>بيانات آخر تحديث محفوظ</span>
                 <Clock3 className="h-3.5 w-3.5" />
               </div>
               <div className="mt-0.5 text-[10px] font-bold leading-4 text-zinc-700 dark:text-zinc-300">
-                الرسم والسعر يتحدثان بعد إغلاق جلسة البورصة المصرية — البيانات ليست لحظية.
+                تحديث أثناء الجلسة وبعد الإغلاق — البيانات ليست لحظية.
               </div>
               {latestCloseDate && (
                 <div className="mt-1 text-[9px] font-semibold text-zinc-500 dark:text-[#787b86]">
                   آخر جلسة معروضة: {latestCloseDate}
+                </div>
+              )}
+              {formatMarketUpdate(marketUpdatedAt) && (
+                <div className="mt-1 text-[9px] font-semibold text-zinc-500 dark:text-[#787b86]">
+                  آخر تحديث للبيانات: {formatMarketUpdate(marketUpdatedAt)} بتوقيت القاهرة
                 </div>
               )}
             </div>

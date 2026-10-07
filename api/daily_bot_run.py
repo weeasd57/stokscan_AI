@@ -3051,12 +3051,14 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         active_steps[step_name] = time.time()
         _append_step_log(step_name, "started", details, 0)
 
-    def _record_step(step_name: str, success: bool, details: str = "", count: int = 0):
+    def _record_step(step_name: str, success: bool, details: str = "", count: int = 0, failed_symbols=None):
         started_at = active_steps.pop(step_name, None)
         status = "success" if success else "failed"
         if success and str(details or "").strip().lower().startswith("skipped"):
             status = "skipped"
         extra = {}
+        if failed_symbols is not None:
+            extra['failed_symbols'] = failed_symbols
         if started_at is not None:
             extra["duration_ms"] = int((time.time() - started_at) * 1000)
         _append_step_log(step_name, status, details, count, extra)
@@ -3114,8 +3116,12 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 # The writer has finished: discard stale scanner data before the
                 # job preloads its one shared EGX snapshot below.
                 stock_ai.clear_exchange_bulk_cache("EGX")
+                from api.daily_stage_recovery import clear_egx_candle_cache
+                clear_egx_candle_cache()
                 _record_step("sync_prices", sync_result.get("success", 0) == total_symbols and total_symbols > 0,
-                             f"Synced {sync_result.get('success', 0)}/{total_symbols} symbols", total_symbols)
+                             f"Synced {sync_result.get('success', 0)}/{total_symbols} symbols", total_symbols,
+                             failed_symbols=[sym for sym, outcome in sync_result.get('results', {}).items()
+                                             if not outcome.get('success')])
             except Exception as e:
                 _record_step("sync_prices", False, str(e)[:200], 0)
                 print(f"[SYNC] Error: {e}")

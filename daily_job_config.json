@@ -1,6 +1,7 @@
 {
   "enabled": true,
   "run_time": "17:00",
+  "midday_run_time": "12:15",
   "active_days": [
     0,
     1,
@@ -8,6 +9,5 @@
     3,
     6
   ],
-  "model_filter": "adaptive",
-  "midday_run_time": "12:15"
+  "model_filter": "adaptive"
 }

@@ -21,6 +21,7 @@ import {
   ExternalLink
 } from "lucide-react";
 import Link from "next/link";
+import { formatMarketUpdate } from "@/lib/market-update-time";
 
 interface HistoricalPrice {
   date: string;
@@ -212,6 +213,14 @@ export default function StockDetailClient({
     }
     return num.toLocaleString();
   }, [fundData, language, t.notAvailable]);
+
+  // Saved market calculation time in Cairo timezone
+  const marketUpdateTime = useMemo(() => {
+    if (latestTech?.calculated_at && latestTech.date === latestPrice?.date) {
+      return formatMarketUpdate(latestTech.calculated_at, language === "ar" ? "ar-EG" : "en-US");
+    }
+    return null;
+  }, [latestTech, latestPrice, language]);
 
   // Support / Resistance (Classic Pivot Points)
   const pivotPoints = useMemo(() => {
@@ -533,13 +542,22 @@ export default function StockDetailClient({
             <Calendar className="w-3.5 h-3.5" />
             <span>
               {t.lastUpdated}:{" "}
-              {latestPrice?.date
-                ? new Date(latestPrice.date).toLocaleDateString(language === "ar" ? "ar-EG" : "en-US", {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric"
-                  })
-                : t.notAvailable}
+              {marketUpdateTime ? (
+                <span>
+                  {marketUpdateTime}{" "}
+                  <span className="text-[10px] text-[var(--app-text-faint)]">
+                    ({language === "ar" ? "بتوقيت القاهرة" : "Cairo time"})
+                  </span>
+                </span>
+              ) : latestPrice?.date ? (
+                new Date(latestPrice.date).toLocaleDateString(language === "ar" ? "ar-EG" : "en-US", {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric"
+                })
+              ) : (
+                t.notAvailable
+              )}
             </span>
           </div>
           <div className="flex items-center gap-1.5">

@@ -121,6 +121,18 @@ def _stale_run_after_minutes() -> int:
         return _DEFAULT_STALE_RUN_MINUTES
 
 
+def _has_executable_steps(row: Dict[str, Any]) -> bool:
+    steps = row.get("steps") or []
+    if isinstance(steps, str):
+        try:
+            steps = json.loads(steps)
+        except (TypeError, ValueError):
+            steps = []
+    if isinstance(steps, list):
+        return any(isinstance(step, dict) and bool(step.get("step")) for step in steps)
+    return False
+
+
 def _daily_job_ran_today(today: str, phase: str = "close") -> bool:
     """Check the durable ledger and recover runs that stopped heartbeating.
 
@@ -145,7 +157,7 @@ def _daily_job_ran_today(today: str, phase: str = "close") -> bool:
             .eq("job_type", "daily_midday" if phase == "midday" else "daily_bot")
             .gte("started_at", utc_start.isoformat())
             .lt("started_at", utc_end.isoformat())
-            .in_("status", ["running", "completed"])
+            .in_("status", ["running", "completed", "failed"])
             .order("started_at", desc=True)
             .limit(10)
             .execute()
@@ -157,6 +169,10 @@ def _daily_job_ran_today(today: str, phase: str = "close") -> bool:
         for row in result.data or []:
             if row.get("status") == "completed":
                 has_completed_run = True
+                continue
+            if row.get("status") == "failed":
+                if _has_executable_steps(row):
+                    has_completed_run = True
                 continue
             if row.get("status") != "running":
                 continue
@@ -175,6 +191,8 @@ def _daily_job_ran_today(today: str, phase: str = "close") -> bool:
                         "completed_at": now_utc.isoformat(),
                         "error": stale_reason,
                     }).eq("id", run_id).eq("status", "running").execute()
+                    if _has_executable_steps(row):
+                        has_completed_run = True  # Resume its failed stages; do not replay the whole job.
                     print(f"[DAILY-JOB-SCHEDULER] Marked stale run {run_id} as failed.")
                 except Exception as cleanup_error:
                     print(f"[DAILY-JOB-SCHEDULER] Could not mark stale run {run_id} failed: {cleanup_error}")
@@ -389,12 +407,10 @@ def _retry_short_swings(now):
             return
         _scheduler_state["status"] = "running"
     try:
-        from api.short_swings_daily import retry_incomplete_short_swings
-        phase = _due_phase(now)
-        if phase:
-            result = retry_incomplete_short_swings(phase)
-            if result:
-                print(f"[DAILY-JOB-SCHEDULER] Short-swings {phase} recovery: {result.get('status')}")
+        from api.daily_stage_recovery import retry_failed_daily_stages
+        result = retry_failed_daily_stages(now)
+        if result:
+            print(f"[DAILY-JOB-SCHEDULER] Independent phase recovery: {result}")
     finally:
         with _scheduler_lock:
             _scheduler_state["status"] = "idle"

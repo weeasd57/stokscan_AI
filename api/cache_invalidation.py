@@ -55,7 +55,7 @@ def _latest_step_status(steps: Iterable[Dict[str, Any]]) -> Dict[str, str]:
     return latest
 
 
-def select_cache_tags(steps: List[Dict[str, Any]]) -> List[str]:
+def select_cache_tags(steps: List[Dict[str, Any]], changed_steps=None) -> List[str]:
     """Return the cache tags that a completed run may safely invalidate."""
     latest = _latest_step_status(steps)
 
@@ -65,6 +65,9 @@ def select_cache_tags(steps: List[Dict[str, Any]]) -> List[str]:
 
     tags = []
     for tag, requirements in TAG_STEP_REQUIREMENTS.items():
+        if changed_steps is not None and not set(changed_steps).intersection(
+                requirements.get('required_all', ()) + requirements.get('required_any', ())):
+            continue
         required_all = requirements.get("required_all", ())
         required_any = requirements.get("required_any", ())
         all_ok = all(latest.get(step) in _SUCCESS_STATUSES for step in required_all)
