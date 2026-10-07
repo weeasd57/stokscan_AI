@@ -52,7 +52,7 @@ export default function ActiveTradeCard({ trade, session, previousSession, isAr,
       </>}
       <div className="mt-auto flex items-center justify-between gap-2 border-t border-zinc-100 dark:border-zinc-800 pt-3">
         <span className="text-[11px] text-zinc-500">{isAr ? "جلسة البيانات" : "Data session"}: <bdi>{session || "—"}</bdi></span>
-        <button onClick={() => onDetails(trade)} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-zinc-950 dark:bg-amber-300 px-3 py-2 text-xs font-bold text-white dark:text-zinc-950 hover:bg-zinc-800 dark:hover:bg-amber-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500">
+        <button onClick={() => onDetails(trade)} className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-neutral-950 dark:bg-amber-300 px-3 py-2 text-xs font-bold text-white dark:text-zinc-950 hover:bg-neutral-800 dark:hover:bg-amber-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500">
           {isAr ? "التفاصيل" : "Details"}<ArrowUpRight className="w-3.5 h-3.5" />
         </button>
       </div>
