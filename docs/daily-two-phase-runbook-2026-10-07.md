@@ -124,3 +124,24 @@ daily_job_config.json. Never upload models, cache snapshots or local credentials
 The examined HF revision was 0a25982f5bf89d5a794395fe268c41f75eaa0a9b; its available
 connector is read-only and the local CLI is not authenticated. Verify a new HF
 revision/runtime before claiming either slot or the recovery worker is active.
+
+## Website presentation update (HF upload explicitly deferred)
+
+The short tab now uses a compact header and responsive trade cards, with a
+collapsed strategy guide and lighter navigation/KPI tiles. Ordinary recommendation
+warning banners no longer appear in the short tab. Cards and details display the
+saved session, quote, entry and stop rather than implying a realtime update.
+
+Frontend presentation checks recognize the older HF entry-price placeholder only
+when it conflicts with the recorded raised stop/protection and has no EMA quote.
+That quote/return is displayed as unverified; no replacement price is invented or
+saved. A legitimate measured zero with valid data remains 0%. Pending entry has
+no claimed return, locked cards reveal no supplied ticker/prices, and fetch failure
+has its own error state rather than an empty portfolio. Refresh reloads the saved
+snapshot without `refresh=true`, so it cannot request HF recomputation.
+
+Ten targeted offline web tests passed for these states and Cairo date boundaries.
+TypeScript and a production compile-mode build passed; this mode avoids generating
+pages against absent local production credentials. Actual Vercel deployment status
+must be checked separately. No backend, scheduling, strategy, entitlement or HF
+files changed in this presentation update.

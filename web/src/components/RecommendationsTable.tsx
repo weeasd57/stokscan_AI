@@ -2134,6 +2134,7 @@ function RecommendationsTableContent({ isLandingPage = false, limit = Infinity, 
             {/* Share Dialog */}
             {renderShareDialog()}
 
+            {mainTab !== "short_swings" && <>
             {/* Header Content Info Box */}
             <SpotlightCard 
                 radius={450}
@@ -2224,6 +2225,8 @@ function RecommendationsTableContent({ isLandingPage = false, limit = Infinity, 
                     )}
                 </div>
             )}
+
+            </>}
 
             {/* Performance Summary Cards */}
             {limit === Infinity && (!isLandingPage || user) && (

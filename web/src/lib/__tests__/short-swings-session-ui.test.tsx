@@ -21,3 +21,47 @@ test("saved session and real KPI sample are visible, and a missing return stays 
   expect(view.queryByText("1,796")).toBeNull();
   expect(view.getAllByText("—").length).toBeGreaterThan(0);
 });
+
+import { fireEvent, within } from "@testing-library/react";
+import ActiveTradeCard from "../../components/short-swings/ActiveTradeCard";
+
+test("old conflicting quote is unavailable in the card and detail dialog", async () => {
+  global.fetch = jest.fn(async () => ({ok: true, json: async () => ({is_pro: true,
+    as_of: "2026-09-24", active_trades: [{symbol:"MFPC",entry_date:"2026-08-31",entry_price:40.921,
+    current_price:40.921,return_pct:0,trailing_stop:41.044,is_breakeven_protected:true,ema10_trend:null}], closed_trades: []})} as Response));
+  const view = render(<ShortSwingsTab isPro />);
+  const card = await view.findByRole("article", {name:"صفقة MFPC"});
+  expect(within(card).queryByText("+0.0%")).toBeNull();
+  expect(within(card).getByText(/السعر المحفوظ متعارض/)).toBeTruthy();
+  fireEvent.click(within(card).getByRole("button",{name:"التفاصيل"}));
+  expect(view.getByText(/السعر والعائد غير مؤكدين/)).toBeTruthy();
+  expect(view.queryByText("+0.00%")).toBeNull();
+  fireEvent.click(view.getByRole("button",{name:"تحديث العرض"}));
+  await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+  expect((global.fetch as jest.Mock).mock.calls.every(call => call[0] === "/api/short-swings")).toBe(true);
+});
+
+test("locked cards never reveal supplied prices or ticker", () => {
+  const view = render(<ActiveTradeCard trade={{symbol:"SECRET",entry_date:"2026-10-07",entry_price:125,
+    current_price:150,return_pct:20,trailing_stop:135,is_locked:true}} session="2026-10-07" previousSession={false} isAr onDetails={jest.fn()} />);
+  expect(view.queryByText("SECRET")).toBeNull();
+  expect(view.queryByText(/150.00/)).toBeNull();
+  expect(view.getByRole("article",{name:"صفقة مشفرة"})).toBeTruthy();
+});
+
+test("pending entries have no claimed performance before opening", () => {
+  const view = render(<ActiveTradeCard trade={{symbol:"TEST",entry_date:"2026-10-08",reference_close:100,
+    return_pct:0,is_pending_entry:true}} session="2026-10-07" previousSession={false} isAr onDetails={jest.fn()} />);
+  expect(view.getByText("لم يبدأ العائد")).toBeTruthy();
+  expect(view.queryByText("+0.0%")).toBeNull();
+  expect(view.getByText("2026-10-08")).toBeTruthy();
+});
+
+test("a failed request shows an error instead of an empty portfolio", async () => {
+  const log = jest.spyOn(console, "error").mockImplementation(() => {});
+  global.fetch = jest.fn(async () => ({ok:false} as Response));
+  const view = render(<ShortSwingsTab />);
+  expect(await view.findByRole("alert")).toBeTruthy();
+  expect(view.queryByText("لا توجد صفقات تطابق البحث في الجلسة المعروضة.")).toBeNull();
+  log.mockRestore();
+});
