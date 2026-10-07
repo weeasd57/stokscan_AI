@@ -24,10 +24,11 @@ import { isVerifiableDerivedMetric, splitSentences } from "./validator";
 import { isPortfolioAnalysisRequest, isConversationalChoiceOrFollowUp, normalizeArabicIntent } from "./intent-policy";
 import { evidenceViolations } from "./response-evidence";
 import { checkStructuredClaims } from "./claim-evidence";
-import { isTodayNewsRequest } from "./news-evidence";
+import { isTodayNewsRequest, newsAcquisitionDirectionViolations } from "./news-evidence";
 import { resolveResponseTask, checkResponseTask } from "./response-task";
 import { checkDecisionComparatives, checkDecisionGrounding } from "./decision-evidence";
 import { proseOwner, stockSection } from "./prose-ownership";
+import { checkPortfolioTableEvidence } from "./portfolio-evidence";
 
 export interface AnswerGateInput {
     reply: string;
@@ -175,8 +176,14 @@ function checkAttribution(reply: string, facts: FactRecord[]): string[] {
 export function runAnswerGate(input: AnswerGateInput): AnswerGateResult {
     const { reply, plan, toolResults, userMessage, facts } = input;
     const reasons: string[] = [...evidenceViolations(reply, userMessage, toolResults), ...checkStructuredClaims(reply, toolResults, userMessage),
+        ...newsAcquisitionDirectionViolations(reply, toolResults),
         ...checkContextEvidence(reply, plan, toolResults, input.vision)];
     const checked = { coverage: false, metric: false, attribution: false, context: false, completion: true };
+    // Recommendation/comparison tables are not personal holdings. Apply the
+    // portfolio schema check only when the request is scoped to the account.
+    if (isPortfolioAnalysisRequest(userMessage) || plan.entities.portfolio_operation === "view") {
+        reasons.push(...checkPortfolioTableEvidence(reply, toolResults));
+    }
     const task = resolveResponseTask(userMessage, plan, input.history);
     reasons.push(...checkResponseTask(reply, task, toolResults), ...checkDecisionComparatives(reply, task, toolResults),
         ...checkDecisionGrounding(reply, task, toolResults));

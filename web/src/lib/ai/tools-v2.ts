@@ -10,6 +10,7 @@ import {
     removePortfolioPosition, sellPortfolioPosition, setPortfolioCash, addPortfolioCash,
 } from "./portfolio-tools";
 import { attachEvidenceContract } from "./evidence";
+import { validatedObservationDate } from "./facts";
 import { todayInCairo } from "./cairo-date";
 import { paymentsEnabled, filterByDelay } from "./plan-gate";
 import { fetchRecommendationPages, positiveRecommendationPrice, recommendationPerformance, summarizeRecommendationEvidence } from "./recommendation-evidence";
@@ -1442,7 +1443,12 @@ export async function executeStructuredTools(
                         const priceData = price as any;
                         const techData = tech as any;
                         const closePrice = techData?.close ?? priceData?.close ?? "N/A";
-                        const priceDate = techData?.date || priceData?.date || null;
+                        // The quote date must follow the row that supplied the winning close.
+                        // A technical-indicator date cannot date a fallback close from stock_prices.
+                        const closeFromTech = techData?.close != null;
+                        const priceDate = closeFromTech
+                            ? validatedObservationDate(techData?.metric_dates?.close) || validatedObservationDate(techData?.date)
+                            : validatedObservationDate(priceData?.date);
                         const priceLabel = techData?.is_live_intraday
                             ? `السعر الحالي = ${closePrice}`
                             : `آخر إغلاق مسجل = ${closePrice} بتاريخ ${priceDate || "غير محدد"}`;
@@ -1563,7 +1569,9 @@ export async function executeStructuredTools(
                             tool: "get_stock",
                             availability: liveInfo?.unsupported && (price || tech) ? "partial" : liveInfo?.unsupported ? "unsupported" : liveFailed ? "stale" : isLive ? "available" : price || tech ? "stale" : "empty",
                             source: isLive ? "live_session" : "database",
-                            data_time: isLive ? (techData?.live_updated_at || now) : (priceDate || now),
+                            // Fetch time is not an observation time. Preserve an unknown date as
+                            // unknown so downstream portfolio valuation cannot treat it as today.
+                            data_time: isLive ? (validatedObservationDate(techData?.live_updated_at) || "") : (priceDate || ""),
                             symbols: [upperSym],
                             data_type: isLive ? "live" : "historical",
                             data: {
@@ -1598,7 +1606,8 @@ export async function executeStructuredTools(
                                 session_open: sessionIsOpen,
                                 king_ai_score: techData?.king_ai_score ?? null,
                                 egx_ai_score: techData?.egx_ai_score ?? null,
-                                metric_dates: { ...techData?.metric_dates, acc_score: scanData?.scan_date || null,
+                                metric_dates: { ...techData?.metric_dates, price: priceDate, close: priceDate,
+                                    acc_score: scanData?.scan_date || null,
                                     vol_ratio: techData?.metric_dates?.volume || techData?.date || null,
                                     dist_score: scanData?.scan_date || null, wyckoff_phase: scanData?.scan_date || null },
                                 wyckoff_phase: wyckoffPhase,

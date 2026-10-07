@@ -127,7 +127,7 @@ function applyHybridDomainInvariants(message: string, plan: IntentPlan): IntentP
     if (/(?:سيول|سيولة).{0,30}(?:قطاع|قطاعات)/i.test(text)) {
         return { ...plan, intent: "market_summary", tools: ["get_sector_liquidity"], entities: { ...plan.entities, symbols: [] } };
     }
-    if (symbols.length >= 2 && /(?:قارن|مقارن|مفاضل)/i.test(text)) {
+    if (symbols.length >= 2 && hasExplicitComparisonAction(text)) {
         const tools = new Set(plan.tools);
         tools.add("get_comparison");
         tools.add("get_stock");
@@ -144,6 +144,12 @@ function applyHybridDomainInvariants(message: string, plan: IntentPlan): IntentP
         return { ...plan, entities: { ...plan.entities, require_accumulation: true } };
     }
     return plan;
+}
+
+function hasExplicitComparisonAction(message: string): boolean {
+    const text = normalizeArabicIntent(message);
+    const negated = /(?:بدون|من\s+غير|مش\s+(?:عايز|عاوز|محتاج)|ما\s+(?:عايز|عاوز)|لا\s+(?:اريد|عايز)).{0,20}(?:قارن|مقارن|مفاضل|compare|comparison)/i.test(text);
+    return !negated && /(?:قارن|مقارن|مفاضل|compare|comparison)/i.test(text);
 }
 
 function intersectHybridScanResults(tools: StructuredToolOutput, plan: IntentPlan): StructuredToolOutput {
@@ -1257,6 +1263,35 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const marketWideRequest = isMarketWideRequest(message);
     const riskFollowUp = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(normalized);
     const explicitContextComparison = /(قارن|مقارنه|مقارنة).{0,20}(ده|دا|دي|هذا).{0,20}(مع|بـ|ب)/i.test(normalized);
+    // An attached object pronoun in "قارنه بسهم ABUK" explicitly points to
+    // the previously discussed stock. Only resolve it from a single active
+    // stock; when the prior turn left multiple candidates (or no candidate),
+    // ask which stock the user means instead of silently choosing one.
+    const anaphoricComparison = explicitContextComparison
+        || /(?:قارن(?:ه|ها)\s*(?:مع|ب|بال|بسهم|بالسهم)|قارن(?:ه|ها)\s+(?:سهم|السهم))/i.test(normalized);
+    const priorComparisonCandidates = Array.from(new Set(
+        (sessionState.last_symbols || []).filter(Boolean).map(symbol => String(symbol).toUpperCase())
+    ));
+    const priorComparisonSymbol = priorComparisonCandidates.length === 1
+        && (!sessionState.current_symbol || String(sessionState.current_symbol).toUpperCase() === priorComparisonCandidates[0])
+        ? priorComparisonCandidates[0]
+        : priorComparisonCandidates.length === 0 && sessionState.current_symbol
+            ? String(sessionState.current_symbol).toUpperCase()
+            : null;
+    if (anaphoricComparison && explicitSymbols.length > 0 && !priorComparisonSymbol) {
+        return {
+            intent: "clarification",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: [],
+            clarification_needed: true,
+            clarification_options: priorComparisonCandidates.length > 1
+                ? priorComparisonCandidates.slice(0, 5)
+                : ["حدّد السهم الأول للمقارنة"],
+            session_update: { current_symbol: null, last_symbols: priorComparisonCandidates, summary: message }
+        };
+    }
+    const hasExplicitAnaphoricComparison = anaphoricComparison && Boolean(priorComparisonSymbol);
     const hasPreviousReference = /(?:^|[^\u0621-\u064A])(ده|دا|دي|هذا|السهم ده|السهم دا|السهم دي|هاته|هاتها|اخباره|أخباره|خبره|الاتنين|السهمين|عليه|فيه|ليه|عليها|فيها|ليها|عنه|عنها|به|بها|معاه|معاها|هو|هي)(?:$|[^\u0621-\u064A])/i.test(normalized) && !broadScan && (explicitSymbols.length === 0 || explicitContextComparison);
     if (hasGroupReference && sessionState.last_symbols.length > 0) {
         sessionState.last_symbols.forEach(sym => {
@@ -1264,6 +1299,8 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         });
     } else if (hasPreviousReference && sessionState.current_symbol && !symbols.includes(sessionState.current_symbol)) {
         symbols.unshift(sessionState.current_symbol);
+    } else if (hasExplicitAnaphoricComparison && priorComparisonSymbol && !symbols.includes(priorComparisonSymbol)) {
+        symbols.unshift(priorComparisonSymbol);
     }
     if ((marketWideRequest || (isBestBuyStockQuestion(message) && !hasGroupReference)) && extractExplicitSymbols(message).length === 0) {
         symbols.length = 0;
@@ -1929,6 +1966,11 @@ export interface PipelineOptions {
     isPro?: boolean;
 }
 
+/** Central publication decision for every response origin, including deterministic portfolio renderers. */
+export function reviewPublicationResponse(input: Parameters<typeof runAnswerGate>[0]) {
+    return runAnswerGate(input);
+}
+
 export async function* runPipelineStream(
     userMessage: string, images: string[], sessionState: SessionState,
     sessionSummary: SessionSummary | null, history: Array<{ role: string; content: string }>,
@@ -1969,8 +2011,7 @@ export async function* runPipelineStream(
                         data_type: "image-derived", symbols: publicationVision.symbols.map(s => s.symbol), data: publicationVision }] };
                 {
                     const gateInput = publicationGateInput(String(next.value.data.response || ""));
-                    const isDeterministicPortfolio = typeof next.value.data.response === "string" && next.value.data.response.includes("تقرير التحليل الفني الشامل وإدارة مخاطر المحفظة");
-                    const gate = isDeterministicPortfolio ? { ok: true, reasons: [] } : runAnswerGate(gateInput);
+                    const gate = reviewPublicationResponse(gateInput);
                     let finalPassed = gate.ok;
                     if (!gate.ok) {
                         let repaired = (publicationVision ? null : buildDeterministicResponse(userMessage, publicationPlan, publicationTools.results, sessionState))
@@ -1985,13 +2026,13 @@ export async function* runPipelineStream(
                                     { symbol: sessionState.current_symbol, message_id: null, confidence: 1 },
                                     apiKeys, requestedModel, sessionState,
                                     `${buildGateCorrectionBlock(gate.reasons)}\nالرد السابق:\n${gateInput.reply}\nحافظ على جميع أجزاء طلب المستخدم مع تصحيح المخالفات.`));
-                                if (runAnswerGate({ ...gateInput, reply: candidate }).ok) {
+                                if (reviewPublicationResponse({ ...gateInput, reply: candidate }).ok) {
                                     repaired = candidate;
                                     next.value.data.response_origin = "llm";
                                 }
                             } catch { /* A provider failure must not publish the rejected candidate. */ }
                         }
-                        const repairedGate = runAnswerGate({ ...gateInput, reply: repaired });
+                        const repairedGate = reviewPublicationResponse({ ...gateInput, reply: repaired });
                         finalPassed = repairedGate.ok;
                         next.value.data.response = repairedGate.ok ? repaired : "تعذر التحقق من إجابة متسقة مع سؤالك والبيانات المتاحة. أعد المحاولة لاستكمال التحقق.";
                         next.value.data.degraded = true;
@@ -2749,25 +2790,59 @@ async function* runPipelineCore(
 
     const explicitSymbols = extractExplicitSymbols(userMessage);
     const broadScanRequest = explicitSymbols.length === 0 && /(?:الاسهم|اسهم|هات|ابعت|اعرض).{0,40}(?:تجميع|تصريف)|(?:تجميع|تصريف).{0,40}(?:الاسهم|اسهم)/i.test(normalizeArabicIntent(userMessage));
-    const plannerResolvedSymbols = plannerResult.entities.symbols || [];
+    let plannerResolvedSymbols = plannerResult.entities.symbols || [];
     const antecedentSymbols = (sessionState.last_symbols || []).length > 1
         ? sessionState.last_symbols
         : plannerResolvedSymbols;
     const groupReferenceSymbols = resolveGroupReferenceSymbols(userMessage, antecedentSymbols);
     const explicitComparison = /قارن|مقارن|مفاضل|السهمين|الاتنين|compare/i.test(userMessage);
+    const attachedPronounComparison = /(?:قارن(?:ه|ها)\s*(?:مع|ب|بال|بسهم|بالسهم)|قارن(?:ه|ها)\s+(?:سهم|السهم))/i.test(normalizeArabicIntent(userMessage))
+        || /(?:قارن|مقارن|مقارنة).{0,20}(?:ده|دا|دي|هذا).{0,20}(?:مع|بـ|ب)/i.test(normalizeArabicIntent(userMessage));
+    const deterministicClarificationForComparison = attachedPronounComparison && Boolean(deterministicPlannerResult?.clarification_needed);
+    if (deterministicClarificationForComparison && deterministicPlannerResult) {
+        // A confident semantic plan must not turn an unresolved pronoun into
+        // a one-stock answer. The deterministic plan records that its prior
+        // reference is ambiguous or missing and therefore remains authoritative.
+        plannerResult = deterministicPlannerResult;
+        plannerResolvedSymbols = plannerResult.entities.symbols || [];
+        isSemanticPlanAuthoritative = false;
+    }
     const referenceCandidates = new Set([...(sessionState.last_symbols || []),
         ...(sessionState.current_symbol ? [sessionState.current_symbol] : []),
         ...(memory?.resolved_references?.symbol ? [memory.resolved_references.symbol] : []),
         ...(vision?.symbols || []).map(s => s.symbol)]);
+    const explicitContextComparison = attachedPronounComparison
+        || /(?:قارن|مقارن|مقارنة).{0,20}(?:ده|دا|دي|هذا).{0,20}(?:مع|بـ|ب)/i.test(normalizeArabicIntent(userMessage));
+    const deterministicReferenceSymbols = explicitContextComparison
+        ? (deterministicPlannerResult?.entities?.symbols || []).filter(symbol => referenceCandidates.has(symbol) && !explicitSymbols.includes(symbol))
+        : [];
     const unionSymbols = explicitSymbols.length > 0
         ? Array.from(new Set([...explicitSymbols, ...(explicitComparison && explicitSymbols.length === 1
-            ? plannerResolvedSymbols.filter(s => referenceCandidates.has(s)) : [])]))
+            ? [...deterministicReferenceSymbols, ...plannerResolvedSymbols.filter(s => referenceCandidates.has(s))] : [])]))
         : plannerResolvedSymbols;
+    const explicitComparisonPairKnown = hasExplicitComparisonAction(userMessage)
+        && (explicitSymbols.length >= 2 || (explicitSymbols.length === 1 && deterministicReferenceSymbols.length === 1))
+        && unionSymbols.length >= 2;
+    if (explicitComparisonPairKnown) {
+        // Once the user's comparison pair is grounded, semantic routing may
+        // enrich the task contract but cannot collapse it into a single-stock
+        // intent or clarification. Keep request/response-task facets intact.
+        plannerResult = {
+            ...plannerResult,
+            intent: "comparison",
+            tools: Array.from(new Set([...(plannerResult.tools || []), "get_stock", "get_comparison"])),
+            clarification_needed: false,
+            clarification_options: [],
+            entities: { ...plannerResult.entities, symbols: unionSymbols },
+        };
+        plannerResolvedSymbols = unionSymbols;
+    }
     let mergedSymbols = mergeVisionSymbols(unionSymbols, vision, explicitSymbols.length);
     mergedSymbols = clearsStockContext(plannerResult) 
         ? explicitSymbols 
         : hasImages && imageSymbols.length > 0 ? mergedSymbols
         : scopeImplicitSingleStockRequest(userMessage, explicitSymbols, mergedSymbols, sessionState.current_symbol, memory?.resolved_references?.symbol || null);
+    if (plannerResult.clarification_needed) mergedSymbols = [];
     const riskFollowUp = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage);
     if (riskFollowUp && mergedSymbols.length === 0) {
         const recentSymbol = extractSingleStockFromRecentHistory(history);
@@ -2842,6 +2917,9 @@ async function* runPipelineCore(
         && !unresolvedStockName
     );
     if (dateOnlyFollowUp) mergedSymbols = [sessionState.current_symbol!];
+    // Context fallbacks above serve normal stock follow-ups; once the planner
+    // has requested clarification, none may silently restore an old symbol.
+    if (plannerResult.clarification_needed) mergedSymbols = [];
     const enforced: ReturnType<typeof enforceIntentFromMessage> = isSemanticPlanAuthoritative
         ? { intent: plannerResult.intent, tools: plannerResult.tools || [], replaceTools: false }
         : dateOnlyFollowUp
@@ -2877,7 +2955,9 @@ async function* runPipelineCore(
     if (explicitSymbols.length === 0 && !isExplicitStockIntent && enforced.tools.some(tool => marketScopedTools.has(tool))) mergedSymbols = [];
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
     const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
-    let effectiveIntent = isSemanticPlanAuthoritative ? plannerResult.intent : (historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent);
+    let effectiveIntent = plannerResult.clarification_needed ? "clarification"
+        : isSemanticPlanAuthoritative ? plannerResult.intent
+        : (historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent);
 
     const requiredFactTools: Record<string, string[]> = {
         stock_quote: ["get_stock"], technical_indicators: ["get_stock"], price_levels: ["get_stock", "get_stock_levels"],

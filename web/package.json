@@ -11,6 +11,7 @@
     "format:check": "prettier --check .",
     "prepare": "husky",
     "test": "jest",
+    "test:offline": "jest --config jest.offline.config.js",
     "test:live": "node scripts/run-live-tests.js",
     "test:planner-compare": "node scripts/run-planner-compare.js"
   },

@@ -14,6 +14,7 @@ import { buildMarketOutlookResponse, evidencePolicyPrompt, volumeAssessment, saf
 import { assembleContextSafely, EvidenceContextOverflow } from "./context-budget";
 import { recommendationPerformance } from "./recommendation-evidence";
 import { recommendationSummaryText, renderRecommendationEvidence } from "./recommendation-presentation";
+import { validatedObservationDate } from "./facts";
 
 const MAX_CONTEXT_CHARS = 30000;
 
@@ -201,6 +202,8 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
     lines.push("17b. ⛔ ممنوع وصف حركة السهم بأنها 'طبيعي' أو 'هذا طبيعي' كحكم قيمي (مثل 'تراجع يومي طبيعي'، 'جني أرباح طبيعي'، 'هبوط طبيعي'). 'طبيعي' تعني أن الحركة صحية ومتوقعة، وهذا استنتاج لا تثبته البيانات. صِف الحركة بموضوعية فقط: 'تراجع' أو 'تصحيح' أو 'انخفاض' أو 'جني أرباح'، دون الحكم عليها بأنها طبيعية أو غير طبيعية.");
 
     lines.push("18. ذكر المستخدم كمية ومتوسط شراء دليل للتحليل فقط، وليس حفظاً في الحساب. لا تقل تم تسجيل/حفظ/إضافة المركز إلا بنتيجة manage_portfolio ناجحة تحمل persisted=true للعملية نفسها. قل: بناءً على الكمية وسعر الشراء اللذين ذكرتهما؛ ويمكنه الحفظ من صفحة المحفظة.");
+    lines.push("19. تحليل المحفظة: لا تجمع مؤشرات مختلفة في درجة أداء/مخاطر، ولا ترتب مراكز كـ(الأقوى/الأضعف) أو توصي بجعل سهم ركيزة/بيع/احتفاظ اعتماداً على قواعد غير معايرة. اعرض الربح والخسارة والوزن فقط من كميات وأسعار صالحة وتقييم مؤرخ؛ إذا كان التقييم جزئياً أو تواريخه مختلفة فصرّح بذلك ولا تعرض إجمالي/أوزان مضللة. اذكر تاريخ ومصدر السعر ومستويات الدعم/المقاومة لكل مركز، وبيّن أن سعر الشراء من سجل المحفظة وتاريخه فقط إذا توفر entry_at. تاريخ سعر السوق المجهول يجب أن يظهر كغير موثق، ولا يوصف بأنه حالي.");
+    lines.push("19b. في تحليل المحفظة، RSI أكبر من 30 وأقل من 70 زخم محايد (لا تقل تشبع بيعي عند 30.9؛ التشبع البيعي يتطلب RSI <= 30)، وRSI >=70 تشبع شرائي. اقبل RSI فقط بين 0 و100 ودرجات KING/EGX فقط بين 0 و1. vol_ratio هو حجم التداول مقارنة بمتوسطه، وليس قياساً للسيولة المطلقة ولا دليلاً على دعم السعر أو ضغط اتجاهي. درجات KING/EGX اعرضها كدرجات نموذج مستقلة بلا متوسط/ترتيب/احتمال نجاح.");
     lines.push("=== END STRICT EVIDENCE CONTEXT ===");
     return lines.join("\n");
 }
@@ -641,18 +644,14 @@ export function buildV2FinalMessages(
     if (ownedPositions.length > 0) {
         sections.push([
             "=== OWNED POSITION CONTEXT ===",
-            "هذه مراكز المستخدم الفعلية المسجلة في النظام. عند تحليل سهم موجود هنا، ابدأ بذكر الكمية ومتوسط الشراء واربط الربح/الخطر بسعر التكلفة الفعلي، ولا تتعامل معه كسهم عام فقط.",
+            "هذه مراكز المستخدم المسجلة. عند تحليل سهم منها اذكر الكمية ومتوسط الشراء إذا كانا متاحين. لا تصف آخر سعر بأنه حالي إلا إذا كان مصدر السعر وتاريخه ظاهرين؛ ولا تحسب ربحاً/خسارة دون كمية وسعر شراء وسعر تقييم صالح ومؤرخ.",
             "🚫 قاعدة صارمة لمنع هلوسة المراكز: يُمنع تماماً افتراض أن المستخدم 'خسران' أو 'رابح' في أي سهم إلا إذا توفرت بيانات المركز الفعلية أعلاه. إذا ذكر المستخدم سهماً بدون ظهوره في هذا القسم، تعامل معه على أنه استفسار تحليلي عام فقط.",
             ...(isPortfolioAnalysisRequest(userMessage) ? [
-                `🚨 قاعدة إلزامية لهيكلة تقرير تحليل المحفظة (${ownedPositions.length} أسهم):
-1. ابدأ بملخص شامل لرأس المال والمحفظة (إجمالي رأس المال، القيمة السوقية الحالية، إجمالي الربح/الخسارة غير المحققة بالجنيه والنسبة المئوية).
-2. جدول ماركداون شامل يضم كل المراكز بلا استثناء (${ownedPositions.map((p: any) => p.symbol).join("، ")}):
-   | السهم | الكمية | سعر الشراء | آخر سعر | الربح/الخسارة % | وزن المركز % | RSI | الذكاء الاصطناعي | الدعم | المقاومة |
-3. تحليل تفصيلي وعملي لكل مركز على حدة:
-   - وضّح المسافة من سعر الشراء ومستويات الدعم والمقاومة.
-   - قيّم الزخم (RSI، الحجم، الاتجاه) وخطة التعامل (وقف خسارة محدد عند كسر الدعم، ومستهدفات جني الأرباح قرب المقاومة).
-4. خطة توزيع السيولة وإدارة المخاطر (Actionable Tactical Plan):
-   - حدد بوضوح: المركز الأقوى، المركز الأكثر خطورة، وكيفية توزيع السيولة أو حماية رأس المال دون عموميات جافة.`
+                `🚨 قواعد تقرير تحليل المحفظة (${ownedPositions.length} مراكز):
+1. اذكر كل المراكز بلا استثناء (${ownedPositions.map((p: any) => p.symbol).join("، ")}), وافصل بيانات المستخدم المسجلة عن بيانات السوق ومصادرها.
+2. اعرض جدولاً بالكمية وسعر الشراء والسعر المتاح والعائد غير المحقق والوزن وRSI والحجم النسبي ودرجات النماذج؛ استخدم غير متاح/غير محسوب عند نقص الدليل.
+3. اعرض إجمالي القيمة والأوزان فقط إذا كانت كل الكميات والأسعار المؤرخة متاحة وعلى تاريخ تقييم واحد؛ إجمالي العائد يحتاج أيضاً تكلفة شراء مكتملة. اذكر تاريخ ومصدر السعر والمستويات لكل مركز. عند اختلاف التواريخ لا تربط حركة السعر بمستويات من تاريخ آخر.
+4. اعرض كل معيار مستقلاً: RSI، حجم التداول النسبي، السعر مقابل التكلفة، ومستويات الدعم/المقاومة. لا تصنع درجة أداء أو مخاطر مركبة، ولا ترتب المركز الأقوى/الأخطر، ولا توصي ببيع أو احتفاظ أو جعل سهم ركيزة أو توزيع سيولة من هذه المؤشرات وحدها.`
             ] : []),
             ...ownedPositions.map((position: any) => `- ${position.symbol}: الكمية=${position.quantity ?? "غير متاح"}، متوسط الشراء=${position.entry_price ?? "غير متاح"}، آخر سعر=${position.last_price ?? "غير متاح"}، قيمة المركز=${position.market_value ?? "غير متاح"}, الربح/الخسارة غير المحققة=${position.unrealized_pnl ?? "غير متاح"}`),
         ].join("\n"));
@@ -1988,8 +1987,8 @@ export function buildDeterministicPortfolioAnalysisResponse(
     const portfolioRes = toolResults.find(r => r.tool === "manage_portfolio" && !r.error);
     const stockResults = toolResults.filter(r => r.tool === "get_stock" && r.data?.symbol);
     const levelResults = toolResults.filter(r => r.tool === "get_stock_levels" && r.data?.symbol);
-    const levelMap = new Map(levelResults.map(r => [String(r.data.symbol).toUpperCase(), r.data]));
-    const stockMap = new Map(stockResults.map(r => [String(r.data.symbol).toUpperCase(), r.data]));
+    const levelMap = new Map(levelResults.map(r => [String(r.data.symbol).toUpperCase(), r]));
+    const stockMap = new Map(stockResults.map(r => [String(r.data.symbol).toUpperCase(), r]));
 
     // If portfolio is confirmed empty
     if (portfolioRes && portfolioRes.data?.ok === true && Array.isArray(portfolioRes.data?.positions) && portfolioRes.data.positions.length === 0) {
@@ -2002,212 +2001,173 @@ export function buildDeterministicPortfolioAnalysisResponse(
 
     if (!positions || positions.length === 0) return null;
 
-    // Calculate Portfolio-level totals
-    let totalInvestedCost = 0;
-    let totalMarketValue = 0;
-    let hasCostData = false;
+    const parseDecimal = (value: unknown, allowVolumeSuffix = false): number | null => {
+        if (typeof value === "number") return Number.isFinite(value) ? value : null;
+        if (typeof value !== "string") return null;
+        let normalized = value.trim()
+            .replace(/[٠-٩۰-۹]/g, digit => {
+                const code = digit.charCodeAt(0);
+                return String(code >= 0x06f0 ? code - 0x06f0 : code - 0x0660);
+            })
+            .replace(/٫/g, ".")
+            .replace(/٬/g, ",")
+            .replace(/[−–]/g, "-");
+        if (!normalized) return null;
+        if (/[xX%×✕]$/.test(normalized)) {
+            if (!allowVolumeSuffix || !/[xX]$/.test(normalized)) return null;
+            normalized = normalized.slice(0, -1).trim();
+        }
+        if (/[xX%×✕]/.test(normalized)) return null;
+        if (normalized.includes(",")) {
+            if (!/^[-+]?(?:\d{1,3})(?:,\d{3})+(?:\.\d+)?(?:[eE][-+]?\d+)?$/.test(normalized)) return null;
+            normalized = normalized.replace(/,/g, "");
+        }
+        if (!/^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?$/.test(normalized)) return null;
+        const parsed = Number(normalized);
+        return Number.isFinite(parsed) ? parsed : null;
+    };
+    const validPositive = (value: unknown): number | null => {
+        const parsed = parseDecimal(value);
+        return parsed !== null && parsed > 0 ? parsed : null;
+    };
+    const validNumber = (value: unknown): number | null => parseDecimal(value);
+    const dateLabel = (value: unknown): string | null => {
+        const valid = validatedObservationDate(value);
+        if (!valid) return null;
+        if (!valid.includes("T")) return valid;
+        const parts = new Intl.DateTimeFormat("en-GB", {
+            timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit",
+        }).formatToParts(new Date(valid));
+        const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value;
+        const year = part("year");
+        const month = part("month");
+        const day = part("day");
+        return year && month && day ? `${year}-${month}-${day}` : null;
+    };
+    const money = (value: number) => value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    for (const pos of positions) {
+    const analysis = positions.map((pos: any) => {
         const symbol = String(pos.symbol || "").toUpperCase();
-        const stock = stockMap.get(symbol) || {};
-        const price = stock.price != null ? Number(stock.price) : (pos.last_price != null ? Number(pos.last_price) : null);
-        const entry = pos.entry_price != null ? Number(pos.entry_price) : null;
-        const qty = pos.quantity != null ? Number(pos.quantity) : null;
-
-        if (qty != null && qty > 0 && entry != null && entry > 0) {
-            totalInvestedCost += qty * entry;
-            hasCostData = true;
-            if (price != null && price > 0) {
-                totalMarketValue += qty * price;
-            } else {
-                totalMarketValue += qty * entry;
-            }
-        }
-    }
-
-    const totalUnrealizedPnl = totalMarketValue - totalInvestedCost;
-    const totalPnlPct = hasCostData && totalInvestedCost > 0 ? (totalUnrealizedPnl / totalInvestedCost) * 100 : null;
-
-    // Build Table Rows with Weights & Status
-    const rows = positions.map((pos: any) => {
-        const symbol = String(pos.symbol || "").toUpperCase();
-        const stock = stockMap.get(symbol) || {};
-        const level = levelMap.get(symbol) || {};
-        const price = stock.price != null ? Number(stock.price) : (pos.last_price != null ? Number(pos.last_price) : null);
-        const entry = pos.entry_price != null ? Number(pos.entry_price) : null;
-        const qty = pos.quantity != null ? Number(pos.quantity) : null;
-
-        let pnlText = "—";
-        let posValue = 0;
-        if (qty != null && qty > 0 && price != null && price > 0) {
-            posValue = qty * price;
-        }
-
-        let weightText = "—";
-        if (hasCostData && totalMarketValue > 0 && posValue > 0) {
-            weightText = `${((posValue / totalMarketValue) * 100).toFixed(1)}%`;
-        }
-
-        if (price != null && entry != null && entry > 0) {
-            const pnlPct = ((price - entry) / entry) * 100;
-            pnlText = `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%`;
-        }
-
-        const rsi = stock.rsi_14 != null ? Number(stock.rsi_14).toFixed(1) : "—";
-        const king = Number(stock.king_ai_score ?? stock.king_score);
-        const egx = Number(stock.egx_ai_score ?? stock.egx_score);
-        const aiScore = Number.isFinite(king) && Number.isFinite(egx)
-            ? `${(king * 100).toFixed(0)}% / ${(egx * 100).toFixed(0)}%`
-            : "—";
-        const supp = level.support != null ? Number(level.support).toFixed(2) : "—";
-        const resis = level.resistance != null ? Number(level.resistance).toFixed(2) : "—";
-        const priceText = price != null ? price.toFixed(2) : "—";
-        const entryText = entry != null ? entry.toFixed(2) : "—";
-        const qtyText = qty != null ? qty.toLocaleString() : "—";
-
-        return `| **${symbol}** | ${qtyText} | ${entryText} | ${priceText} | ${pnlText} | ${weightText} | ${rsi} | ${aiScore} | ${supp} | ${resis} |`;
+        const stockResult = stockMap.get(symbol);
+        const stock = stockResult?.data || {};
+        const levelResult = levelMap.get(symbol);
+        const level = levelResult?.data || {};
+        const qty = validPositive(pos.quantity);
+        const entry = validPositive(pos.entry_price);
+        const livePrice = validPositive(stock.price);
+        const savedPrice = validPositive(pos.last_price);
+        const price = livePrice ?? savedPrice;
+        const priceKind = livePrice !== null
+            ? stock.is_live_intraday ? "السعر اللحظي" : "آخر إغلاق مسجل"
+            : savedPrice !== null ? "السعر المحفوظ" : "السعر غير متاح";
+        const priceDate = livePrice !== null
+            ? dateLabel(stockResult?.data?.quote_basis?.as_of || stockResult?.data_time)
+            : dateLabel(pos.price_updated_at || pos.last_price_as_of);
+        const priceSource = livePrice !== null
+            ? `${stockResult?.source || "مصدر أداة السعر"}${stockResult?.data_type ? ` (${stockResult.data_type})` : ""}`
+            : savedPrice !== null
+                ? `${pos.price_source === "stock_prices" ? "سعر محفوظ في بيانات السوق" : "سعر محفوظ بالمحفظة"}`
+                : null;
+        const levelDate = dateLabel(level.levels_as_of || levelResult?.data_time);
+        const levelSource = level.support != null || level.resistance != null ? (levelResult?.source || "مصدر المستويات") : null;
+        const rawRsi = validNumber(stock.rsi_14 ?? stock.rsi);
+        const rsi = rawRsi !== null && rawRsi >= 0 && rawRsi <= 100 ? rawRsi : null;
+        const rawVolumeRatio = stock.vol_ratio ?? stock.volume_ratio;
+        const volRatioValue = parseDecimal(rawVolumeRatio, true);
+        const volRatio = volRatioValue !== null && volRatioValue >= 0 ? volRatioValue : null;
+        const rawKing = validNumber(stock.king_ai_score ?? stock.king_score);
+        const rawEgx = validNumber(stock.egx_ai_score ?? stock.egx_score);
+        const king = rawKing !== null && rawKing >= 0 && rawKing <= 1 ? rawKing : null;
+        const egx = rawEgx !== null && rawEgx >= 0 && rawEgx <= 1 ? rawEgx : null;
+        const support = validPositive(level.support);
+        const resistance = validPositive(level.resistance);
+        const entryDate = dateLabel(pos.entry_at);
+        const valued = Boolean(qty && price && priceDate);
+        const pnlAvailable = Boolean(valued && entry);
+        const marketValue = valued ? qty! * price! : null;
+        const costBasis = qty && entry ? qty * entry : null;
+        const pnlPct = pnlAvailable ? ((price! - entry!) / entry!) * 100 : null;
+        const pnlValue = pnlAvailable ? qty! * (price! - entry!) : null;
+        const rsiLabel = rsi === null ? "غير متاح" : rsi <= 30 ? `تشبع بيعي (≤30؛ ${rsi.toFixed(1)})` : rsi >= 70 ? `تشبع شرائي (≥70؛ ${rsi.toFixed(1)})` : `محايد (30–أقل من 70؛ ${rsi.toFixed(1)})`;
+        const volumeText = volRatio === null ? "غير متاح" : `${volRatio.toFixed(2)}x من متوسط حجم التداول (مقياس نسبي)`;
+        const aiText = [king, egx].some(value => value !== null)
+            ? `${king === null ? "غير متاح" : `${(king * 100).toFixed(0)}%`} / ${egx === null ? "غير متاح" : `${(egx * 100).toFixed(0)}%`}`
+            : "غير متاح";
+        const levelsStatus = support === null && resistance === null
+            ? "الدعم والمقاومة غير متاحين"
+            : `الدعم ${support === null ? "غير متاح" : `${support.toFixed(2)} ج.م`}، المقاومة ${resistance === null ? "غير متاحة" : `${resistance.toFixed(2)} ج.م`} — ${levelDate || "تاريخ المستويات غير موثق"}${levelSource ? `؛ ${levelSource}` : ""}`;
+        const sameDateForLevels = priceDate !== null && levelDate !== null && priceDate === levelDate;
+        const levelContext = sameDateForLevels && price !== null
+            ? support !== null && resistance !== null && support < resistance
+                ? price >= support && price <= resistance
+                    ? "السعر ضمن النطاق المسجل في التاريخ نفسه."
+                    : "السعر خارج النطاق المسجل في التاريخ نفسه."
+                : support !== null && resistance !== null ? "المستويات المسجلة غير متسقة؛ لا أفسرها كنطاق." : "لا تكفي المستويات لتحديد نطاق كامل."
+            : (support !== null || resistance !== null) ? "لا أقارن السعر بالمستويات لاختلاف التاريخ أو غياب تاريخ أحدهما." : "";
+        return {
+            symbol, name: stock.name || pos.name || symbol, qty, entry, price, priceDate, priceSource,
+            entryDate, rsiLabel, volumeText, aiText, support, resistance, levelsStatus, levelContext, priceKind,
+            marketValue, costBasis, pnlPct, pnlValue, valued, pnlAvailable,
+            marketDate: priceDate,
+            cells: [
+                `**${symbol}**`,
+                qty === null ? "غير متاح" : qty.toLocaleString("en-US"),
+                entry === null ? "غير متاح" : `${entry.toFixed(2)} ج.م${entryDate ? ` (${entryDate})` : " (تاريخ سعر الشراء غير موثق)"}`,
+                price === null ? "غير متاح" : `${priceKind} ${price.toFixed(2)} ج.م${priceDate ? ` بتاريخ ${priceDate}` : "؛ التاريخ غير موثق"}`,
+                pnlPct === null ? "غير محسوب" : `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%`,
+                rsiLabel,
+                volumeText,
+                aiText,
+            ]
+        };
     });
 
+    const fullyValued = analysis.length > 0 && analysis.every(item => item.valued);
+    const valuationDates = new Set(analysis.map(item => item.marketDate).filter(Boolean));
+    const comparableDates = valuationDates.size === 1 && analysis.every(item => item.marketDate);
+    const totalMarketValue = fullyValued && comparableDates ? analysis.reduce((sum, item) => sum + item.marketValue!, 0) : null;
+    const completeCostBasis = analysis.length > 0 && analysis.every(item => item.costBasis !== null);
+    const totalCost = completeCostBasis ? analysis.reduce((sum, item) => sum + item.costBasis!, 0) : null;
+    const totalPnlValue = totalCost !== null && totalMarketValue !== null ? totalMarketValue - totalCost : null;
+    const totalPnlPct = totalCost && totalPnlValue !== null ? totalPnlValue / totalCost * 100 : null;
+    const weightRowsAllowed = totalMarketValue !== null && totalMarketValue > 0;
+    const rows = analysis.map(item => {
+        const weight = weightRowsAllowed && item.marketValue !== null ? `${(item.marketValue / totalMarketValue! * 100).toFixed(1)}%` : "غير محسوب";
+        const cells = [...item.cells];
+        cells.splice(5, 0, weight);
+        return `| ${cells.join(" | ")} |`;
+    });
     const table = [
-        "| السهم | الكمية | سعر الشراء | آخر سعر | الربح/الخسارة % | وزن المحفظة % | RSI | الذكاء الاصطناعي (KING/EGX) | الدعم | المقاومة |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| السهم | الكمية | سعر الشراء المسجل | السعر المتاح | العائد غير المحقق | وزن المحفظة | RSI | حجم نسبي | درجات KING/EGX* |",
+        "|---|---:|---:|---:|---:|---:|---|---|---:|",
         ...rows
     ].join("\n");
 
-    // Comprehensive Per-Stock Breakdown
-    const perStockBreakdowns: string[] = [];
-    const stockScores: { symbol: string; score: number; risk: number; name: string }[] = [];
+    const valuationSummary = totalPnlValue !== null && totalPnlPct !== null
+        ? [`**التقييم الإجمالي للمراكز** (${[...valuationDates][0]}): القيمة السوقية ${money(totalMarketValue!)} ج.م؛ التكلفة ${money(totalCost!)} ج.م؛ العائد غير المحقق ${totalPnlValue >= 0 ? "+" : ""}${money(totalPnlValue)} ج.م (${totalPnlPct >= 0 ? "+" : ""}${totalPnlPct.toFixed(2)}%).`]
+        : totalMarketValue !== null
+            ? [`**القيمة السوقية للمراكز** (${[...valuationDates][0]}): ${money(totalMarketValue)} ج.م، ويمكن حساب الأوزان لأن الأسعار مؤرخة في اليوم نفسه. لم أحسب العائد الإجمالي لعدم اكتمال تكلفة الشراء المسجلة.`]
+            : [`**لم أعرض إجمالي القيمة أو الأوزان:** التقييم المؤرخ الكامل والمتزامن غير متاح (${analysis.filter(item => item.valued).length}/${analysis.length} مركز له سعر وكمية وتاريخ موثقان${valuationDates.size > 1 ? `، والأسعار المؤرخة موزعة على ${valuationDates.size} تواريخ` : ""}).`];
+    const positionNotes = analysis.map(item => {
+        const entryDetail = item.entry === null ? "سعر الشراء المسجل غير متاح" : `سعر الشراء المسجل ${item.entry.toFixed(2)} ج.م${item.entryDate ? ` بتاريخ ${item.entryDate}` : "؛ تاريخ الشراء غير موثق"}`;
+        const pnlDetail = item.pnlPct === null ? "العائد غير المحقق غير محسوب لغياب سعر أو كمية أو تاريخ تقييم موثق" : `العائد غير المحقق مقابل سعر الشراء ${item.pnlPct >= 0 ? "+" : ""}${item.pnlPct.toFixed(1)}% (${item.pnlValue! >= 0 ? "+" : ""}${money(item.pnlValue!)} ج.م)`;
+        return `- **${item.symbol} (${item.name}):** ${entryDetail}؛ ${pnlDetail}. RSI: ${item.rsiLabel}. حجم التداول النسبي: ${item.volumeText}. ${item.levelsStatus} ${item.levelContext}`;
+    });
 
-    for (const pos of positions) {
-        const symbol = String(pos.symbol || "").toUpperCase();
-        const stock = stockMap.get(symbol) || {};
-        const level = levelMap.get(symbol) || {};
-        const rsi = Number(stock.rsi_14);
-        const entry = pos.entry_price != null ? Number(pos.entry_price) : null;
-        const price = stock.price != null ? Number(stock.price) : (pos.last_price != null ? Number(pos.last_price) : null);
-        const supp = level.support != null ? Number(level.support) : null;
-        const resis = level.resistance != null ? Number(level.resistance) : null;
-        const volRatio = Number(String(stock.vol_ratio ?? stock.volume_ratio ?? "").replace(/x$/i, ""));
-        const king = Number(stock.king_ai_score ?? stock.king_score);
-        const egx = Number(stock.egx_ai_score ?? stock.egx_score);
-
-        // Scoring for tactical plan
-        let compositeScore = 50;
-        let riskScore = 30;
-
-        const posNotes: string[] = [];
-
-        // 1. Position PnL & Distance Context
-        if (entry != null && price != null && entry > 0) {
-            const pnlPct = ((price - entry) / entry) * 100;
-            if (pnlPct >= 5) {
-                posNotes.push(`محقق مكسب غير محقق (+${pnlPct.toFixed(1)}%)؛ المركز في وضع مريح فوق سعر الشراء (${entry.toFixed(2)} ج.م).`);
-                compositeScore += 15;
-            } else if (pnlPct <= -5) {
-                posNotes.push(`تسجيل تراجع غير محقق (${pnlPct.toFixed(1)}%) عن سعر الشراء (${entry.toFixed(2)} ج.م).`);
-                compositeScore -= 15;
-                riskScore += 25;
-            } else {
-                posNotes.push(`المركز قريب من نقطة التعادل (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}%) من سعر الشراء (${entry.toFixed(2)} ج.م).`);
-            }
-        }
-
-        // 2. Technical Support / Resistance Dynamics
-        if (price != null && supp != null && resis != null && resis > supp) {
-            const distToSupp = ((price - supp) / supp) * 100;
-            const distToResis = ((resis - price) / price) * 100;
-
-            if (distToSupp <= 3 && distToSupp >= -1) {
-                posNotes.push(`السعر يختبر الدعم الحسابي (${supp.toFixed(2)} ج.م) — كسر هذا المستوى بإغلاق يستوجب تفعيل وقف الخسارة لتفادي مزيد من التراجع.`);
-                riskScore += 20;
-            } else if (distToResis <= 3 && distToResis >= -1) {
-                posNotes.push(`السعر يقترب من المقاومة الفنية (${resis.toFixed(2)} ج.م) — فرصة مناسبة لجني أرباح جزئي أو رفع وقف الأرباح.`);
-                compositeScore += 10;
-            } else {
-                posNotes.push(`نطاق الحركة محصور بين دعم ${supp.toFixed(2)} ج.م ومقاومة ${resis.toFixed(2)} ج.م.`);
-            }
-        } else if (supp != null) {
-            posNotes.push(`الدعم الأقرب عند ${supp.toFixed(2)} ج.م كحزام أمان رئيسي.`);
-        }
-
-        // 3. Momentum & Volume Profile
-        if (Number.isFinite(rsi)) {
-            if (rsi >= 70) {
-                posNotes.push(`مؤشر الزخم RSI (${rsi.toFixed(1)}) في منطقة تشبع شرائي تعكس سخونة الصعود وتستدعي الحذر من جني الأرباح المفاجئ.`);
-                riskScore += 15;
-            } else if (rsi <= 35) {
-                posNotes.push(`مؤشر RSI (${rsi.toFixed(1)}) في منطقة تشبع بيعي، مما يتيح فرصة ارتداد فني مشروطة بعدم كسر الدعم.`);
-                compositeScore += 5;
-            } else {
-                posNotes.push(`الزخم متوازن (RSI: ${rsi.toFixed(1)}).`);
-            }
-        }
-
-        if (Number.isFinite(volRatio) && volRatio > 0) {
-            if (volRatio >= 1.2) {
-                posNotes.push(`السيولة نشطة (${volRatio.toFixed(2)}x من المتوسط) تدعم حركة السهم.`);
-                compositeScore += 10;
-            } else if (volRatio < 0.6) {
-                posNotes.push(`أحجام التداول ضعيفة (${volRatio.toFixed(2)}x من المتوسط)، ما يشير إلى هدوء نسبي في تحركات السيولة.`);
-                riskScore += 10;
-            }
-        }
-
-        // Action Recommendation Line
-        let actionVerdict = "احتفاظ ومراقبة مستويات الدعم والمقاومة";
-        if (riskScore >= 60) {
-            actionVerdict = `⚠️ حذر ومراقبة لصيقة: الالتزام الصارم بوقف الخسارة عند كسر ${supp != null ? supp.toFixed(2) : "الدعم"} ج.م دون تعزيز المركز حالياً`;
-        } else if (compositeScore >= 65) {
-            actionVerdict = `🟢 إيجابي ومستقر: الاحتفاظ مع استهداف المقاومة عند ${resis != null ? resis.toFixed(2) : "المستهدف"} ج.م ورفع وقف الأرباح`;
-        }
-
-        stockScores.push({ symbol, score: compositeScore, risk: riskScore, name: stock.name || symbol });
-
-        perStockBreakdowns.push([
-            `### 🔹 سهم **${symbol}** ${stock.name ? `(${stock.name})` : ""}:`,
-            `- **الحالة الفنية لسهم ${symbol}:** ${posNotes.join(" ")}`,
-            `- **التوجيه التكتيكي لسهم ${symbol}:** ${actionVerdict}.`
-        ].join("\n"));
-    }
-
-    // Sort to identify strongest and highest risk
-    stockScores.sort((a, b) => b.score - a.score);
-    const strongestStock = stockScores[0];
-    const riskiestStock = [...stockScores].sort((a, b) => b.risk - a.risk)[0];
-
-    // Build Capital Summary Header
-    const capitalSummaryLines: string[] = [
-        "📊 **تقرير التحليل الفني الشامل وإدارة مخاطر المحفظة:**",
-        ""
-    ];
-
-    if (hasCostData) {
-        const pnlSign = totalUnrealizedPnl >= 0 ? "+" : "";
-        capitalSummaryLines.push(
-            `💰 **ملخص رأس المال والأداء الإجمالي:**`,
-            `- **إجمالي التكلفة المستثمرة:** ${totalInvestedCost.toLocaleString("ar-EG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م`,
-            `- **القيمة السوقية الحالية:** ${totalMarketValue.toLocaleString("ar-EG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م`,
-            `- **العائد الإجمالي غير المحقق:** **${pnlSign}${totalUnrealizedPnl.toLocaleString("ar-EG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م** (${pnlSign}${totalPnlPct?.toFixed(2)}%)`,
-            ""
-        );
-    }
-
-    const lines = [
-        ...capitalSummaryLines,
+    return [
+        "📊 **قراءة المحفظة حسب كل معيار على حدة:**",
+        ...valuationSummary,
+        "",
         table,
         "",
-        "🔍 **التحليل التفصيلي والتكتيكي لكل مركز:**",
-        perStockBreakdowns.join("\n\n"),
+        "**المصدر والتاريخ لكل مركز:**",
+        ...analysis.map(item => `- ${item.symbol}: ${item.priceKind} ${item.price === null ? "" : `${item.price.toFixed(2)} ج.م`}${item.priceDate ? ` بتاريخ ${item.priceDate}` : "؛ التاريخ غير موثق"}؛ المصدر ${item.priceSource || "غير متاح"}. ${item.levelsStatus}.`),
         "",
-        "🎯 **خطة التحرك وتوزيع السيولة (Tactical Action Plan):**",
-        strongestStock ? `- **المركز الأقوى تماسكاً:** **${strongestStock.symbol}** يظهر أفضل توازن فني وزخم في المحفظة حالياً؛ يُفضل جعله الركيزة الأساسية مع حماية الأرباح.` : null,
-        riskiestStock && riskiestStock.symbol !== strongestStock?.symbol ? `- **المركز الأكثر حساسية للمخاطر:** **${riskiestStock.symbol}** يتطلب انضباطاً صارماً بوقف الخسارة؛ لا يُنصح بتعديل المتوسط (Averaging Down) ما لم تظهر إشارات ارتداد بأحجام تداول مؤكدة.` : null,
-        "- **إدارة الكاش والسيولة:** تجنب تجميد سيولة إضافية في مراكز كاسرة للدعوم؛ استهدف جني الأرباح تدريجياً قرب مقاومات كل سهم لإعادة تكوين سيولة اقتناص جديدة.",
+        "**تفصيل المؤشرات والعائد:**",
+        ...positionNotes,
         "",
-        "الأرقام استرشادية مبنية على البيانات المسجلة، والقرار الاستثماري النهائي يعود لك وفق أهدافك المالية ومستوى تحملك للمخاطر."
-    ].filter(Boolean);
-
-    return lines.join("\n");
+        "*درجات KING/EGX درجات نموذج مستقلة كما وردت من المصدر؛ ليست احتمال نجاح ولا تم جمعها أو استخدامها لترتيب المراكز. نسبة حجم التداول تقارن الحجم بمتوسطه ولا تقيس السيولة المطلقة. هذه قراءة وصفية للبيانات المتاحة وليست أمر بيع أو شراء.*"
+    ].join("\n");
 }
 
 export function buildDeterministicTechnicalScanResponse(

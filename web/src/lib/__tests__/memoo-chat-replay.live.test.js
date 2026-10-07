@@ -20,7 +20,8 @@ const { runPipeline } = require("../ai/pipeline");
 const { getNvidiaApiKeys, getDeepSeekApiKey } = require("../ai/server-secrets");
 const { loadSessionState, loadSessionSummary } = require("../ai/session");
 
-describe("Memoo User Chat Replay & Analysis", () => {
+const describeLive = process.env.RUN_LIVE_CHAT_TESTS === "1" ? describe : describe.skip;
+describeLive("Memoo User Chat Replay & Analysis", () => {
     let supabase;
     let apiKeys;
     const userId = "ba79856a-c6d9-48f7-a923-d2ccf6279dc6";

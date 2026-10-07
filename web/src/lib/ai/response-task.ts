@@ -18,7 +18,7 @@ export function resolveResponseTask(message: string, plan: IntentPlan,
     history: Array<{ role: string; content: string }> = []): ResponseTask {
     const text = normalize(message);
     const symbols = Array.from(new Set((plan.entities?.symbols || []).map(s => s.toUpperCase())));
-    const choice = /ايهما|ايهم|انهي|انهو|مين|اي واحد|افضل|احسن|انسب|اختار|اختيار|ترجح|ترشح|تفضل|اقوي|اقل مخاطره|\b(?:which|better|best|prefer|choose)\b/.test(text);
+    const choice = /ايهما|ايهم|انهي|انهو|(?:^|[^\u0621-\u064A])مين(?:$|[^\u0621-\u064A])|اي واحد|افضل|احسن|انسب|اختار|اختيار|ترجح|ترشح|تفضل|اقوي|اقل مخاطره|\b(?:which|better|best|prefer|choose)\b/.test(text);
     // A short criterion answer inherits only the immediately preceding task,
     // never an arbitrary old conversation or a fresh explicit data question.
     const criterionReply = /^(?:عايز|عاوزه|عايزه|انا|لـ|ل|اللي|الا)?\s*(?:للمضاربه|مضاربه|اقل مخاطره|مخاطره اقل|الاكثر سيوله|سيوله|الزخم)(?:\s+(?:بس|اكتر|اعلي|النهارده))?[.!؟?]*$/.test(text.trim());

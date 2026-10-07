@@ -169,9 +169,63 @@ const VALUE_KEYS: Array<{ key: string; field: FactField }> = [
 function toNumber(value: unknown): number | null {
     if (value == null) return null;
     if (typeof value === "number") return Number.isFinite(value) ? value : null;
-    const cleaned = String(value).replace(/,/g, "").replace(/[%xX×✕]/g, "").replace(/^[+]/, "").trim();
+    // Tool payloads may contain already-formatted numeric strings. Accept only
+    // a complete number with an optional single, trailing unit marker; removing
+    // markers globally used to turn whitespace/"%"/"x" into a real zero and
+    // malformed strings such as "1x2" into plausible but false values.
+    if (typeof value !== "string") return null;
+    let cleaned = value.trim()
+        .replace(/[٠-٩۰-۹]/g, digit => {
+            const code = digit.charCodeAt(0);
+            return String(code >= 0x06f0 ? code - 0x06f0 : code - 0x0660);
+        })
+        .replace(/٫/g, ".")
+        .replace(/٬/g, ",")
+        .replace(/٪/g, "%")
+        .replace(/[−–]/g, "-");
+    if (!cleaned) return null;
+    if (/[%xX×✕]$/.test(cleaned)) cleaned = cleaned.slice(0, -1).trim();
+    if (!cleaned || /[%xX×✕]/.test(cleaned)) return null;
+
+    // Commas are accepted only as conventional thousands separators. This
+    // keeps values such as "1,250.5" while rejecting ambiguous/malformed
+    // grouping instead of silently concatenating its digits.
+    if (cleaned.includes(",")) {
+        if (!/^[-+]?(?:\d{1,3})(?:,\d{3})+(?:\.\d+)?(?:[eE][-+]?\d+)?$/.test(cleaned)) return null;
+        cleaned = cleaned.replace(/,/g, "");
+    }
+    if (!/^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?$/.test(cleaned)) return null;
     const parsed = Number(cleaned);
     return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function validatedObservationDate(value: unknown): string | null {
+    if (typeof value !== "string" || !value || value.trim() !== value) return null;
+
+    // Accept a date-only ISO value, or an ISO timestamp with an explicit zone.
+    // Date.parse alone is too permissive: it normalizes impossible dates and
+    // interprets numeric strings / timezone-free timestamps inconsistently.
+    const match = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-](?:0\d|1[0-4]):[0-5]\d))?$/.exec(value);
+    if (!match) return null;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (year < 1 || month < 1 || month > 12) return null;
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+    if (day < 1 || day > daysInMonth) return null;
+
+    if (match[4] !== undefined) {
+        const hour = Number(match[4]);
+        const minute = Number(match[5]);
+        const second = match[6] === undefined ? 0 : Number(match[6]);
+        const zone = match[8];
+        if (hour > 23 || minute > 59 || second > 59) return null;
+        if (zone !== "Z" && Number(zone.slice(1, 3)) === 14 && Number(zone.slice(4, 6)) !== 0) return null;
+    }
+
+    return Number.isFinite(Date.parse(value)) ? value : null;
 }
 
 function normalizeSymbol(symbol: unknown): string | null {
@@ -200,7 +254,8 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
     ) => {
         const value = toNumber(raw);
         if (value == null) return;
-        const id = recordKey(symbol, field, meta.as_of);
+        const asOf = validatedObservationDate(meta.as_of);
+        const id = recordKey(symbol, field, asOf);
         if (seen.has(id)) return;
         seen.add(id);
         records.push({
@@ -209,7 +264,7 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
             field,
             value,
             unit: FIELD_UNITS[field] || "unitless",
-            as_of: meta.as_of || null,
+            as_of: asOf,
             source: meta.source || "unknown",
             tool: meta.tool || "unknown",
             fetched_at: fetchedAt,
@@ -226,8 +281,8 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
                 const dateKey = Object.prototype.hasOwnProperty.call(data.metric_dates || {}, key) ? key
                     : key.endsWith("_num") && Object.prototype.hasOwnProperty.call(data.metric_dates || {}, key.slice(0, -4)) ? key.slice(0, -4) : field;
                 if (Object.prototype.hasOwnProperty.call(data.metric_dates || {}, dateKey)) {
-                    const observedDate = data.metric_dates[dateKey];
-                    factMeta = { ...factMeta, as_of: observedDate && Number.isFinite(Date.parse(observedDate)) ? observedDate : null };
+                    const observedDate = validatedObservationDate(data.metric_dates[dateKey]);
+                    factMeta = { ...factMeta, as_of: observedDate };
                 }
                 push(symbol, field, data[key], factMeta);
             }
@@ -241,7 +296,7 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
 
     for (const result of toolResults) {
         const meta = {
-            as_of: result?.data_time && Number.isFinite(Date.parse(result.data_time)) ? String(result.data_time) : null,
+            as_of: validatedObservationDate(result?.data_time),
             source: result?.source || "unknown",
             tool: result?.tool || "unknown",
         };
@@ -251,10 +306,10 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
         if (Array.isArray(data)) {
             for (const item of data) {
                 if (item?.symbol) {
-                    const itemDate = item.signal_date || item.created_at || item.current_date || item.date || meta.as_of;
+                    const itemDate = validatedObservationDate(item.signal_date) || validatedObservationDate(item.created_at) || validatedObservationDate(item.current_date) || validatedObservationDate(item.date) || meta.as_of;
                     const itemMeta = {
                         ...meta,
-                        as_of: itemDate && Number.isFinite(Date.parse(itemDate)) ? String(itemDate) : meta.as_of,
+                        as_of: itemDate,
                     };
                     ingestObject(normalizeSymbol(item.symbol), item, itemMeta);
                 }
@@ -265,7 +320,7 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
             if (data.recommendation?.has_recommendation) {
                 const recDate = data.recommendation.created_at;
                 ingestObject(normalizeSymbol(data.symbol), data.recommendation, { ...meta,
-                    as_of: recDate && Number.isFinite(Date.parse(recDate)) ? recDate : null });
+                    as_of: validatedObservationDate(recDate) });
             }
         }
         if (Array.isArray(data.stocks)) {
@@ -281,7 +336,7 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
         if (Array.isArray(data.comparisons)) {
             for (const row of data.comparisons) {
                 if (row?.symbol) ingestObject(normalizeSymbol(row.symbol), row, { ...meta,
-                    as_of: Object.prototype.hasOwnProperty.call(row, "as_of") ? row.as_of : meta.as_of,
+                    as_of: Object.prototype.hasOwnProperty.call(row, "as_of") ? validatedObservationDate(row.as_of) : meta.as_of,
                     source: row.source || meta.source });
             }
         }
@@ -317,7 +372,7 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
                 const nested = data[key];
                 if (nested && typeof nested === "object") {
                     const nestedDate = Object.prototype.hasOwnProperty.call(nested, "as_of") ? nested.as_of : nested.price?.date || nested.tech?.date || meta.as_of;
-                    const nestedMeta = { ...meta, as_of: nestedDate && Number.isFinite(Date.parse(nestedDate)) ? nestedDate : null };
+                    const nestedMeta = { ...meta, as_of: validatedObservationDate(nestedDate) };
                     ingestObject(upper, nested, nestedMeta);
                     if (nested.price && typeof nested.price === "object") ingestObject(upper, nested.price, nestedMeta);
                     if (nested.tech && typeof nested.tech === "object") ingestObject(upper, nested.tech, nestedMeta);

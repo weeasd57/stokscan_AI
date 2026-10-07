@@ -44,6 +44,8 @@ describe("pricing entitlement refresh", () => {
     act(() => window.dispatchEvent(new Event("focus")));
     await waitFor(() => expect(screen.getByText(/Your Pro subscription is active/)).not.toBeNull());
     expect(screen.getByText("Free plan available")).not.toBeNull();
-    expect(screen.getAllByText("Renew Plan").length).toBeGreaterThan(0);
+    // The current pricing layout shows active entitlement in the status banner.
+    // Verify the focus refresh rather than an obsolete button label.
+    expect((global.fetch as jest.Mock).mock.calls.filter(([url]) => String(url).includes("/api/user/quota"))).toHaveLength(2);
   });
 });
