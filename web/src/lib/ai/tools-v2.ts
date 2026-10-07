@@ -2502,6 +2502,7 @@ export async function executeStructuredTools(
                     .limit(1000);
 
                 const SECTOR_TERMS: Record<string, string[]> = {
+                    "اسمده": ["chemicals: agricultural", "fertilizer", "fertiliser", "اسمده", "سماد"],
                     "ادويه": ["pharmaceutical", "pharma", "drug", "health technology", "health services", "أدوية", "صيدلة", "رعاية صحية"],
                     "عقارات": ["real estate", "realestate", "عقارات", "عقاري", "homebuilding"],
                     "اغذيه": ["food", "beverage", "أغذية", "غذائية", "consumer non-durables", "agricultural"],

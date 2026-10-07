@@ -9,7 +9,7 @@ import { sanitizeReply } from "./sanitizer";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState, loadPersistentInvestorProfile, isUuid } from "./session";
 import { buildExcelTables, ExcelTable } from "./excel-tables";
 import { AI_CONFIG } from "./config";
-import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion, isExplicitRecommendationRequest, detectPortfolioIntent, detectPortfolioConfirmation, isPortfolioAnalysisRequest, isPortfolioRankingRequest, isNileExchangeQuestion, isConversationalChoiceOrFollowUp } from "./intent-policy";
+import { normalizeArabicIntent, isMarketOutlookRequest, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion, isExplicitRecommendationRequest, detectPortfolioIntent, detectPortfolioConfirmation, isPortfolioAnalysisRequest, isPortfolioRankingRequest, isNileExchangeQuestion, isConversationalChoiceOrFollowUp } from "./intent-policy";
 import { extractExcludedSectorNames, extractMentionedSectorNames } from "./sector-taxonomy";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { isEgxSessionOpen } from "./live-stock-updater";
@@ -163,13 +163,14 @@ function intersectHybridScanResults(tools: StructuredToolOutput, plan: IntentPla
 
 export function sanitizePlannerTools(message: string, tools: string[]): string[] {
     if (/(?:ثندر|thndr)/i.test(message)) return tools.filter(tool => tool === "get_market");
-    const explicitlyRequestsRecommendations = isExplicitRecommendationRequest(message);
+    const explicitlyRequestsRecommendations = isExplicitRecommendationRequest(message) || isMarketOutlookRequest(message);
     if (explicitlyRequestsRecommendations) return tools;
     return tools.filter(tool => tool !== "get_recommendations" && tool !== "get_signals");
 }
 
 /** Market ranking is a different question from ranking daily price movers. */
 export function getMarketRankingMode(message: string, requested?: PlannerResult["request"]): "price_change" | "liquidity_unavailable" | "accumulation" | null {
+    if (isMarketOutlookRequest(message)) return null;
     if (isUnspecifiedOpportunityRequest(message)) return null;
     const normalized = normalizeArabicIntent(message);
     if (/(?:وايكوف|wyckoff|مرحله\s+تجميع|اسهم\s+التجميع|سيوله\s+مؤسسيه|سيوله\s+ذكيه|تجميع\s+مؤسسي|التجميع\s+المؤسسي)/i.test(normalized)) return "accumulation";
@@ -713,6 +714,25 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     }
     const normalized = normalizeArabicIntent(message);
     const explicitSymbols = extractExplicitSymbols(message);
+    const requestedSectorAnalysis = extractSectorFromMessage(message);
+    if (explicitSymbols.length === 0 && requestedSectorAnalysis
+        && /(?:حلل|تحليل)\s+(?:شركات|قطاع|اسهم)/.test(normalized)) {
+        return {
+            intent: "sector_analysis", confidence: 1,
+            entities: { symbols: [], sector: requestedSectorAnalysis, wants_table: true, timeframe: "current" },
+            tools: ["get_sector"],
+            session_update: { current_symbol: null, last_symbols: [], summary: message }
+        };
+    }
+    if (explicitSymbols.length === 0 && isMarketOutlookRequest(message)) {
+        return {
+            intent: "market_summary", confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", recommendation_filter: "open" },
+            tools: ["get_market", "get_recommendations"],
+            request: { goal: message, reference: "market", ranking_metric: "unspecified", required_facts: ["market_summary", "recommendations"] },
+            session_update: { current_symbol: null, last_symbols: [], summary: message }
+        };
+    }
     const directGroupAllocation = /(?:فيهم|منهم|الاتنين|السهمين|واحد\s+فيهم)/i.test(normalized)
         && /(?:احط|أحط|اوزع|أوزع|ادخل|اشتري|أشتري)/i.test(normalized)
         && sessionState.last_symbols.length > 1;
@@ -1558,6 +1578,7 @@ export function formatPortfolioRankingResponse(data: any, userMessage: string): 
 }
 
 export function isMarketWideRequest(message: string): boolean {
+    if (isMarketOutlookRequest(message)) return true;
     const normalized = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).toLowerCase();
     const marketTerms = [
         /اخبار\s+(السوق|البورصه)/i,
@@ -1801,7 +1822,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     }
     const sector = extractSectorFromMessage(normalized);
     if (sector && /(اخبار|خبر|news)/i.test(normalized)) return { intent: "sector_analysis", tools: ["get_sector", "get_news"], replaceTools: true, sector };
-    if (sector && !hasSymbol) return { intent: "sector_analysis", tools: ["get_sector"], replaceTools: true, sector };
+    if (sector && (!hasSymbol || (!hasExplicitSymbol && /(?:حلل|تحليل)\s+(?:شركات|قطاع|اسهم)/.test(normalized)))) return { intent: "sector_analysis", tools: ["get_sector"], replaceTools: true, sector };
     if (plannerIntent === "technical_scan") return { intent: "technical_scan", tools: ["get_technical_scan"], replaceTools: true };
     if (plannerIntent === "stock_analysis" && hasSymbol) {
         const isAccOrDist = /(?:تجميع|تصريف|وايكوف|wyckoff)/i.test(normalized);
@@ -1816,6 +1837,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
 
 export function extractSectorFromMessage(message: string): string | null {
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+    if (/(اسمده|سماد|fertili[sz]er)/i.test(normalized)) return "أسمدة";
     if (/(استصلاح|اراضي استصلاح|استصلاح اراضي|اراضى|زراعه|زراعي|زراعيه|agri|agriculture|reclamation)/i.test(normalized)) return "استصلاح أراضي";
     if (/(البنوك|بنوك|banking sector|banks)/i.test(normalized)) return "بنوك";
     if (/(العقارات|عقارات|عقاري|real estate)/i.test(normalized)) return "عقارات";

@@ -3,7 +3,27 @@ import { buildDecisionFallback } from "./decision-evidence";
 import { summarizeNewsEvidence, summarizeToolNewsEvidence, corporateActionDates, isTodayNewsRequest, newsEventDate } from "./news-evidence";
 import { renderRecommendationEvidence } from "./recommendation-presentation";
 import { explicitBollingerPreset } from "./scan-request";
-import { isBestBuyStockQuestion, normalizeArabicIntent } from "./intent-policy";
+import { isMarketOutlookRequest, marketOutlookHorizon, isBestBuyStockQuestion, normalizeArabicIntent } from "./intent-policy";
+
+/** The outage renderer preserves the forward-looking task instead of renaming a scan as a forecast. */
+export function buildMarketOutlookResponse(message: string, results: ToolResult[], plan?: IntentPlan): string | null {
+    if (!isMarketOutlookRequest(message) || plan?.entities?.symbols?.length || plan?.clarification_needed) return null;
+    const horizon = marketOutlookHorizon(message) === "next_week" ? "الأسبوع القادم" : "الجلسة القادمة";
+    const period = marketOutlookHorizon(message) === "next_week" ? "الأسبوع القادم" : "غداً";
+    const lines = [`بالنسبة إلى ${horizon}: لا يمكن تحديد الأسهم الأكثر ربحاً ${period} أو ضمان اتجاهها من البيانات المسجلة وحدها.`];
+    const market = results.find(r => r.tool === "get_market" && !r.error);
+    if (market && Number.isFinite(Number(market.data?.egx30)) && market.data?.egx30 != null) {
+        lines.push(`مرجع السوق: لقطة إغلاق يومية لمؤشر EGX30 عند ${market.data.egx30} بتاريخ ${market.data.component_dates?.egx30 || market.data_time || "غير موثق"}؛ ليست توقعاً لاتجاه ${horizon}.`);
+    }
+    const recommendations = results.find(r => ["get_recommendations", "get_signals"].includes(r.tool));
+    if (recommendations) {
+        lines.push(`توصيات المنصة المسجلة للمتابعة، وليست ترتيباً مضموناً لأرباح ${period}:`, renderRecommendationEvidence(recommendations));
+    } else {
+        lines.push("لا تتوفر نتيجة توصيات موثقة لهذا الطلب حالياً؛ لذلك لا أختار أسماء رابحين من قائمة تجميع أو مسح القيمة الوسطية.");
+    }
+    lines.push("سيناريو المتابعة مشروط: راقب ثبات السعر فوق الدعم أو اختراق المقاومة مع تحسن حجم التداول؛ غياب التأكيد أو كسر الدعم يضعف السيناريو. تحديد مستويات سهم بعينه يحتاج بياناته المؤرخة.");
+    return lines.join("\n\n");
+}
 
 export function volumeRatio(value: unknown): number | null {
     if (value == null || value === "") return null;
@@ -43,7 +63,7 @@ ${JSON.stringify(results.filter(r => ["get_market", "get_stock", "get_news", "ge
 /** These checks run both in the rewrite loop and at the single publication boundary. */
 export function evidenceViolations(reply: string, message: string, results: ToolResult[]): string[] {
     const reasons: string[] = [];
-    const normalized = reply.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
+    const normalized = reply.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/[*_]/g, "");
     const requestedPreset = explicitBollingerPreset(message);
     if (requestedPreset) {
         const scan = results.find(r => r.tool === "get_technical_scan" && r.data?.preset === requestedPreset);
@@ -106,6 +126,7 @@ export function evidenceViolations(reply: string, message: string, results: Tool
         const symbol = String(stock.data?.symbol || stock.symbols[0] || "");
         const otherSymbols = stocks.map(r => String(r.data?.symbol || r.symbols[0] || "")).filter(Boolean);
         const quoteClauses = reply.split("\n").flatMap(line => {
+            if (stocks.length === 1) return [line];
             const lineSymbols = [...new Set((line.match(new RegExp(`\\b(?:${otherSymbols.join("|")})\\b`, "gi")) || []).map(value => value.toUpperCase()))];
             if (lineSymbols.length <= 1 && lineSymbols[0] === symbol.toUpperCase()) return [line];
             const named = [...line.matchAll(new RegExp(`\\b(?:${otherSymbols.join("|")})\\b`, "gi"))];
@@ -153,6 +174,18 @@ export function evidenceViolations(reply: string, message: string, results: Tool
         const clauses = stocks.length === 1 ? normalized.split(/\n|[؛。]/) : normalized.split("\n").filter(line => line.includes(String(stock.data?.symbol || stock.symbols[0])));
         const ratio = volumeRatio(stock.data?.vol_ratio_num ?? stock.data?.vol_ratio);
         if (ratio != null && ratio < 1 && clauses.some(line => /(?:الحجم|حجم التداول)\s+(?:المرتفع|مرتفع)|حجم\s+(?:عال|عالي|كبير)/.test(line) && !/اذا|لو|ليس|مش|غير/.test(line))) reasons.push("نسبة الحجم أقل من المتوسط؛ لا تصف الحجم بأنه مرتفع.");
+        if (ratio != null && clauses.some(line => /(?:السيوله|سيوله).{0,18}(?:اقل|اعلي|اعلى|مرتف|منخفض|نشطه).{0,25}(?:متوسط|اسهم|سهم|مقارنه)/.test(line)
+            && !/لا يثبت|لا تثبت|لا يعني|لا تعني|لا تكفي|غير كاف|ليس|ليست|مش|اذا|لو/.test(line))) {
+            reasons.push("نسبة حجم التداول تقيس النشاط النسبي فقط؛ لا تحولها إلى مقارنة في السيولة المطلقة.");
+        }
+        const king = stock.data?.king_ai_score;
+        const egx = stock.data?.egx_ai_score;
+        if (king != null && egx != null && Number(king) >= 0.45 && Number(king) <= 0.55
+            && Number(egx) >= 0.45 && Number(egx) <= 0.55
+            && clauses.some(line => /اتجاهين متباينين|اتجاهان متباينان|اتجاهين متعاكسين/.test(line)
+                && !/لا يثبت|لا تثبت|لا يعني|لا تعني|ليس|ليست/.test(line))) {
+            reasons.push("درجتا النموذجين في النطاق المحايد؛ لا تصفهما باتجاهين متعاكسين اعتماداً على فرق الدرجات فقط.");
+        }
     }
     return reasons;
 }
@@ -178,6 +211,8 @@ export function asksForAccumulationEvidence(message: string, plan?: IntentPlan):
 }
 
 export function safeEvidenceResponse(message: string, results: ToolResult[], plan?: IntentPlan): string {
+    const outlook = buildMarketOutlookResponse(message, results, plan);
+    if (outlook) return outlook;
     const sections: string[] = [];
     const normalizedMessage = normalizeArabicIntent(message);
     const asksRecommendations = asksForRecommendationEvidence(message, plan);
@@ -186,7 +221,7 @@ export function safeEvidenceResponse(message: string, results: ToolResult[], pla
     const asksMarket = /(?:السوق|البورصه|مؤشر(?:ات)?|شاشه|لحظي|مباشر|حركه السوق|الاسهم الاكثر ارتفاع|الاكثر ارتفاع|الاسهم الصاعده|الاعلى ارتفاع|اعلى هبوط|الدولار كام|سعر الدولار|usd\/egp|egp\/usd)/i.test(normalizedMessage);
     const asksNews = /(?:اخبار|خبر|news|عاجل)/i.test(normalizedMessage);
     const asksCorporateAction = /(?:حدث|احداث|اسهم مجانيه|توزيعات|اكتتاب|زياده راس المال|تجزئه|منحه|bonus shares|dividend|rights issue)/i.test(normalizedMessage);
-    const asksSector = /(?:قطاع|القطاعات|البنوك|العقارات|الاتصالات|الادويه)/i.test(normalizedMessage);
+    const asksSector = Boolean(plan?.entities?.sector) || /(?:قطاع|القطاعات|البنوك|العقارات|الاتصالات|الادويه|اسمده)/i.test(normalizedMessage);
     const decisionPlan = plan || { intent: "comparison", entities: { symbols: Array.from(new Set(results
         .filter(r => ["get_stock", "get_comparison"].includes(r.tool)).flatMap(r => r.symbols || []))) } } as IntentPlan;
     const decision = buildDecisionFallback(message, decisionPlan, results);

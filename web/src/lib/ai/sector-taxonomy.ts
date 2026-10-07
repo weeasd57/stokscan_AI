@@ -14,6 +14,7 @@ export function normalizeSectorText(value: string): string {
 }
 
 export const SECTOR_DEFINITIONS: SectorDefinition[] = [
+    { name: "أسمدة", aliases: ["اسمده", "سماد", "fertilizer", "fertiliser"], classificationTerms: ["chemicals: agricultural", "fertilizer", "fertiliser", "اسمده", "سماد"] },
     { name: "أدوية", aliases: ["ادويه", "دواء", "pharma", "pharmaceutical"], classificationTerms: ["pharma", "pharmaceutical", "drug", "health technology"] },
     { name: "رعاية صحية", aliases: ["رعايه صحيه", "خدمات طبيه", "مستشفيات", "health services"], classificationTerms: ["health services", "medical", "hospital", "رعايه صحيه", "خدمات طبيه"] },
     { name: "بنوك", aliases: ["بنوك", "مصارف", "bank", "banking"], classificationTerms: ["bank", "banking", "بنوك", "مصارف"] },

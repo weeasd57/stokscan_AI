@@ -40,7 +40,7 @@ export function checkContextEvidence(reply: string, plan: IntentPlan, results: T
         const symbol = stock.data.symbol;
         const level = levels.find(r => String(r.data?.symbol || r.symbols?.[0]).toUpperCase() === String(symbol).toUpperCase());
         const price = finiteMetric(stock.data.price);
-        const quoteMatches = Array.from(line.matchAll(/(?:(?<!اعلى\s+|أعلى\s+|ادنى\s+|أدنى\s+|افتتاح\s+|فتح\s+|متوسط\s+|عادل\s+|عادلة\s+|سابق\s+|امس\s+|أمس\s+)(?:سعر(?:\s+(?:السهم|الحالي|اللحظي|مسجل))|السعر(?:\s+(?:الحالي|اللحظي|مسجل))?|(?:آخر\s+|اخر\s+)?اغلاق(?:\s+مسجل)?))\s*[:(]?\s*(\d+(?:\.\d+)?)/g));
+        const quoteMatches = Array.from(line.matchAll(/(?:(?<!اعلى\s+|أعلى\s+|ادنى\s+|أدنى\s+|افتتاح\s+|فتح\s+|متوسط\s+|عادل\s+|عادلة\s+|سابق\s+|امس\s+|أمس\s+)(?:سعر(?:\s+(?:السهم|الحالي|اللحظي|مسجل))|السعر(?:\s+(?:الحالي|اللحظي|مسجل))?|(?:آخر\s+|اخر\s+)?اغلاق(?:\s+مسجل)?))\s*[:(]?\s*(?!\d{4}-\d{2}-\d{2})(\d+(?:\.\d+)?)(?![\d.])/g));
         if (quoteMatches.length > 0 && price != null) {
             const hasCorrectPrice = quoteMatches.some(m => Math.abs(Number(m[1]) - price) <= 0.006 || (price > 0 && Math.abs(Number(m[1]) - price) / price <= 0.002));
             if (!hasCorrectPrice && !/اذا|لو|مستهدف|هدف|دخول|شراء|خروج|توصيه|سابق|امس|أمس|اعلى|أعلى|ادنى|أدنى|فتح|افتتاح|متوسط|عادل|عادلة|دعم|مقاوم|نطاق/.test(line)) {

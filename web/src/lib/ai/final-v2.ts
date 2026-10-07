@@ -10,7 +10,7 @@ import { executionFetch } from "./execution";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { buildComparisonMatrix } from "./comparison-matrix";
 import { buildDecisionFallback, decisionPrompt } from "./decision-evidence";
-import { evidencePolicyPrompt, volumeAssessment, safeEvidenceResponse } from "./response-evidence";
+import { buildMarketOutlookResponse, evidencePolicyPrompt, volumeAssessment, safeEvidenceResponse } from "./response-evidence";
 import { assembleContextSafely, EvidenceContextOverflow } from "./context-budget";
 import { recommendationPerformance } from "./recommendation-evidence";
 import { recommendationSummaryText, renderRecommendationEvidence } from "./recommendation-presentation";
@@ -622,6 +622,9 @@ export function buildV2FinalMessages(
 
 
     const evidenceEngineBlock = buildEvidenceEnginePromptBlock(toolResults);
+    if (plan.response_task?.kind === "market_outlook") {
+        sections.push(`طلب المستخدم توقعات جلسة قادمة أو فترة مستقبلية محددة (${plan.response_task.target}): حافظ على هذه الفترة وأجب بسيناريو مشروط وحدود التنبؤ ودليل مؤرخ. لا تستبدل السؤال بقائمة تجميع أو قيمة وسطية، ولا تعرض توصيات تاريخية كترتيب مضمون لأرباح الفترة القادمة. إن كانت الأدلة ناقصة حدد ما ينقص لإتمام المهمة.`);
+    }
     if (evidenceEngineBlock) {
         sections.push(evidenceEngineBlock);
     }
@@ -1707,7 +1710,7 @@ export function buildFastConversationalAdvisorResponse(
                     : null,
                 ratio == null
                     ? "- نسبة حجم التداول إلى متوسط 20 جلسة غير متاحة في البيانات الحالية."
-                    : `- نسبة الحجم: **${ratio.toFixed(2)}x** من متوسط 20 جلسة؛ السيولة ${liquidityLabel}.`,
+                    : `- نسبة الحجم: **${ratio.toFixed(2)}x** من متوسط 20 جلسة؛ نشاط التداول ${liquidityLabel}.`,
             ].filter((line): line is string => line !== null);
             if (Number.isFinite(volume)) lines.push(`- حجم التداول المسجل: **${Math.round(volume).toLocaleString("en-US")} سهم**.`);
             if (Number.isFinite(averageVolume)) lines.push(`- متوسط 20 جلسة: **${Math.round(averageVolume).toLocaleString("en-US")} سهم**.`);
@@ -2407,6 +2410,8 @@ export function buildSingleStockAccumulationDistributionResponse(
 }
 
 export function buildDeterministicResponse(userMessage: string, plan: IntentPlan, toolResults: ToolResult[], sessionState?: SessionState | null): string | null {
+    const outlook = buildMarketOutlookResponse(userMessage, toolResults, plan);
+    if (outlook) return outlook;
     if (plan.ranking_metric === "accumulation" || plan.intent === "accumulation_distribution") {
         const accumRes = toolResults.find(r => r.tool === "get_accumulation_stocks");
         const accumStocks = Array.isArray(accumRes?.data?.accumulation) ? accumRes.data.accumulation : [];
@@ -3096,7 +3101,8 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
                 // Volume leader
                 const withVol = validEntries.filter(e => e.volRatio != null && Number.isFinite(e.volRatio)).sort((a, b) => b.volRatio! - a.volRatio!);
                 if (withVol.length >= 2 && withVol[0].volRatio! > withVol[1].volRatio!) {
-                    insights.push(`- **نشاط السيولة والحجم**: **${withVol[0].symbol}** يتصدر بنشاط نسبي **${withVol[0].volRatio!.toFixed(2)}x** من متوسطه مقارنة ببقية الأسهم المقارنة.`);
+                    insights.push(`- **نشاط حجم التداول النسبي**: **${withVol[0].symbol}** يتقدم بنسبة حجم **${withVol[0].volRatio!.toFixed(2)}x** من متوسطه مقارنة ببقية الأسهم؛ هذا لا يثبت سيولة مطلقة أعلى.`);
+                    if (withVol.every(entry => entry.volRatio! < 1)) insights.push("- أحجام تداول الأسهم المقارنة كلها أقل من متوسطاتها؛ التقدم النسبي لا يعني نشاطاً مرتفعاً.");
                 }
 
                 // RSI status & zones

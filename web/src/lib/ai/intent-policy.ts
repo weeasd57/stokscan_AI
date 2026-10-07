@@ -2,6 +2,19 @@ export function normalizeArabicIntent(value: string): string {
     return value.replace(/[\u064b-\u065f\u0670]/g, "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).toLowerCase();
 }
 
+/** A future market outlook is a different task from a historical scan. */
+export function isMarketOutlookRequest(message: string): boolean {
+    const value = normalizeArabicIntent(message);
+    return /غدا|بكره|الاسبوع\s+(?:الجاي|القادم|المقبل)|جلسه\s+(?:القادمه|الجايه)|tomorrow|next\s+(?:session|week)/.test(value)
+        && /توقع|متوقع|ربحي|ربح|صعود|يرتفع|افضل|اقوي|اقوى|اشتري|فرص|forecast|outlook/.test(value)
+        && /اسهم|السوق|البورصه|stocks|market/.test(value)
+        && !/محفظ|نتائج\s+اعمال|قوائم\s+ماليه|صافي\s+(?:ربح|ارباح)/.test(value);
+}
+
+export function marketOutlookHorizon(message: string): "next_week" | "next_session" {
+    return /الاسبوع\s+(?:الجاي|القادم|المقبل)|next\s+week/.test(normalizeArabicIntent(message)) ? "next_week" : "next_session";
+}
+
 export function isUsageLimitQuestion(message: string): boolean {
     const value = normalizeArabicIntent(message);
     return /(فاضل كام رساله|كم رساله باقي|كوتا الحساب|الحد اليومي للشات|استهلاك الحساب|كم باقي من الرسائل)/i.test(value);
@@ -231,6 +244,7 @@ export function isExplicitRecommendationRequest(message: string): boolean {
 
 /** A superlative does not authorize inventing a ranking metric. */
 export function isUnspecifiedOpportunityRequest(message: string): boolean {
+    if (isMarketOutlookRequest(message)) return false;
     const value = normalizeArabicIntent(message);
     return isBestBuyStockQuestion(message)
         && /اقوى|اقوي|أقوى|افضل|احسن|فرص|رشح|ترشح/.test(value)
