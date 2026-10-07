@@ -54,6 +54,7 @@ interface JobRun {
 interface DailyScheduleState {
     enabled: boolean;
     run_time: string;
+    midday_run_time?: string;
     active_days: number[];
     status: string;
     next_run_at: string | null;
@@ -140,7 +141,7 @@ export default function DailyJobsTab() {
             const res = await fetch("/api/admin/daily-jobs/history?limit=15");
             if (res.ok) {
                 const data = await res.json();
-                const runs = Array.isArray(data.runs) ? data.runs : [];
+                const runs = Array.isArray(data.runs) ? data.runs : (Array.isArray(data.history) ? data.history : []);
                 setJobRuns(runs.map((run: JobRun) => ({
                     ...run,
                     steps: normalizeSteps(run.steps),
@@ -328,10 +329,21 @@ export default function DailyJobsTab() {
                         </div>
 
                         <div>
-                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 block mb-2">Run Time (Cairo)</label>
+                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 block mb-2">منتصف الجلسة — توقيت القاهرة</label>
                             <input
                                 type="time"
-                                value={schedule?.run_time || "16:00"}
+                                value={schedule?.midday_run_time || "12:15"}
+                                onChange={(e) => handleScheduleUpdate({ midday_run_time: e.target.value })}
+                                className="w-full h-10 border-2 border-zinc-800 bg-zinc-900/60 px-3 text-xs font-bold text-white outline-none focus:border-amber-400 font-mono"
+                            />
+                            <p className="text-xs text-zinc-400 mt-2">تحديث بيانات الموقع ومتابعة القصيرة. التوصيات العادية والتقارير في تشغيل ما بعد الإغلاق.</p>
+                        </div>
+
+                        <div>
+                            <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 block mb-2">بعد الإغلاق — توقيت القاهرة</label>
+                            <input
+                                type="time"
+                                value={schedule?.run_time || "17:00"}
                                 onChange={(e) => handleScheduleUpdate({ run_time: e.target.value })}
                                 className="w-full h-10 border-2 border-zinc-800 bg-zinc-900/60 px-3 text-xs font-bold text-white outline-none focus:border-amber-400 font-mono"
                             />

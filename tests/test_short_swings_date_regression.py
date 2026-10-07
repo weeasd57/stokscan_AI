@@ -32,7 +32,7 @@ def test_archive_timestamps_and_rest_strings_produce_serialisable_session_result
     class Query:
         def select(self, *_): return self
         def eq(self, *args): queries.append(args); return self
-        def gt(self, *args): queries.append(args); return self
+        def gte(self, *args): queries.append(args); return self
         def range(self, *_): return self
         def execute(self): return types.SimpleNamespace(data=[tail])
     client = types.SimpleNamespace(table=lambda _: Query())

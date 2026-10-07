@@ -1167,9 +1167,10 @@ def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optiona
 class TelegramNotificationOutcome:
     """Boolean-compatible delivery result with Telegram post receipts."""
 
-    def __init__(self, delivered: bool, receipts: Optional[List[dict]] = None):
+    def __init__(self, delivered: bool, receipts: Optional[List[dict]] = None, error: Optional[dict] = None):
         self.delivered = bool(delivered)
         self.receipts = receipts or []
+        self.error = error
 
     def __bool__(self) -> bool:
         return self.delivered
@@ -1184,6 +1185,7 @@ _VIP_TELEGRAM_SERVICE_TYPES = frozenset({
     "daily_market_outlook_vip",
     "short_swings_vip_entry",
     "short_swings_vip_exit",
+    "short_swings_vip_update",
 })
 
 _FREE_TELEGRAM_SERVICE_TYPES = frozenset({
@@ -1213,20 +1215,22 @@ def _format_telegram_delivery_error(bot: Any) -> str:
     return f"error_code={code} description={desc}"
 
 
-def _deliver_telegram_message(message: str, chat_id: str, service_type: str, channel_label: str) -> TelegramNotificationOutcome:
+def _deliver_telegram_message(message: str, chat_id: str, service_type: str, channel_label: str, *, managed_delivery: bool = False) -> TelegramNotificationOutcome:
     if not chat_id:
         print(f"[{channel_label}] Missing chat target for {service_type}.")
-        return TelegramNotificationOutcome(False)
+        return TelegramNotificationOutcome(False, error={"error_code": 400, "description": "Missing target"})
     try:
         from api.telegram_bot import get_telegram_bot
 
         bot = get_telegram_bot()
         if not bot:
             print(f"[{channel_label}] No Telegram bot instance found for {service_type}.")
-            return TelegramNotificationOutcome(False)
+            return TelegramNotificationOutcome(False, error={"error_code": 400, "description": "Missing bot"})
 
-        delivered = bot.send_notification(message, chat_id=str(chat_id), wait_for_delivery=True)
-        receipts = bot.get_last_delivery_receipts() if delivered else []
+        delivery_options = {"retry_failed": False, "mirror_to_vip": False} if managed_delivery else {}
+        delivered = bot.send_notification(message, chat_id=str(chat_id), wait_for_delivery=True, **delivery_options)
+        receipts = bot.get_last_delivery_receipts()
+        error = bot.get_last_delivery_error() if not delivered else None
         if delivered:
             print(f"[{channel_label}] Delivered {service_type} to {chat_id} receipts={receipts}")
         else:
@@ -1234,13 +1238,13 @@ def _deliver_telegram_message(message: str, chat_id: str, service_type: str, cha
                 f"[{channel_label}] Failed {service_type} to {chat_id}: "
                 f"{_format_telegram_delivery_error(bot)}"
             )
-        return TelegramNotificationOutcome(delivered, receipts)
+        return TelegramNotificationOutcome(delivered, receipts, error)
     except Exception as exc:
         print(f"[{channel_label}] {service_type} notification error: {exc}")
-        return TelegramNotificationOutcome(False)
+        return TelegramNotificationOutcome(False, error={"description": type(exc).__name__})
 
 
-def _notify_free_telegram(message: str, service_type: str = "free_summary") -> bool:
+def _notify_free_telegram(message: str, service_type: str = "free_summary", *, managed_delivery: bool = False):
     """Send the allowed free-channel content with the VIP upgrade footer."""
     from api.plan_limits import telegram_free_channel_target
 
@@ -1260,17 +1264,19 @@ def _notify_free_telegram(message: str, service_type: str = "free_summary") -> b
         telegram_free_channel_target(),
         service_type,
         "TELEGRAM_FREE",
+        managed_delivery=managed_delivery,
     )
-    return bool(outcome)
+    return outcome if managed_delivery else bool(outcome)
 
 
-def _notify_vip_telegram(message: str, service_type: str = "vip") -> TelegramNotificationOutcome:
+def _notify_vip_telegram(message: str, service_type: str = "vip", *, managed_delivery: bool = False) -> TelegramNotificationOutcome:
     """Send complete recommendations, updates, closures, and reports to VIP."""
     return _deliver_telegram_message(
         message,
         _resolve_vip_chat_target(),
         service_type,
         "VIP_NOTIFY",
+        managed_delivery=managed_delivery,
     )
 
 
@@ -2978,7 +2984,9 @@ def update_market_heatmap():
         return False, str(e)
 
 
-async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sync: bool = False, trigger: str = "manual"):
+async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sync: bool = False, trigger: str = "manual", phase: str = "close"):
+    if phase not in {"midday", "close"}:
+        raise ValueError("Invalid daily job phase")
     print(f"--- Daily Bot Run Job Started: {dt.datetime.now()} ---")
     if dry_run:
         print("[DRY RUN] Simulation mode — no actual trades will be executed.")
@@ -3013,7 +3021,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             ])
             stock_ai.supabase.table("daily_job_runs").upsert({
                 "id": job_run_id,
-                "job_type": "daily_bot",
+                "job_type": "daily_midday" if phase == "midday" else "daily_bot",
                 "status": status,
                 "started_at": job_start_time,
                 "completed_at": dt.datetime.utcnow().isoformat() if status in ("completed", "failed") else None,
@@ -3070,7 +3078,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         # Initial status insert
         _persist_job("running")
         # 0. Refresh EGX inventory weekly only for scheduled runs
-        if _should_run_weekly_inventory(trigger):
+        if phase == "close" and _should_run_weekly_inventory(trigger):
             print("\n>>> STEP 0: Refreshing EGX listed symbols inventory from EODHD...")
             _start_step("sync_inventory", "Refreshing EGX listed symbols inventory from EODHD")
             try:
@@ -3102,11 +3110,12 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 total_symbols = len(symbols)
                 print(f"[SYNC] Found {total_symbols} symbols to sync.")
                 syncer = get_smart_sync()
-                syncer.sync_exchange_prices("EGX", symbols, max_days=365)
+                sync_result = syncer.sync_exchange_prices("EGX", symbols, max_days=365, refresh_latest=True)
                 # The writer has finished: discard stale scanner data before the
                 # job preloads its one shared EGX snapshot below.
                 stock_ai.clear_exchange_bulk_cache("EGX")
-                _record_step("sync_prices", True, f"Synced {total_symbols} symbols", total_symbols)
+                _record_step("sync_prices", sync_result.get("success", 0) == total_symbols and total_symbols > 0,
+                             f"Synced {sync_result.get('success', 0)}/{total_symbols} symbols", total_symbols)
             except Exception as e:
                 _record_step("sync_prices", False, str(e)[:200], 0)
                 print(f"[SYNC] Error: {e}")
@@ -3222,6 +3231,33 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             _record_step("precompute_heatmap", False, str(e)[:200], 0)
             print(f"[HEATMAP] Error pre-computing heatmap: {e}")
 
+        if phase == "midday":
+            # Only shared site data and short-position monitoring run intraday.
+            # Ordinary portfolio/recommendation lifecycle and LLM reports stay EOD.
+            _start_step("refresh_market_status_for_gate", "Refreshing intraday market status")
+            try:
+                ok_status, status_message = _refresh_market_status_cache()
+                _record_step("refresh_market_status_for_gate", ok_status, status_message, 0)
+            except Exception as error:
+                _record_step("refresh_market_status_for_gate", False, str(error)[:200], 0)
+            _start_step("short_swings_daily", "Monitoring short positions during the session")
+            try:
+                from api.short_swings_daily import run_daily_short_swings
+                prices_ok = all(step.get("status") == "success" for step in steps_log
+                                if step.get("step") == "sync_prices" and step.get("status") != "started")
+                swings_res = run_daily_short_swings(trigger="scheduled", dry_run=dry_run, phase="midday", job_run_id=job_run_id) if prices_ok else {
+                    "success": False, "message": "Price sync incomplete; intraday short monitoring withheld"}
+                _record_step("short_swings_daily", swings_res.get("success", False), swings_res.get("message", ""), swings_res.get("count", 0))
+            except Exception as error:
+                _record_step("short_swings_daily", False, str(error)[:200], 0)
+            from api.cache_invalidation import invalidate_daily_cache
+            invalidate_daily_cache(steps_log)
+            essential_ok = all(step.get("status") == "success" for step in steps_log
+                               if step.get("step") in {"sync_prices", "calculate_indicators"} and step.get("status") != "started")
+            status = "completed" if essential_ok else "failed"
+            _persist_job(status)
+            return {"status": status, "phase": phase, "job_run_id": job_run_id, **summarise_daily_steps(steps_log)}
+
         # 3. Update open portfolio positions
         print("\n>>> STEP 3: Updating open portfolio positions...")
         _start_step("update_positions", "Updating open portfolio positions")
@@ -3303,7 +3339,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         _start_step("short_swings_daily", "Running short swings engine and sending VIP/Free telegram alerts")
         try:
             from api.short_swings_daily import run_daily_short_swings
-            swings_res = run_daily_short_swings(trigger=trigger, dry_run=dry_run)
+            swings_res = run_daily_short_swings(trigger=trigger, dry_run=dry_run, phase="close", job_run_id=job_run_id)
             _record_step("short_swings_daily", swings_res.get("success", True), swings_res.get("message", "Done"), swings_res.get("count", 0))
         except Exception as e_swings:
             _record_step("short_swings_daily", False, str(e_swings)[:200], 0)

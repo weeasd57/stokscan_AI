@@ -39,6 +39,7 @@ import {
   Activity
 } from "lucide-react";
 import StockLogo from "./StockLogo";
+import { formatShortSwingReturn } from "@/lib/short-swings-view";
 import { isShariaCompliant } from "@/lib/shariaStocks";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -79,12 +80,15 @@ export interface ShortSwingsData {
     avg_loss_pct: number;
     top_win_pct: number;
     monthly_trades_avg: number;
+    total_trades?: number;
   };
   active_trades: ShortSwingTrade[];
   closed_trades: ShortSwingTrade[];
   total_active: number;
   total_closed: number;
   as_of?: string;
+  phase?: "midday" | "close";
+  computed_at?: string;
   cutoff_date_15d?: string;
   upgrade_cta?: string;
 }
@@ -94,7 +98,7 @@ const safeNum = (val: unknown, fallback: number = 0): number => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-const DEFAULT_SHORT_SWING_KPIS = {
+const DEFAULT_SHORT_SWING_KPIS: NonNullable<ShortSwingsData["kpis"]> = {
   profit_factor: 0,
   win_rate_pct: 0,
   total_return_pct: 0,
@@ -239,6 +243,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
       avg_loss_pct: safeNum(raw?.avg_loss_pct, DEFAULT_SHORT_SWING_KPIS.avg_loss_pct),
       top_win_pct: safeNum(raw?.top_win_pct, DEFAULT_SHORT_SWING_KPIS.top_win_pct),
       monthly_trades_avg: safeNum(raw?.monthly_trades_avg, DEFAULT_SHORT_SWING_KPIS.monthly_trades_avg),
+      total_trades: raw?.total_trades,
     };
   }, [data?.kpis]);
 
@@ -458,7 +463,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
             </h1>
 
             <p className="text-xs sm:text-sm font-bold text-zinc-900 leading-relaxed max-w-2xl">
-              استراتيجية رقمية صارمة لا تدخل إلا مع <strong>انفجار السيولة المؤسسية (&gt;140%)</strong> بعد كسر قمم تماسك 20 جلسة. يتم تأمين الصفقة آلياً عند ربح +4.5%، وترك الأرباح تنطلق دون سقف عبر الوقف المتحرك <strong>EMA10</strong> (سجلت أرباحاً حتى +81.5%).
+              استراتيجية رقمية صارمة لا تدخل إلا مع <strong>انفجار السيولة المؤسسية (&gt;140%)</strong> بعد كسر قمم تماسك 20 جلسة. يتم تأمين الصفقة آلياً عند ربح +4.5%، وترك الأرباح تنطلق دون سقف عبر الوقف المتحرك <strong>EMA10</strong>؛ النتائج التاريخية لا تضمن النتائج المقبلة.
             </p>
           </div>
 
@@ -501,10 +506,16 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
             href="/pricing"
             className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black text-xs uppercase text-[#FFE600] shadow-[2px_2px_0px_#000] hover:bg-zinc-800 transition-all"
           >
-            فتح كل الإشارات اللحظية
+            فتح كل الإشارات الحديثة
           </Link>
         </div>
       )}
+
+      <div className="border-2 border-amber-500 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm font-bold" role="status">
+        {isAr ? "آخر جلسة بيانات:" : "Latest data session:"} {data?.as_of || "—"}
+        {data?.phase === "midday" && (isAr ? " • تحديث أثناء الجلسة؛ النتائج مؤقتة حتى الإغلاق" : " • Intraday update; provisional until close")}
+        <p className="text-xs mt-1">{isAr ? "تحقق من تاريخ الجلسة قبل استخدام الأسعار؛ الأداء المعروض محاكاة تاريخية وليس تنفيذ صفقات أو ضمان ربح." : "Check the session date before using prices. Performance is historical simulation, not executed trades or a profit guarantee."}</p>
+      </div>
 
       {/* ── 3. COMPARISON SECTION: المتوسطة vs القصيرة (User's Core Requirement) ── */}
       <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-5 sm:p-6 shadow-[4px_4px_0px_#000] dark:shadow-[4px_4px_0px_#fff] space-y-4">
@@ -582,7 +593,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-amber-500 font-black">•</span>
-                <span><strong>ركوب الاتجاه:</strong> لا يوجد سقف للأرباح؛ الوقف يتبع متوسط 10 أيام (EMA10) ما دامت موجة الصعود مستمرة (+81.5%).</span>
+                <span><strong>ركوب الاتجاه:</strong> لا يوجد سقف للأرباح؛ الوقف يتبع متوسط 10 أيام (EMA10) ما دامت موجة الصعود مستمرة.</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-amber-500 font-black">•</span>
@@ -675,7 +686,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               {safeNum(kpis.win_rate_pct, 54.8).toFixed(1)}%
             </div>
             <p className="text-[10px] font-bold text-zinc-500 mt-1">
-              مبني على 1,796 صفقة تاريخية كاملة
+              {kpis.total_trades != null ? `مبني على ${kpis.total_trades.toLocaleString("en-US")} صفقة تاريخية` : "نتائج محاكاة تاريخية؛ حجم العينة غير متاح"}
             </p>
           </div>
 
@@ -1072,7 +1083,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                                 isWin ? "bg-emerald-400 text-black" : "bg-rose-400 text-black"
                               }`}
                             >
-                              {isWin ? "+" : ""}{safeNum(t.return_pct).toFixed(1)}%
+                              {formatShortSwingReturn(t.return_pct)}
                             </span>
                           </div>
                         </div>
@@ -1095,7 +1106,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               <span>الصفقات النشطة المفتوحة حالياً ({activeTrades.length})</span>
             </h3>
             <span className="text-xs font-bold text-zinc-500">
-              تُحدّث بنهاية كل جلسة تداول وتتابع الوقف المتحرك EMA10 لحظياً
+              تُراجع أثناء الجلسة وبعد الإغلاق؛ الأسعار حسب آخر بيانات محفوظة
             </span>
           </div>
 
@@ -1204,7 +1215,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                               safeNum(trade.return_pct) >= 0 ? "bg-emerald-200 text-emerald-900" : "bg-rose-200 text-rose-900"
                             }`}
                           >
-                            {safeNum(trade.return_pct) >= 0 ? "+" : ""}{safeNum(trade.return_pct).toFixed(1)}%
+                            {formatShortSwingReturn(trade.return_pct)}
                           </span>
                         )}
                       </div>
@@ -1384,7 +1395,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                                   safeNum(trade.return_pct) >= 0 ? "bg-emerald-200 text-emerald-900" : "bg-rose-200 text-rose-900"
                                 }`}
                               >
-                                {safeNum(trade.return_pct) >= 0 ? "+" : ""}{safeNum(trade.return_pct).toFixed(1)}%
+                                {formatShortSwingReturn(trade.return_pct)}
                               </span>
                             )}
                           </td>
@@ -1554,7 +1565,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                               : "bg-rose-400 text-black"
                           }`}
                         >
-                          {isWin ? "+" : ""}{safeNum(t.return_pct).toFixed(1)}%
+                          {formatShortSwingReturn(t.return_pct)}
                         </span>
                       </td>
                       <td className="p-3 text-zinc-500 text-[11px]">
@@ -1745,7 +1756,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                               : "bg-rose-400 text-black"
                           }`}
                         >
-                          {isWin ? "+" : ""}{safeNum(t.return_pct).toFixed(1)}%
+                          {formatShortSwingReturn(t.return_pct)}
                         </span>
                       </td>
                       <td className="p-3 text-zinc-500 text-[11px]">
@@ -1866,7 +1877,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                             isWin ? "bg-emerald-400 text-black" : "bg-rose-400 text-black"
                           }`}
                         >
-                          {isWin ? "+" : ""}{safeNum(t.return_pct).toFixed(1)}%
+                          {formatShortSwingReturn(t.return_pct)}
                         </span>
                       </div>
                     </div>
@@ -1978,7 +1989,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                 <div className="space-y-1">
                   <h4 className="text-xl font-black">هذه الصفقة متاحة حصرياً لمشتركي PRO</h4>
                   <p className="text-xs font-bold text-zinc-600 dark:text-zinc-400 max-w-md mx-auto">
-                    الصفقات القصيرة المفتوحة والصفقات الأحدث من 15 يوماً تتطلب اشتراكاً نشطاً للحصول على إشارات الدخول والوقف المتحرك اللحظي فور صدورها.
+                    الصفقات القصيرة المفتوحة والصفقات الأحدث من 15 يوماً تتطلب اشتراكاً نشطاً للحصول على إشارات الدخول والوقف المتحرك المحدث فور صدورها.
                   </p>
                 </div>
                 <Link
@@ -2034,7 +2045,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                     >
                       {selectedActiveTrade.is_pending_entry
                         ? "0.0% (انتظار الافتتاح)"
-                        : `${safeNum(selectedActiveTrade.return_pct) >= 0 ? "+" : ""}${safeNum(selectedActiveTrade.return_pct).toFixed(2)}%`}
+                        : formatShortSwingReturn(selectedActiveTrade.return_pct, 2)}
                     </span>
                   </div>
                 </div>

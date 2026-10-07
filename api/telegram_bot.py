@@ -282,6 +282,8 @@ class TelegramBot:
         chat_id: Optional[Any] = None,
         message_thread_id: Optional[int] = None,
         wait_for_delivery: bool = False,
+        retry_failed: bool = True,
+        mirror_to_vip: bool = True,
     ) -> bool:
         """Send immediately when requested, otherwise enqueue for background delivery.
 
@@ -311,7 +313,8 @@ class TelegramBot:
         pass
 
         # Mirror free-channel deliveries to the VIP channel (appended last).
-        targets = self._append_vip_mirror(targets)
+        if mirror_to_vip:
+            targets = self._append_vip_mirror(targets)
 
         # Send to all unique target chat IDs
         if not targets or not self.token:
@@ -361,7 +364,7 @@ class TelegramBot:
                                 break
                             if "forbidden" in desc or result.get("error_code") in {400, 403}:
                                 self._mark_blocked_target(target)
-                            else:
+                            elif retry_failed:
                                 # Preserve the failed chunk and every chunk
                                 # after it for the background retry worker.
                                 # This prevents a transient timeout in a long

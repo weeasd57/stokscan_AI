@@ -75,7 +75,7 @@ def test_report_stage_keeps_completed_data_contract_and_persists_failure_details
     namespace = {'dt': datetime, 'time': time, 'json': json, 'summarise_daily_steps': summarise_daily_steps,
                  'stock_ai': types.SimpleNamespace(supabase=types.SimpleNamespace(table=lambda _: Query())),
                  'job_run_id': 'fixture', 'job_start_time': '2026-10-07T14:00:00Z',
-                 'total_symbols': 1, 'trigger': 'scheduled', 'Optional': __import__('typing').Optional,
+                 'total_symbols': 1, 'trigger': 'scheduled', 'phase': 'close', 'Optional': __import__('typing').Optional,
                  'Dict': __import__('typing').Dict, 'Any': __import__('typing').Any}
     exec(compile(ast.fix_missing_locations(ast.Module(body=[wrapper], type_ignores=[])), '<daily-functions>', 'exec'), namespace)
     persist, record = namespace['bind']()

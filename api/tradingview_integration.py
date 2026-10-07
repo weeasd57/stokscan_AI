@@ -342,7 +342,8 @@ def fetch_tradingview_prices(
     max_days: int = 365,
     timeframe: str = "1d",
     start_date: Any = None,
-    end_date: Any = None
+    end_date: Any = None,
+    refresh_latest: bool = False
 ) -> Tuple[bool, str]:
     """
     Fetch historical price data from TradingView and sync to Supabase.
@@ -435,7 +436,7 @@ def fetch_tradingview_prices(
     is_up_to_date = last_date and last_date >= _last_trading_day(today) if is_daily else False
     has_enough_history = current_count >= max_days
     
-    if is_daily and is_up_to_date and has_enough_history:
+    if is_daily and is_up_to_date and has_enough_history and not refresh_latest:
         return True, "Already up to date and sufficient history in Cloud"
     
     # Throttle slightly

@@ -90,6 +90,9 @@ def get_short_swings(
             "total_active": data.get("total_active", len(masked_active)),
             "total_closed": data.get("total_closed", len(unmasked_closed)),
             "as_of": data.get("as_of"),
+            "phase": data.get("phase"),
+            "computed_at": data.get("computed_at"),
+            "session_complete": data.get("session_complete"),
             "cutoff_date_15d": cutoff_date,
             "upgrade_cta": "اشترك في باقة PRO للوصول اللحظي لإشارات الصفقات القصيرة فور ظهورها ومستويات الوقف المتحرك اليومية."
         }
@@ -107,5 +110,8 @@ def get_short_swings(
         "total_active": data.get("total_active", len(unmasked_active)),
         "total_closed": data.get("total_closed", len(unmasked_closed)),
         "as_of": data.get("as_of"),
+        "phase": data.get("phase"),
+        "computed_at": data.get("computed_at"),
+        "session_complete": data.get("session_complete"),
         "cutoff_date_15d": cutoff_date
     }

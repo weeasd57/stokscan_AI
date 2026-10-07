@@ -67,3 +67,11 @@ verified. Upload the canonical `api/short_swings_engine.py`,
 `api/daily_job_outcome.py`, `api/daily_bot_run.py` and
 `api/daily_job_scheduler.py` in one bounded commit. Do not use the broad legacy
 deploy script or upload local caches/models as part of this repair.
+
+## Subsequent two-phase extension
+
+The authorized midday refresh, short-stage recovery and website audit are recorded
+in `docs/daily-two-phase-runbook-2026-10-07.md`. Its runtime upload list supersedes
+the four-file list above. The private checkpoint migration and midday schedule
+field were applied separately; backend activation still requires the verified HF
+runtime deployment described there.

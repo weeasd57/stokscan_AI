@@ -217,8 +217,15 @@ def load_stock_metadata() -> Dict[str, Dict[str, Any]]:
     _METADATA_CACHE = meta_map
     return meta_map
 
-def compute_short_swings() -> Dict[str, Any]:
+def compute_short_swings(*, phase: str = None) -> Dict[str, Any]:
     """Generates the latest active and closed short swings with dynamic performance stats."""
+    from zoneinfo import ZoneInfo
+    now_cairo = dt.datetime.now(ZoneInfo("Africa/Cairo"))
+    if phase is None:
+        phase = "midday" if now_cairo.hour * 60 + now_cairo.minute < 14 * 60 + 30 else "close"
+    if phase not in {"midday", "close"}:
+        raise ValueError("Invalid short-swings phase")
+    session_date = now_cairo.date().isoformat()
     df = pd.DataFrame()
     
     # 1. Try standard history snapshot loader from api.hf_history_cache
@@ -300,7 +307,7 @@ def compute_short_swings() -> Dict[str, Any]:
                     supabase.table("stock_prices")
                     .select("symbol,exchange,date,open,high,low,close,volume")
                     .eq("exchange", "EGX")
-                    .gt("date", max_archive_date)
+                    .gte("date", max_archive_date)
                     .range(page * page_size, (page + 1) * page_size - 1)
                     .execute()
                 )
@@ -331,6 +338,10 @@ def compute_short_swings() -> Dict[str, Any]:
     except Exception as merge_err:
         print(f"[SHORT_SWINGS] Warning: failed to merge live Supabase prices: {merge_err}")
 
+    # Do not let an erroneous future candle enter the current-session replay.
+    df = df[df["date"] <= session_date]
+    if df.empty:
+        return {"status": "unavailable", "as_of": None, "active_trades": [], "closed_trades": []}
     meta = load_stock_metadata()
     dates = sorted(df["date"].unique())
 
@@ -554,6 +565,11 @@ def compute_short_swings() -> Dict[str, Any]:
                 del positions[sym]
                 continue
 
+            # A live candle may trigger an existing defensive stop, but may not
+            # establish close-based exits, next-session stops or new signals.
+            if phase == "midday" and day == session_date:
+                continue
+
             # If not stopped out, update highest high and evaluate progression
             if b.high > p["highest_high"]:
                 p["highest_high"] = b.high
@@ -583,6 +599,8 @@ def compute_short_swings() -> Dict[str, Any]:
 
     # 5. New Actionable Pending Signals detected at today's close for TOMORROW'S session:
     today_signals_df = df[(df["date"] == last_date) & (df["signal"])].sort_values("turnover", ascending=False)
+    if phase == "midday":
+        today_signals_df = today_signals_df.iloc[:0]
     seen_symbols = set()
     for _, s_row in today_signals_df.head(15).iterrows():
         sym = s_row["symbol"]
@@ -632,16 +650,17 @@ def compute_short_swings() -> Dict[str, Any]:
             "entry_date": p["date"],
             "signal_date": p.get("signal_date", p["date"]),
             "entry_price": round(p["entry_price"], 3),
-            "current_price": round(curr_price, 3),
-            "reference_close": round(curr_price, 3),
-            "return_pct": round(curr_gain, 2),
+            "current_price": round(curr_price, 3) if b else None,
+            "price_date": b.date if b else None,
+            "reference_close": round(curr_price, 3) if b else None,
+            "return_pct": round(curr_gain, 2) if b else None,
             "stop_loss": round(p["entry_price"] * (1 - 0.04), 3),
             "trailing_stop": round(active_stop, 3),
             "ema10_trend": round(float(b.ema10), 3) if b else None,
             "is_breakeven_protected": p["be_active"],
             "max_gain_pct": round(p["max_gain"], 2),
             "trigger_type": p["sig_type"],
-            "status": "مؤمنة بربح" if p["be_active"] else "قيد التداول",
+            "status": ("مؤمنة بربح" if p["be_active"] else "قيد التداول") if b else "بيانات الجلسة غير متاحة",
             "is_pending_entry": False,
             "as_of": last_date
         })
@@ -662,7 +681,10 @@ def compute_short_swings() -> Dict[str, Any]:
         "closed_trades": [t for t in closed_trades if str(t.get("exit_date") or "") >= "2026-01-01"],
         "total_active": len(active_output),
         "total_closed": len(closed_trades),
-        "as_of": last_date
+        "as_of": last_date,
+        "phase": phase,
+        "session_complete": phase == "close",
+        "computed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
     }
 
     # Atomic write to cache files

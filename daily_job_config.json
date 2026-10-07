@@ -8,5 +8,6 @@
     3,
     6
   ],
-  "model_filter": "adaptive"
+  "model_filter": "adaptive",
+  "midday_run_time": "12:15"
 }

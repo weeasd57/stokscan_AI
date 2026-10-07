@@ -133,6 +133,9 @@ export async function GET(req: NextRequest) {
       total_active: activeTrades.length,
       total_closed: closedTrades.length,
       as_of: data.as_of,
+      phase: data.phase,
+      computed_at: data.computed_at,
+      session_complete: data.session_complete,
       cutoff_date_15d: cutoffDate,
       ...(!isPro
         ? {

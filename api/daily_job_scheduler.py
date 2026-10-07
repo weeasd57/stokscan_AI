@@ -1,5 +1,5 @@
 """
-Daily Job Scheduler — runs the daily bot job once per day at a configured time.
+Daily Job Scheduler — runs separate midday market refresh and full after-close jobs.
 Starts as a daemon thread on server startup (like tech_alerts_scheduler).
 """
 import os
@@ -13,7 +13,8 @@ from api.daily_job_outcome import scheduler_result_status
 
 _scheduler_state: Dict[str, Any] = {
     "enabled": True,
-    "run_time": "16:00",  # Cairo time — after market close
+    "midday_run_time": "12:15",
+    "run_time": "17:00",  # Cairo time — after market close
     "timezone": "Africa/Cairo",
     # Python weekday numbering: Monday=0 .. Sunday=6.
     # Sunday-Thursday is therefore [0, 1, 2, 3, 6].
@@ -33,6 +34,9 @@ _scheduler_thread = None
 _stop_event = threading.Event()
 _last_recommendation_retry_at = 0.0
 _last_vip_revocation_at = 0.0
+_last_short_swings_retry_at = 0.0
+_last_phase_attempts = {}
+_completed_phases = set()
 _DEFAULT_STALE_RUN_MINUTES = 90
 
 
@@ -62,6 +66,7 @@ def _save_config():
             json.dump({
                 "enabled": _scheduler_state["enabled"],
                 "run_time": _scheduler_state["run_time"],
+                "midday_run_time": _scheduler_state["midday_run_time"],
                 "active_days": _scheduler_state["active_days"],
                 "model_filter": _scheduler_state.get("model_filter", "adaptive"),
             }, f, indent=2)
@@ -116,25 +121,28 @@ def _stale_run_after_minutes() -> int:
         return _DEFAULT_STALE_RUN_MINUTES
 
 
-def _daily_job_ran_today(today: str) -> bool:
+def _daily_job_ran_today(today: str, phase: str = "close") -> bool:
     """Check the durable ledger and recover runs that stopped heartbeating.
 
     A process crash can leave a row in ``running`` forever.  Only a run with a
     recent persisted step heartbeat blocks another scheduled/catch-up attempt;
     stale rows are retained for audit but marked failed.
     """
+    key = f"{today}:{phase}"
+    if key in _completed_phases:
+        return True
     try:
         from api.stock_ai import _init_supabase, supabase
         _init_supabase()
         if not supabase:
-            return False
+            return True  # Unavailable durable ledger must not grant a new run.
         local_start = datetime.fromisoformat(today).replace(tzinfo=_now_cairo().tzinfo)
         utc_start = local_start.astimezone(timezone.utc)
         utc_end = (local_start + timedelta(days=1)).astimezone(timezone.utc)
         result = (
             supabase.table("daily_job_runs")
             .select("id,status,started_at,steps")
-            .eq("job_type", "daily_bot")
+            .eq("job_type", "daily_midday" if phase == "midday" else "daily_bot")
             .gte("started_at", utc_start.isoformat())
             .lt("started_at", utc_end.isoformat())
             .in_("status", ["running", "completed"])
@@ -170,48 +178,74 @@ def _daily_job_ran_today(today: str) -> bool:
                     print(f"[DAILY-JOB-SCHEDULER] Marked stale run {run_id} as failed.")
                 except Exception as cleanup_error:
                     print(f"[DAILY-JOB-SCHEDULER] Could not mark stale run {run_id} failed: {cleanup_error}")
+        if has_completed_run:
+            _completed_phases.add(key)
         return has_completed_run or has_active_run
     except Exception as exc:
         print(f"[DAILY-JOB-SCHEDULER] Durable run check failed: {exc}")
-        return False
+        return True
+
+
+def _minutes(value):
+    hour, minute = map(int, str(value).split(":"))
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        raise ValueError("Invalid schedule time")
+    return hour * 60 + minute
+
+
+def _due_phase(now):
+    if not _scheduler_state.get("enabled") or now.weekday() not in _scheduler_state["active_days"]:
+        return None
+    current = now.hour * 60 + now.minute
+    if current >= _minutes(_scheduler_state["run_time"]):
+        return "close"
+    # A missed midday run is not replayed after the session has closed.
+    if _minutes(_scheduler_state["midday_run_time"]) <= current < 14 * 60 + 30:
+        return "midday"
+    return None
+
+
+def _execute_phase(phase, source):
+    import asyncio
+    try:
+        from api.daily_bot_run import run_daily_job
+        result = asyncio.run(run_daily_job(trigger="scheduled", phase=phase,
+                           model_filter=_scheduler_state.get("model_filter", "adaptive")))
+        _record_run(result.get("job_run_id", source), scheduler_result_status(result))
+    except Exception as exc:
+        print(f"[DAILY-JOB-SCHEDULER] {phase} run failed: {exc}")
+        _record_run(source, "failed")
+    finally:
+        with _scheduler_lock:
+            _scheduler_state["status"] = "idle"
+
+
+def _claim_phase_in_process(now, phase):
+    key = f"{now.date().isoformat()}:{phase}"
+    with _scheduler_lock:
+        last = _last_phase_attempts.get(key, {})
+        if (_scheduler_state.get("status") == "running" or last.get("attempts", 0) >= 3
+                or time.monotonic() - last.get("at", -100000) < 900):
+            return False
+        if _daily_job_ran_today(now.date().isoformat(), phase):
+            _last_phase_attempts[key] = {"at": time.monotonic(), "attempts": last.get("attempts", 0)}
+            return False
+        if len(_last_phase_attempts) > 10:
+            _last_phase_attempts.clear()
+        _last_phase_attempts[key] = {"at": time.monotonic(), "attempts": last.get("attempts", 0) + 1}
+        _scheduler_state["status"] = "running"
+        _scheduler_state["current_phase"] = phase
+        return True
 
 
 def run_startup_catchup() -> bool:
-    """Run a missed active-day job once after a late server restart."""
-    with _scheduler_lock:
-        if not _scheduler_state.get("enabled"):
-            return False
-        run_time = str(_scheduler_state.get("run_time", "16:00"))
-        active_days = list(_scheduler_state.get("active_days", [0, 1, 2, 3, 6]))
-        model_filter = _scheduler_state.get("model_filter", "adaptive")
+    """Recover only the appropriate missing phase after an HF restart."""
     now = _now_cairo()
-    try:
-        hour, minute = map(int, run_time.split(":", 1))
-    except Exception:
-        hour, minute = 16, 0
-    if now.weekday() not in active_days or (now.hour, now.minute) < (hour, minute):
+    phase = _due_phase(now)
+    if not phase or not _claim_phase_in_process(now, phase):
         return False
-    today = now.date().isoformat()
-    if _daily_job_ran_today(today):
-        print(f"[DAILY-JOB-SCHEDULER] Startup catch-up skipped; {today} already ran.")
-        return False
-
-    def _run():
-        import asyncio
-        from api.daily_bot_run import run_daily_job
-        try:
-            result = asyncio.run(run_daily_job(trigger="scheduled", model_filter=model_filter))
-            _record_run("startup_catchup", scheduler_result_status(result))
-        except Exception as exc:
-            print(f"[DAILY-JOB-SCHEDULER] Startup catch-up failed: {exc}")
-            _record_run("startup_catchup", "failed")
-
-    with _scheduler_lock:
-        if _scheduler_state.get("status") == "running":
-            return False
-        _scheduler_state["status"] = "running"
-    threading.Thread(target=_run, daemon=True, name="daily-job-startup-catchup").start()
-    print(f"[DAILY-JOB-SCHEDULER] Startup catch-up started for {today}.")
+    threading.Thread(target=_execute_phase, args=(phase, "startup_catchup"),
+                     daemon=True, name="daily-job-startup-catchup").start()
     return True
 
 
@@ -232,6 +266,7 @@ def _schedule_payload() -> Dict[str, Any]:
     return {
         "enabled": bool(_scheduler_state["enabled"]),
         "run_time": _scheduler_state["run_time"],
+        "midday_run_time": _scheduler_state["midday_run_time"],
         "active_days": _python_days_to_js(_scheduler_state["active_days"]),
         "model_filter": _scheduler_state.get("model_filter", "adaptive"),
     }
@@ -245,6 +280,9 @@ def _apply_persisted_schedule(payload: Dict[str, Any]) -> None:
             _scheduler_state["enabled"] = payload["enabled"]
         if isinstance(payload.get("run_time"), str):
             _scheduler_state["run_time"] = payload["run_time"]
+        if isinstance(payload.get("midday_run_time"), str):
+            _minutes(payload["midday_run_time"])
+            _scheduler_state["midday_run_time"] = payload["midday_run_time"]
         if isinstance(payload.get("active_days"), list):
             _scheduler_state["active_days"] = _js_days_to_python(payload["active_days"])
         if isinstance(payload.get("model_filter"), str):
@@ -262,6 +300,7 @@ def _hydrate_config_from_supabase() -> None:
             supabase.table("market_cache")
             .select("payload")
             .eq("cache_key", "daily_job_schedule")
+            .eq("country", "Egypt")
             .maybe_single()
             .execute()
         )
@@ -282,7 +321,11 @@ def get_scheduler_state() -> Dict[str, Any]:
 
 
 def update_scheduler_config(patch: Dict[str, Any]) -> Dict[str, Any]:
-    safe_patch = {key: value for key, value in (patch or {}).items() if key in {"enabled", "run_time", "active_days", "model_filter"}}
+    safe_patch = {key: value for key, value in (patch or {}).items() if key in {"enabled", "run_time", "midday_run_time", "active_days", "model_filter"}}
+    midday = _minutes(safe_patch.get("midday_run_time", _scheduler_state["midday_run_time"]))
+    close = _minutes(safe_patch.get("run_time", _scheduler_state["run_time"]))
+    if not 10 * 60 <= midday < 14 * 60 + 30 or close < 14 * 60 + 30:
+        raise ValueError("Midday must be during the session and close run after 14:30 Cairo")
     with _scheduler_lock:
         if "active_days" in safe_patch:
             _scheduler_state["active_days"] = _js_days_to_python(safe_patch.pop("active_days"))
@@ -297,8 +340,8 @@ def update_scheduler_config(patch: Dict[str, Any]) -> Dict[str, Any]:
         _init_supabase()
         if supabase:
             supabase.table("market_cache").upsert(
-                {"cache_key": "daily_job_schedule", "payload": payload},
-                on_conflict="cache_key",
+                {"cache_key": "daily_job_schedule", "country": "Egypt", "payload": payload},
+                on_conflict="cache_key,country",
                 returning="minimal",
             ).execute()
     except Exception as exc:
@@ -324,31 +367,41 @@ def _record_run(job_id: str, status: str):
 
 
 def _compute_next_run() -> str:
-    run_time_str = _scheduler_state["run_time"]
+    now = _now_cairo()
+    candidates = []
+    for offset in range(8):
+        day = now + timedelta(days=offset)
+        if day.weekday() not in _scheduler_state["active_days"]:
+            continue
+        for value in (_scheduler_state["midday_run_time"], _scheduler_state["run_time"]):
+            minutes = _minutes(value)
+            candidate = day.replace(hour=minutes // 60, minute=minutes % 60, second=0, microsecond=0)
+            if candidate > now:
+                candidates.append(candidate)
+    return min(candidates).isoformat() if candidates else None
+
+
+def _retry_short_swings(now):
+    if not _scheduler_state.get("enabled") or now.weekday() not in _scheduler_state["active_days"]:
+        return
+    with _scheduler_lock:
+        if _scheduler_state.get("status") == "running":
+            return
+        _scheduler_state["status"] = "running"
     try:
-        hour, minute = map(int, run_time_str.split(":"))
-    except Exception:
-        hour, minute = 16, 0
-
-    try:
-        from zoneinfo import ZoneInfo
-        now = datetime.now(ZoneInfo("Africa/Cairo"))
-    except Exception:
-        now = datetime.utcnow() + timedelta(hours=3)
-
-    today = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-
-    active_days = _scheduler_state.get("active_days", [0, 1, 2, 3, 6])
-    for _ in range(8):
-        if today.weekday() in active_days and today > now:
-            return today.isoformat()
-        today += timedelta(days=1)
-
-    return today.isoformat()
+        from api.short_swings_daily import retry_incomplete_short_swings
+        phase = _due_phase(now)
+        if phase:
+            result = retry_incomplete_short_swings(phase)
+            if result:
+                print(f"[DAILY-JOB-SCHEDULER] Short-swings {phase} recovery: {result.get('status')}")
+    finally:
+        with _scheduler_lock:
+            _scheduler_state["status"] = "idle"
 
 
 def _scheduler_worker():
-    global _scheduler_state, _last_recommendation_retry_at, _last_vip_revocation_at
+    global _scheduler_state, _last_recommendation_retry_at, _last_vip_revocation_at, _last_short_swings_retry_at
     print("[DAILY-JOB-SCHEDULER] Worker started.")
 
     # Pending Telegram events are exceptional retries, not a realtime queue.
@@ -388,67 +441,21 @@ def _scheduler_worker():
                 time.sleep(30)
                 continue
 
-            try:
-                from zoneinfo import ZoneInfo
-                now_cairo = datetime.now(ZoneInfo("Africa/Cairo"))
-            except Exception:
-                now_cairo = datetime.utcnow() + timedelta(hours=3) # Fallback to UTC+3 (Egypt Summer Time)
-
-            run_time_str = _scheduler_state["run_time"]
-
-            try:
-                run_hour, run_minute = map(int, run_time_str.split(":"))
-            except Exception:
-                run_hour, run_minute = 16, 0
-
-            is_active_day = now_cairo.weekday() in active_days
-            current_minutes = now_cairo.hour * 60 + now_cairo.minute
-            run_minutes = run_hour * 60 + run_minute
-
-            next_run = _compute_next_run()
+            now_cairo = _now_cairo()
             with _scheduler_lock:
-                _scheduler_state["next_run_at"] = next_run
-
-            if is_active_day and run_minutes <= current_minutes < run_minutes + 5:
-                with _scheduler_lock:
-                    # Startup catch-up and the timed worker share one process
-                    # lock so a restart inside the run window cannot launch two
-                    # independent daily jobs.
-                    already_running = _scheduler_state.get("status") == "running"
-                if already_running or _daily_job_ran_today(now_cairo.date().isoformat()):
-                    time.sleep(30)
-                    continue
-                with _scheduler_lock:
-                    start_scheduled_run = _scheduler_state.get("status") != "running"
-                    if start_scheduled_run:
-                        _scheduler_state["status"] = "running"
-                        model_filter = _scheduler_state.get("model_filter", "adaptive")
-                if not start_scheduled_run:
-                    time.sleep(30)
-                    continue
-
-                print(f"[DAILY-JOB-SCHEDULER] Triggering daily job at {now_cairo} with model: {model_filter}")
-                try:
-                    import asyncio
-                    from api.daily_bot_run import run_daily_job
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    result = loop.run_until_complete(run_daily_job(trigger="scheduled", model_filter=model_filter))
-                    loop.close()
-                    _record_run("scheduled", scheduler_result_status(result))
-                except Exception as e:
-                    print(f"[DAILY-JOB-SCHEDULER] Job failed: {e}")
-                    _record_run("scheduled", "failed")
-
-                with _scheduler_lock:
-                    _scheduler_state["status"] = "idle"
-
-                time.sleep(120)
+                _scheduler_state["next_run_at"] = _compute_next_run()
+            phase = _due_phase(now_cairo)
+            if phase and _claim_phase_in_process(now_cairo, phase):
+                print(f"[DAILY-JOB-SCHEDULER] Triggering {phase} job at {now_cairo}")
+                _execute_phase(phase, "scheduled")
                 continue
-
-            with _scheduler_lock:
-                _scheduler_state["status"] = "idle"
-            time.sleep(30)
+            if now_monotonic - _last_short_swings_retry_at >= retry_interval:
+                try:
+                    _retry_short_swings(now_cairo)
+                except Exception as error:
+                    print(f"[DAILY-JOB-SCHEDULER] Short-swings recovery failed: {error}")
+                _last_short_swings_retry_at = now_monotonic
+            _stop_event.wait(30)
 
         except Exception as e:
             print(f"[DAILY-JOB-SCHEDULER] Worker error: {e}")

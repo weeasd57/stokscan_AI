@@ -1,7 +1,21 @@
 import json
+import sys
+import types
+import pytest
+import api
 from datetime import datetime, timedelta, timezone
 
 from api import daily_job_scheduler as scheduler
+
+
+@pytest.fixture(autouse=True)
+def isolated_scheduler(monkeypatch):
+    module = types.SimpleNamespace(_init_supabase=lambda: None, supabase=None)
+    monkeypatch.setitem(sys.modules, 'api.stock_ai', module)
+    monkeypatch.setattr(api, 'stock_ai', module, raising=False)
+    monkeypatch.setattr(scheduler, '_scheduler_state', dict(scheduler._scheduler_state))
+    monkeypatch.setattr(scheduler, '_last_phase_attempts', {})
+    monkeypatch.setattr(scheduler, '_completed_phases', set())
 
 
 def test_weekday_conversion_round_trip():

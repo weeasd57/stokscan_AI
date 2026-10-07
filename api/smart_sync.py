@@ -18,7 +18,7 @@ class SmartSync:
         self.max_bars_per_request = 5000
         self.max_workers = int(os.getenv("SMART_SYNC_MAX_WORKERS", str(max_workers)))
 
-    def sync_symbol_prices(self, symbol: str, max_days: int = 365, force_days: bool = False) -> Tuple[bool, str]:
+    def sync_symbol_prices(self, symbol: str, max_days: int = 365, force_days: bool = False, refresh_latest: bool = False) -> Tuple[bool, str]:
         """
         Syncs a single symbol from TradingView with retries and throttling.
         """
@@ -32,7 +32,7 @@ class SmartSync:
                 # If force_days is True, we might want to ensure we get EXACTLY that many days.
                 # The existing function is already incremental but we can pass max_days.
                 
-                success, msg = fetch_tradingview_prices(symbol, max_days=max_days)
+                success, msg = fetch_tradingview_prices(symbol, max_days=max_days, refresh_latest=refresh_latest)
                 
                 if success:
                     return True, msg
@@ -56,15 +56,15 @@ class SmartSync:
 
         return False, f"Failed after {self.max_retries} retries. Last error: {last_error}"
 
-    def _sync_one(self, symbol: str, max_days: int, semaphore: threading.Semaphore) -> Tuple[str, bool, str]:
+    def _sync_one(self, symbol: str, max_days: int, semaphore: threading.Semaphore, refresh_latest: bool = False) -> Tuple[str, bool, str]:
         """Sync a single symbol with semaphore-based throttling for concurrent use."""
         with semaphore:
             # Small stagger to avoid thundering herd
             time.sleep(self.throttle_delay)
-            success, msg = self.sync_symbol_prices(symbol, max_days=max_days)
+            success, msg = self.sync_symbol_prices(symbol, max_days=max_days, refresh_latest=refresh_latest)
             return symbol, success, msg
 
-    def sync_exchange_prices(self, exchange: str, symbols: List[str], max_days: int = 365, unified_dates: bool = False) -> Dict[str, Any]:
+    def sync_exchange_prices(self, exchange: str, symbols: List[str], max_days: int = 365, unified_dates: bool = False, refresh_latest: bool = False) -> Dict[str, Any]:
         """
         Syncs multiple symbols for an exchange using concurrent threads.
         Uses ThreadPoolExecutor with a semaphore to control parallelism.
@@ -96,7 +96,7 @@ class SmartSync:
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = []
             for symbol in symbols:
-                fut = executor.submit(self._sync_one, symbol, max_days, semaphore)
+                fut = executor.submit(self._sync_one, symbol, max_days, semaphore, refresh_latest)
                 fut.add_done_callback(_on_done)
                 futures.append(fut)
             # Wait for all futures to complete

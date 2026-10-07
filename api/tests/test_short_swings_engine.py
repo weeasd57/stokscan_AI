@@ -150,10 +150,10 @@ def test_f3_telegram_failure_does_not_mark_sent(telegram_dependencies):
     from api.short_swings_daily import run_daily_short_swings
 
     mock_swings = {
-        "as_of": "2026-10-07",
+        "as_of": "2026-10-07", "status": "ok", "phase": "close",
         "active_trades": [
             {
-                "symbol": "TEST_STOCK",
+                "symbol": "TEST_STOCK", "signal_date": "2026-10-07",
                 "name_ar": "سهم اختبار",
                 "reference_close": 50.0,
                 "trailing_stop": 48.0,
@@ -169,7 +169,15 @@ def test_f3_telegram_failure_does_not_mark_sent(telegram_dependencies):
         "payload": {"sent_entries": {}, "sent_exits": {}}
     }
 
-    with patch("api.short_swings_daily.compute_short_swings", return_value=mock_swings), \
+    from api import daily_recovery_state
+    memory = {}
+    def write(_sb, key, payload, expected):
+        memory[key] = {"payload": dict(payload)}
+        return memory[key]
+    with patch.object(daily_recovery_state, "read_checkpoint", side_effect=lambda sb, key: memory.get(key)), \
+         patch.object(daily_recovery_state, "replace_checkpoint", side_effect=write), \
+         patch("api.short_swings_daily._get_sent_cache_state", return_value={"sent_entries": {}, "sent_exits": {}}), \
+         patch("api.short_swings_daily.compute_short_swings", return_value=mock_swings), \
          patch("api.short_swings_daily._get_supabase_client", return_value=mock_sb), \
          patch("api.daily_bot_run._telegram_recommendation_writes_enabled", return_value=True), \
          patch("api.daily_bot_run._notify_vip_telegram", return_value=False), \
