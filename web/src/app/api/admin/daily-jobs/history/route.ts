@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     
     const { data, error } = await supabase
       .from("daily_job_runs")
-      .select("id, job_type, status, started_at, completed_at, total_symbols, error, trigger")
+      .select("id, job_type, status, started_at, completed_at, total_symbols, error, trigger, steps")
       .order("created_at", { ascending: false })
       .limit(limit);
 

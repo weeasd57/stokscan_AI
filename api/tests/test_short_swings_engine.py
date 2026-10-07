@@ -3,6 +3,9 @@ Unit tests for the Short Swings Engine, Router, and Daily Dispatcher.
 Validates all audit findings (F1 through F14) from docs/short-swings-review-2026-10-07.md.
 """
 import os
+import json
+import sys
+import types
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
@@ -14,6 +17,17 @@ from api.short_swings_engine import (
 )
 from api.routers.short_swings import router
 from fastapi import FastAPI
+from api import short_swings_engine as engine
+
+
+@pytest.fixture
+def telegram_dependencies(monkeypatch):
+    # Dispatch tests need the notification boundary, not provider/model imports.
+    module = types.ModuleType('api.daily_bot_run')
+    module._telegram_recommendation_writes_enabled = MagicMock(return_value=True)
+    module._notify_vip_telegram = MagicMock()
+    module._notify_free_telegram = MagicMock()
+    monkeypatch.setitem(sys.modules, 'api.daily_bot_run', module)
 
 
 @pytest.fixture
@@ -131,7 +145,7 @@ def test_f2_gap_down_exit_pricing_conservative():
 # =========================================================================
 # F3: Telegram Verified Outbox Receipt Tracking
 # =========================================================================
-def test_f3_telegram_failure_does_not_mark_sent():
+def test_f3_telegram_failure_does_not_mark_sent(telegram_dependencies):
     """If Telegram dispatch fails, symbols must NOT be marked as sent."""
     from api.short_swings_daily import run_daily_short_swings
 
@@ -175,7 +189,7 @@ def test_f3_telegram_failure_does_not_mark_sent():
             assert saved_payload["sent_entries"].get("TEST_STOCK", {}).get("vip") is not True
 
 
-def test_f3_missing_delivery_checkpoint_does_not_send():
+def test_f3_missing_delivery_checkpoint_does_not_send(telegram_dependencies):
     """Do not broadcast when receipt persistence is unavailable."""
     from api.short_swings_daily import run_daily_short_swings
 
@@ -280,8 +294,16 @@ def test_f12_exit_reason_labels():
     assert "حماية أرباح" in EXIT_REASON_LABELS["ema10_break"]
 
 
-def test_f13_case_insensitive_metadata_loading():
+def test_f13_case_insensitive_metadata_loading(monkeypatch, tmp_path):
     """load_stock_metadata loads tickers when JSON keys are Capitalized."""
+    registry = tmp_path / 'symbols_data'
+    registry.mkdir()
+    (registry / 'Egypt_all_symbols_fixture.json').write_text(json.dumps([
+        {'Symbol': 'COMI', 'Name': 'Fixture company', 'ArabicName': 'شركة اختبار'},
+    ]))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(engine, '_METADATA_CACHE', None)
+    monkeypatch.setitem(sys.modules, 'api.stock_ai', types.SimpleNamespace(_init_supabase=lambda: None, supabase=None))
     meta = load_stock_metadata()
     assert isinstance(meta, dict)
     assert len(meta) > 0

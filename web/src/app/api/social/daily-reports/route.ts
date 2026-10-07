@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseClient, getSupabaseServiceClient } from '@/lib/supabase/route-data';
-import { chooseLiquidStock, generateDailyReport, REPORT_KINDS, type ReportKind } from '@/lib/social/daily-reports';
+import { chooseLiquidStock, generateDailyReport, REPORT_KINDS, DailyReportVerificationError, type ReportKind } from '@/lib/social/daily-reports';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -64,7 +64,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: 'ready', kind, symbol, date });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Report failed';
-    await service.from('daily_social_reports').update({ status: 'failed', error: message, updated_at: new Date().toISOString() }).eq('session_date', date).eq('kind', kind);
+    await service.from('daily_social_reports').update({ status: 'failed', error: message,
+      ...(error instanceof DailyReportVerificationError ? { validation: error.validation } : {}),
+      updated_at: new Date().toISOString() }).eq('session_date', date).eq('kind', kind);
     return NextResponse.json({ status: 'failed', error: message }, { status: 503 });
   }
 }

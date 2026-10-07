@@ -15,6 +15,7 @@ import math
 import urllib.request
 import urllib.parse
 from zoneinfo import ZoneInfo
+from api.daily_job_outcome import summarise_daily_steps, social_reports_outcome
 import pandas as pd
 import numpy as np
 from typing import List, Dict, Any, Tuple, Optional, Set
@@ -2987,9 +2988,9 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         print("[SKIP] Price synchronization will be skipped.")
 
     _init_supabase()
-    if not supabase:
+    if not stock_ai.supabase:
         print("[ERROR] Supabase client could not be initialized.")
-        return
+        return {"outcome": "failed", "error": "Supabase client could not be initialized"}
 
     job_run_id = str(uuid.uuid4())
     job_start_time = dt.datetime.now(dt.timezone.utc).isoformat()
@@ -3001,13 +3002,15 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
     generated_count = 0
     daily_bulk_prices: Dict[str, pd.DataFrame] = {}
     daily_bulk_cache_ttl = 2 * 60 * 60
+    job_status = "running"
 
     def _persist_job(status: str):
+        nonlocal job_status
+        job_status = status
         try:
-            last_failed = next(
-                (step for step in reversed(steps_log) if step.get("status") == "failed"),
-                None,
-            )
+            health = summarise_daily_steps(steps_log if status != "running" else [
+                step for step in steps_log if step.get("status") != "started"
+            ])
             stock_ai.supabase.table("daily_job_runs").upsert({
                 "id": job_run_id,
                 "job_type": "daily_bot",
@@ -3017,7 +3020,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 "steps": json.dumps(steps_log),
                 "total_symbols": total_symbols,
                 "trigger": "manual" if str(trigger).lower() == "manual" else "scheduled",
-                "error": last_failed.get("details") if last_failed else None,
+                "error": health["error"],
             }).execute()
         except Exception as e:
             print(f"[JOB] Failed to persist job run: {e}")
@@ -3034,7 +3037,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         if extra:
             payload.update(extra)
         steps_log.append(payload)
-        _persist_job("running")
+        _persist_job(job_status)
 
     def _start_step(step_name: str, details: str = ""):
         active_steps[step_name] = time.time()
@@ -3464,15 +3467,20 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             social_reports = await asyncio.to_thread(
                 generate_daily_social_reports, job_run_id, steps_log, trigger, dry_run, client=supabase
             )
+            reports_ok, reports_message, reports_count = social_reports_outcome(social_reports)
+            _record_step("daily_social_reports", reports_ok, reports_message, reports_count)
             print(f"[SOCIAL_REPORTS] {social_reports}")
         except Exception as social_error:
+            _record_step("daily_social_reports", False, type(social_error).__name__, 0)
             print(f"[SOCIAL_REPORTS] Generation unavailable: {type(social_error).__name__}")
         print(f"\n--- Daily Bot Run Job Completed: {dt.datetime.now()} ---")
+        return {"status": "completed", "job_run_id": job_run_id, **summarise_daily_steps(steps_log)}
 
     except Exception as e:
         _record_step("job", False, str(e)[:500], total_symbols)
         _persist_job("failed")
         print(f"\n--- Daily Bot Run Job FAILED: {dt.datetime.now()} — {e} ---")
+        return {"status": "failed", "outcome": "failed", "job_run_id": job_run_id, "error": str(e)[:500]}
 
 
 if __name__ == "__main__":

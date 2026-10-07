@@ -8,6 +8,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
+from api.daily_job_outcome import scheduler_result_status
 
 
 _scheduler_state: Dict[str, Any] = {
@@ -199,8 +200,8 @@ def run_startup_catchup() -> bool:
         import asyncio
         from api.daily_bot_run import run_daily_job
         try:
-            asyncio.run(run_daily_job(trigger="scheduled", model_filter=model_filter))
-            _record_run("startup_catchup", "completed")
+            result = asyncio.run(run_daily_job(trigger="scheduled", model_filter=model_filter))
+            _record_run("startup_catchup", scheduler_result_status(result))
         except Exception as exc:
             print(f"[DAILY-JOB-SCHEDULER] Startup catch-up failed: {exc}")
             _record_run("startup_catchup", "failed")
@@ -311,7 +312,7 @@ def _record_run(job_id: str, status: str):
         _scheduler_state["last_run_status"] = status
         _scheduler_state["last_run_job_id"] = job_id
         _scheduler_state["total_runs"] += 1
-        if status == "failed":
+        if status in ("failed", "partial"):
             _scheduler_state["total_failed"] += 1
         _run_history.append({
             "run_at": datetime.utcnow().isoformat(),
@@ -432,9 +433,9 @@ def _scheduler_worker():
                     from api.daily_bot_run import run_daily_job
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                    loop.run_until_complete(run_daily_job(trigger="scheduled", model_filter=model_filter))
+                    result = loop.run_until_complete(run_daily_job(trigger="scheduled", model_filter=model_filter))
                     loop.close()
-                    _record_run("scheduled", "completed")
+                    _record_run("scheduled", scheduler_result_status(result))
                 except Exception as e:
                     print(f"[DAILY-JOB-SCHEDULER] Job failed: {e}")
                     _record_run("scheduled", "failed")

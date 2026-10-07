@@ -38,6 +38,14 @@ EXIT_REASON_LABELS = {
     "max_time": "انتهاء المدة الزمنية القصوى (20 جلسة)"
 }
 
+def _price_date(value):
+    """Use one session-date type for archive Timestamps and REST ISO strings."""
+    if value is None or isinstance(value, (int, float, bool)):
+        return None
+    parsed = pd.to_datetime(value, errors="coerce")
+    return None if pd.isna(parsed) else parsed.strftime("%Y-%m-%d")
+
+
 def compute_kpis_from_trades(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Compute performance KPIs dynamically from the actual list of closed trades."""
     if not trades:
@@ -259,7 +267,7 @@ def compute_short_swings() -> Dict[str, Any]:
     # usually expose ISO strings.  Normalize both sources before comparing or
     # serializing dates; otherwise the standard loader crashes on Timestamp >=
     # str when building the final closed-trade payload.
-    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    df["date"] = df["date"].map(_price_date)
     df = df.dropna(subset=["date"])
     for col in ["open", "high", "low", "close", "volume"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -303,7 +311,7 @@ def compute_short_swings() -> Dict[str, Any]:
                 page += 1
             if all_new:
                 df_new = pd.DataFrame(all_new)
-                df_new["date"] = pd.to_datetime(df_new["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+                df_new["date"] = df_new["date"].map(_price_date)
                 df_new = df_new.dropna(subset=["date"])
                 for col in ["open", "high", "low", "close", "volume"]:
                     df_new[col] = pd.to_numeric(df_new[col], errors="coerce")
