@@ -627,11 +627,6 @@ def compute_short_swings(*, phase: str = None) -> Dict[str, Any]:
                 del positions[sym]
                 continue
 
-            # A live candle may trigger an existing defensive stop, but may not
-            # establish close-based exits, next-session stops or new signals.
-            if phase == "midday" and day == session_date:
-                continue
-
             # If not stopped out, update highest high and evaluate progression
             if b.high > p["highest_high"]:
                 p["highest_high"] = b.high
@@ -659,10 +654,8 @@ def compute_short_swings(*, phase: str = None) -> Dict[str, Any]:
     last_date = dates[-1] if dates else dt.date.today().isoformat()
     active_output = []
 
-    # 5. New Actionable Pending Signals detected at today's close for TOMORROW'S session:
+    # 5. New Actionable Pending Signals detected for TOMORROW'S session:
     today_signals_df = df[(df["date"] == last_date) & (df["signal"])].sort_values("turnover", ascending=False)
-    if phase == "midday":
-        today_signals_df = today_signals_df.iloc[:0]
     seen_symbols = set()
     today_rows = []
     for published in published_signals:

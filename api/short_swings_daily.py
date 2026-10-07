@@ -320,11 +320,20 @@ def _run_daily_short_swings(trigger="manual", dry_run=False, phase="close", job_
         if not claimed:
             return {"success": False, "status": "already_running", "message": "Another short-swings worker owns the attempt"}
     try:
-        swings = payload.get("swings") or compute_short_swings(phase=phase)
-        if swings.get("status") != "ok" or swings.get("as_of") != as_of or swings.get("phase") != phase:
-            raise ValueError("Current-session short-swings snapshot is not ready")
+        swings = payload.get("swings")
+        if not swings:
+            latest_row = read_checkpoint(sb, "short_swings_latest")
+            latest_swings = ((latest_row or {}).get("payload") or {}).get("swings")
+            if latest_swings and latest_swings.get("status") == "ok" and latest_swings.get("phase") == phase:
+                swings = latest_swings
+            else:
+                swings = compute_short_swings(phase=phase)
+        if swings.get("status") != "ok":
+            raise ValueError("Current-session short-swings snapshot failed to compute")
+        if swings.get("as_of"):
+            as_of = swings["as_of"]
         entries = [trade for trade in swings.get("active_trades", [])
-                   if phase == "close" and trade.get("is_pending_entry") and trade.get("signal_date") == as_of]
+                   if trade.get("is_pending_entry") and trade.get("signal_date") == as_of]
         updates = [trade for trade in swings.get("active_trades", [])
                    if not trade.get("is_pending_entry") and trade.get("price_date") == as_of
                    and trade.get("current_price") is not None]
