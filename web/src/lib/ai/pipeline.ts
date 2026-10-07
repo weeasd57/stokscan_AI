@@ -355,7 +355,8 @@ export function extractExplicitSymbols(message: string): string[] {
     const excluded = new Set([
         "EGX", "NEWS", "TODAY", "LAST", "WEEK", "FROM", "BETWEEN", "RSI", "MACD", "VWAP", "CLOUD", "THNDR", "ALSH",
         "OTC", "BUY", "SELL", "HOLD", "USD", "EGP", "EPS", "ROE", "ROA", "ROI", "NAV", "GDP", "CBE", "FRA", "IPO", "API", "AI", "KING", "ML", "ADX", "SMA", "EMA",
-        "WHEN", "WILL", "REACH", "RESISTANCE", "SUPPORT", "IS", "GOING", "TO", "BREAK", "OUT", "IT", "THE", "HOW", "LONG", "CAN", "COULD", "SHOULD"
+        "WHEN", "WILL", "REACH", "RESISTANCE", "SUPPORT", "IS", "GOING", "TO", "BREAK", "OUT", "IT", "THE", "HOW", "LONG", "CAN", "COULD", "SHOULD",
+        "HELLO", "THANKS", "YES", "NO", "ORDER", "BOOK", "DEPTH", "PRICE", "VOLUME"
     ]);
     const latinTokens = message.match(/\b[A-Za-z][A-Za-z0-9]{1,9}\b/g) || [];
 
@@ -371,10 +372,18 @@ export function extractExplicitSymbols(message: string): string[] {
     // the symbol universe is not loaded yet, accept only tokens the user typed
     // in ticker form (all caps); unknown tickers are handled explicitly later.
     const knownSet = new Set(knownSymbols.map(symbol => String(symbol).toUpperCase()));
+    // A Latin token in an Arabic stock question is an explicit identifier even
+    // when written in mixed case and outside our coverage (e.g. Adri اغلق اليوم).
+    const contextualTickers = new Set([
+        ...Array.from(message.matchAll(/(?:^|[\s،,])(?:سهم|حلل|تحليل|أخبار|اخبار|قارن|مقارنة)\s+(?:سهم\s+)?([A-Za-z]{2,6})\b/g), match => match[1].toUpperCase()),
+        ...(message.match(/^\s*([A-Za-z]{2,6})\b(?=\s+[\u0621-\u064A])/)?.slice(1) || []).map(token => token.toUpperCase()),
+        ...(/^[A-Za-z]{2,6}[؟?\s.]*$/.test(message.trim()) ? [message.trim().replace(/[؟?\s.]+$/, "").toUpperCase()] : []),
+    ]);
     const validLatin = knownSymbols.length > 0
         ? resolvedLatin.filter((symbol, index) => knownSet.has(symbol)
             || knownSet.has(LATIN_TICKER_ALIASES[symbol] || "")
-            || latinTokens[index] === latinTokens[index].toUpperCase())
+            || latinTokens[index] === latinTokens[index].toUpperCase()
+            || contextualTickers.has(latinTokens[index].toUpperCase()))
         : resolvedLatin.filter((_, index) => latinTokens[index] === latinTokens[index].toUpperCase());
 
     let matchedSymbols = [...validLatin];
@@ -1403,11 +1412,14 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
 }
 
 export function parsePortfolioAnswer(message: string, item: { symbol: string; quantity: number | null; price: number | null }) {
-    const nums = Array.from(message.replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).matchAll(/\d+(?:[.,]\d+)?/g)).map(m => Number(m[0].replace(/,/g, ""))).filter(Number.isFinite);
+    message = message.replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+    const nums = Array.from(message.matchAll(/\d+(?:[.,]\d+)?/g)).map(m => Number(m[0].replace(/,/g, ""))).filter(Number.isFinite);
     let quantity = item.quantity;
     let price = item.price;
     const onlyQuantityMissing = quantity === null && price !== null;
     const onlyPriceMissing = price === null && quantity !== null;
+    const quantityMatch = message.match(/(?:عدد|كمي[ةه])\s*[:=]?\s*(\d[\d,]*)/) || message.match(/(\d[\d,]*)\s*سهم/);
+    if (quantity === null && quantityMatch) quantity = Number(quantityMatch[1].replace(/,/g, ""));
     if (quantity === null && nums.length > 0 && (
         /سهم|كمي|عدد|معايا|امتلك/i.test(message)
         // The bot explicitly asks for a number, so accept the concise reply
@@ -2142,6 +2154,9 @@ async function* runPipelineCore(
         }
 
         const imported = await replacePortfolioFromImage(supabase, userId, items);
+        if (imported.ok) yield { type: "tools_data", data: { results: [{ tool: "manage_portfolio", source: "positions",
+            data_time: new Date().toISOString(), data_type: "cached", symbols: items.map(item => item.symbol),
+            data: { ...imported, operation: "import", persisted: true } }], formattedText: imported.message } };
         if (!imported.ok) {
             yield { type: "done", data: {
                 response: imported.message,
@@ -2230,6 +2245,9 @@ async function* runPipelineCore(
                 return;
             }
             const imported = await replacePortfolioFromImage(supabase, userId, items);
+            if (imported.ok) yield { type: "tools_data", data: { results: [{ tool: "manage_portfolio", source: "positions",
+                data_time: new Date().toISOString(), data_type: "cached", symbols: items.map(item => item.symbol),
+                data: { ...imported, operation: "import", persisted: true } }], formattedText: imported.message } };
             if (!imported.ok) {
                 yield { type: "vision_error", data: "portfolio_import_failed" };
                 yield { type: "done", data: {
@@ -2508,6 +2526,26 @@ async function* runPipelineCore(
     // ===== STAGE 3: Intent / Entity Planner =====
     yield { type: "status", data: { status: "planner", message: "تحليل النية وتخطيط الأدوات..." } };
     if (!hasImages) await getStocksList();
+
+    // Resolve unavailable explicit identifiers before semantic planning, tools,
+    // or ranking clarification can replace them with another company.
+    const requestedSymbols = extractExplicitSymbols(userMessage);
+    const knownSymbolSet = new Set(getSyncValidSymbols());
+    if (!hasImages && requestedSymbols.length > 0 && requestedSymbols.every(symbol => !knownSymbolSet.has(symbol))) {
+        const unavailablePlan: IntentPlan = { intent: "stock_analysis", confidence: 1,
+            entities: { symbols: requestedSymbols, sector: null, timeframe: "current", reference: null },
+            tools: [], clarification_needed: false, needs_vision_context: false, needs_history: false,
+            needs_live_data: false, needs_historical_data: false, resolved_from: { symbol: null, message_id: null } };
+        completeDecisionTools(userMessage, unavailablePlan, history);
+        unavailablePlan.tools = [];
+        yield { type: "plan", data: unavailablePlan };
+        yield { type: "tools_data", data: { results: [], formattedText: "" } };
+        yield { type: "done", data: {
+            response: `لا تتوفر لدي بيانات موثقة للرمز ${requestedSymbols.join("، ")} في تغطية النظام الحالية. لا أستطيع ترجيح أو مقارنة أسهم بلا بيانات موثقة. لن أستبدله بسهم آخر أو أعتبر السعر الذي كتبته إغلاقاً موثقاً. اكتب اسم الشركة الكامل لتحديدها؛ سأوضح نقص التغطية إذا ظلت بياناتها غير متاحة.`,
+            session_update: { current_symbol: null, last_symbols: [], summary: userMessage }, tables: [],
+        } };
+        return;
+    }
 
     // ─── Hybrid intent/entity planner ───
     // Deterministic routes remain policy guards for known financial actions.
@@ -2987,6 +3025,19 @@ async function* runPipelineCore(
         plan.needs_live_data = false;
         plan.needs_historical_data = false;
     }
+    // A definition is a new educational task, not analysis of a remembered stock.
+    if (!hasImages && isTermsDefinitionRequest(userMessage)) {
+        plan.intent = "general_chat";
+        plan.guidance_intent = "terms_explainer";
+        plan.entities.symbols = [];
+        plan.entities.portfolio_operation = null;
+        plan.tools = [];
+        plan.request = undefined;
+        plan.clarification_needed = false;
+        plan.needs_live_data = false;
+        plan.needs_historical_data = false;
+        plan.resolved_from = { symbol: null, message_id: null };
+    }
     Object.assign(plan, applyHybridDomainInvariants(userMessage, plan));
     if (!hasImages && explicitSymbols.length === 1 && !explicitComparison && plan.intent === "comparison") {
         plan.intent = "stock_analysis";
@@ -3008,6 +3059,28 @@ async function* runPipelineCore(
         };
     }
 
+    if (unresolvedStockName && !hasImages && !isMarketWideRequest(userMessage)
+        && !isUnspecifiedOpportunityRequest(userMessage) && !explicitScan && !isTermsDefinitionRequest(userMessage)) {
+        plan.intent = "clarification";
+        plan.entities.symbols = [];
+        plan.tools = [];
+        plan.needs_live_data = false;
+        plan.needs_historical_data = false;
+        plan.clarification_needed = true;
+        plan.unresolved_stock = true;
+        plan.request = { goal: userMessage, reference: "explicit", ranking_metric: "unspecified", required_facts: [],
+            clarification_reason: `لم أجد شركة بهذا الاسم («${unresolvedStockName}») في تغطية النظام الحالية. اكتب الرمز اللاتيني أو اسم الشركة الكامل؛ لن أحلل سهماً آخر بدلاً منها.` };
+    }
+    if (!hasImages && !isTermsDefinitionRequest(userMessage)
+        && /عمق\s*(?:السعر|السوق)|دفتر\s*الاوامر/i.test(normalizeArabicIntent(userMessage))) {
+        plan.intent = "clarification";
+        plan.tools = [];
+        plan.needs_live_data = false;
+        plan.needs_historical_data = false;
+        plan.clarification_needed = true;
+        plan.request = { goal: userMessage, reference: "explicit", ranking_metric: "unspecified", required_facts: [],
+            clarification_reason: `لا أملك وصولاً مباشراً لدفتر الأوامر${plan.entities.symbols.length ? ` لسهم ${plan.entities.symbols.join("، ")}` : ""}. أرسل صورة واضحة ومؤرخة لعمق السعر تظهر الطلبات والعروض والكميات؛ مؤشرات الإغلاق وحدها لا تكفي لتحليل عمق السعر.` };
+    }
     completeDecisionTools(userMessage, plan, history);
     yield { type: "plan", data: plan };
 

@@ -62,8 +62,9 @@ export function evidenceViolations(reply: string, message: string, results: Tool
     }
     const market = results.find(r => r.tool === "get_market" && !r.error);
     if (market && !market.data?.is_live_intraday) {
-        const refersToMarketData = /(?:egx\s*30|egx\s*100|المؤشر|مؤشر|مؤشرات|usd|دولار)/i.test(normalized)
-            || /(?:حالة|وضع|اتجاه)\s+السوق/i.test(normalized);
+        // Stock RSI/technical-indicator labels do not assert an index quote.
+        const refersToMarketData = /(?:egx\s*30|egx\s*100|المؤشر(?!ات)|مؤشر(?!ات)\s+(?:السوق|البورصه|الثلاثين|الرئيسي)|مؤشرات\s+(?:السوق|البورصه)|usd|دولار)/i.test(normalized)
+            || /(?:حاله|وضع|اتجاه)\s+السوق/i.test(normalized);
         if (refersToMarketData && !/اغلاق|بيانات يوميه|لقطه يوميه|جلسه|اخر جلسه|نهايه الجلسه/.test(normalized)) reasons.push("بيانات السوق إغلاق يومي؛ صرّح بذلك ولا تقدمها كشاشة لحظية.");
         if (/لحظ|مباشر/.test(message) && !/(?:ليست|ليس|غير|لا\s+تتوفر|لا\s+يتوفر|لا\s+املك|مش|لا\s+توجد).{0,35}(?:لحظ|مباشر)/.test(normalized)) reasons.push("طلب المستخدم شاشة لحظية؛ وضّح صراحة أن البيانات المتاحة ليست لحظية.");
         const componentLabels: Record<string, RegExp> = { egx30: /EGX\s*30/i, egx100: /EGX\s*100/i, usd: /USD|دولار/i, movers: /ارتفاع|انخفاض|صاعد|هابط|رابح|خاسر/ };

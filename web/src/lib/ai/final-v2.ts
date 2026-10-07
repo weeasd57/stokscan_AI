@@ -200,6 +200,7 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
     lines.push("17. 📊 قوالب الماسح الفني (TECHNICAL SCREENER TEMPLATES): عند وجود نتائج get_technical_scan، اعرض الأسهم المرصودة مع أسمائها، أسعارها، ونسب التغير والمؤشرات ذات الصلة (مثل RSI، MACD، حجم التداول النسبي، أو إشارات الدايفرجنس). وضح للمستخدم طبيعة الفلتر الفني ومعناه الاستثماري دون تقديم نصيحة شراء مباشرة.");
     lines.push("17b. ⛔ ممنوع وصف حركة السهم بأنها 'طبيعي' أو 'هذا طبيعي' كحكم قيمي (مثل 'تراجع يومي طبيعي'، 'جني أرباح طبيعي'، 'هبوط طبيعي'). 'طبيعي' تعني أن الحركة صحية ومتوقعة، وهذا استنتاج لا تثبته البيانات. صِف الحركة بموضوعية فقط: 'تراجع' أو 'تصحيح' أو 'انخفاض' أو 'جني أرباح'، دون الحكم عليها بأنها طبيعية أو غير طبيعية.");
 
+    lines.push("18. ذكر المستخدم كمية ومتوسط شراء دليل للتحليل فقط، وليس حفظاً في الحساب. لا تقل تم تسجيل/حفظ/إضافة المركز إلا بنتيجة manage_portfolio ناجحة تحمل persisted=true للعملية نفسها. قل: بناءً على الكمية وسعر الشراء اللذين ذكرتهما؛ ويمكنه الحفظ من صفحة المحفظة.");
     lines.push("=== END STRICT EVIDENCE CONTEXT ===");
     return lines.join("\n");
 }
@@ -1725,12 +1726,20 @@ export function buildFastConversationalAdvisorResponse(
         const wantsDistribution = /(تصريف|التصريف)/i.test(normMsg);
         const wantsAssembly = /(جمعيه|جمعية|عموميه|عمومية)/i.test(normMsg);
         const wantsMacd = /(macd|الـ\s*macd)/i.test(normMsg);
+        const wantsDepth = /عمق\s*(?:السعر|السوق)|دفتر\s*الاوامر/i.test(normMsg);
 
-        if (!wantsAccumulation && !wantsDistribution && !wantsAssembly && !wantsMacd) {
+        if (!wantsAccumulation && !wantsDistribution && !wantsAssembly && !wantsMacd && !wantsDepth) {
             return null; // Return null if it's a specific question so LLM generates a tailored response
         }
 
         const sections: string[] = [];
+
+        if (wantsDepth) {
+            sections.push("**عمق السعر (دفتر الأوامر):** يعرض أوامر الشراء والبيع المعلقة وكمياتها عند مستويات سعر مختلفة؛ الأوامر المعروضة ليست صفقات منفذة.");
+            sections.push("قارن أفضل طلب بأفضل عرض لقياس الفارق، وراقب توزيع الكميات وتغيرها مع التداولات المنفذة. الكميات الكبيرة قد تتغير أو تُلغى، فلا تثبت وحدها تجميعاً أو اتجاه السعر.");
+            sections.push("لا أملك وصولاً مباشرًا لدفتر أوامر ثاندر. أرسل صورة واضحة ومؤرخة لعمق السهم لتحليل ما يظهر فيها، مع تأكيده بالسعر والحجم وعدم اعتباره ضماناً للصعود أو الهبوط.");
+            sections.push("");
+        }
 
         if (wantsAccumulation) {
             sections.push("**التجميع:** شراء تدريجي بكميات ملحوظة مع بقاء السعر متماسكاً نسبياً. قد يسبق حركة صاعدة، لكنه لا يضمنها.");

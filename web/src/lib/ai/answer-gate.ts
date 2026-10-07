@@ -21,7 +21,7 @@ import { checkContextEvidence } from "./context-evidence-gate";
 import { CoverageReport, checkCoverage } from "./coverage";
 import { FactRecord } from "./facts";
 import { isVerifiableDerivedMetric, splitSentences } from "./validator";
-import { isPortfolioAnalysisRequest, isConversationalChoiceOrFollowUp } from "./intent-policy";
+import { isPortfolioAnalysisRequest, isConversationalChoiceOrFollowUp, normalizeArabicIntent } from "./intent-policy";
 import { evidenceViolations } from "./response-evidence";
 import { checkStructuredClaims } from "./claim-evidence";
 import { isTodayNewsRequest } from "./news-evidence";
@@ -181,6 +181,23 @@ export function runAnswerGate(input: AnswerGateInput): AnswerGateResult {
     reasons.push(...checkResponseTask(reply, task, toolResults), ...checkDecisionComparatives(reply, task, toolResults),
         ...checkDecisionGrounding(reply, task, toolResults));
 
+    // A quantity/purchase price supplied in chat is evidence for analysis, not
+    // a completed account write. Reads (including an empty account) prove no write.
+    const writes = toolResults.filter(result => result.tool === "manage_portfolio" && !result.error
+        && result.data?.ok === true && result.data?.persisted === true
+        && ["add", "update", "import"].includes(result.data?.operation));
+    for (const line of reply.split("\n")) {
+        const text = normalizeArabicIntent(line).replace(/[*_`]/g, "");
+        const claim = /(?<![\u0621-\u064A])(?:تم\s+(?:بنجاح\s+)?(?:تسجيل|حفظ|اضافه|تحديث)|(?:سجلت|حفظت|اضفت|اتسجل|اتحفظ))\s+(?:مركز|مراكز|محفظ|المحفظ|الكميات|كميتك|اسهمك|الاسهم|سهم)/.exec(text);
+        if (!claim || /(?:لم|لن|لا|ما|مش)\s*(?:يتم\s*)?$/.test(text.slice(0, claim.index).trim())) continue;
+        const named = line.match(/\b[A-Z]{2,6}\b/g) || [];
+        const claimedSymbols = named.length ? named : plan.entities.symbols || [];
+        if (!writes.length || claimedSymbols.some(symbol => !writes.some(write => write.symbols?.includes(symbol)))) {
+            reasons.push("الرد يؤكد حفظ أو تسجيل مركز دون عملية محفظة ناجحة موثقة لهذا السهم. بيانات المستخدم للتحليل فقط؛ لا تقل تم التسجيل، ووضّح إمكانية الحفظ من صفحة المحفظة.");
+            break;
+        }
+    }
+
     // Ownership is a three-state fact: nonempty, verified empty, or unknown.
     // The responder may not turn a missing tool result into an empty portfolio.
     const snapshot = toolResults.find(result => result.tool === "manage_portfolio"
@@ -239,7 +256,15 @@ export function runAnswerGate(input: AnswerGateInput): AnswerGateResult {
 
     // Rule 3 — numeric claims must bind to the stock named in the sentence.
     checked.attribution = true;
-    reasons.push(...checkAttribution(reply, facts));
+    // User-declared purchase cost is not a market quote or a saved holding.
+    // Admit it only as entry_price for a single scoped stock, never as close.
+    const declared = normalizeArabicIntent(userMessage);
+    const entry = declared.match(/(?:بمتوسط|متوسط(?:\s+سعر)?(?:\s+الشراء)?|اشتريت(?:\s+[^\d]{0,20})?\s+بسعر|بسعر)\s*[:=]?\s*(\d+(?:\.\d+)?)/);
+    const hasHoldingCount = /(?:عدد|كميه)\s*[:=]?\s*\d|\d\s*سهم/.test(declared);
+    const userFacts: FactRecord[] = entry && hasHoldingCount && plan.entities.symbols?.length === 1
+        ? [{ id: "user-declared-entry", symbol: plan.entities.symbols[0], field: "entry_price", value: Number(entry[1]), unit: "egp",
+            as_of: null, source: "user_message", tool: "user_message", fetched_at: new Date().toISOString() }] : [];
+    reasons.push(...checkAttribution(reply, [...facts, ...userFacts]));
 
         // Rule 4 — Dialogue Coherence for conversational follow-ups / answers
     if (input.history && input.history.length > 0) {

@@ -178,7 +178,7 @@ export function isTermsDefinitionRequest(message: string): boolean {
     if (isShortFollowupTerm) return true;
     const hasDefineVerb = /(عرف|تعريف|يعني\s+ايه|يعني\s+إيه|الفرق\s+بين|ايه\s+الفرق|إيه\s+الفرق|شرح|ما\s+هو|ما\s+هي|ما\s+المقصود|قصده\s+ايه|معنى|معني|ازاي|إزاي|كيف|طريقة|طريقه)/i.test(norm);
     if (!hasDefineVerb) return false;
-    return /(تجميع|تصريف|سيوله|سيولة|دخلت\s+سيوله|دخلت\s+سيولة|دخل\s+فيه\s+سيوله|دخل\s+فيه\s+سيولة|جمعيه|جمعية|عموميه|عمومية|macd|rsi|مقاومه|مقاومة|دعم|مؤشر|مؤشرات|وقف\s+خساره|وقف\s+خسارة|ارباح|أرباح|مارجن|مضاربه|مضاربة)/i.test(norm);
+    return /(عمق\s*(?:السعر|السوق)|دفتر\s*الاوامر|تجميع|تصريف|سيوله|سيولة|دخلت\s+سيوله|دخلت\s+سيولة|دخل\s+فيه\s+سيوله|دخل\s+فيه\s+سيولة|جمعيه|جمعية|عموميه|عمومية|macd|rsi|مقاومه|مقاومة|دعم|مؤشر|مؤشرات|وقف\s+خساره|وقف\s+خسارة|ارباح|أرباح|مارجن|مضاربه|مضاربة)/i.test(norm);
 }
 
 export function getInvestorGuidanceIntent(message: string, hasNamedStock = false): InvestorGuidanceIntent | null {

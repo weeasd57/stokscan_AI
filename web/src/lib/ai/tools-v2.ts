@@ -262,7 +262,7 @@ export async function executeStructuredTools(
                     } else {
                         res = await sellPortfolioPosition(supabase, userId, targetSymbol, quantity, price);
                     }
-                    results.push({ tool: "manage_portfolio", source: "positions", data_time: now, symbols: [targetSymbol], data_type: "cached", data: res });
+                    results.push({ tool: "manage_portfolio", source: "positions", data_time: now, symbols: [targetSymbol], data_type: "cached", data: { ...res, operation, persisted: res.ok === true } });
                 }
             }
         } catch (e: any) {

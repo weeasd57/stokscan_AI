@@ -205,30 +205,6 @@ const STATIC_VALID_SYMBOLS = [
     'WATP', 'WCDF', 'WKOL', 'ZEOT', 'ZMID'
 ];
 
-function getLevenshteinDistance(a: string, b: string): number {
-    const matrix = [];
-    for (let i = 0; i <= b.length; i++) {
-        matrix[i] = [i];
-    }
-    for (let j = 0; j <= a.length; j++) {
-        matrix[0][j] = j;
-    }
-    for (let i = 1; i <= b.length; i++) {
-        for (let j = 1; j <= a.length; j++) {
-            if (b.charAt(i - 1) === a.charAt(j - 1)) {
-                matrix[i][j] = matrix[i - 1][j - 1];
-            } else {
-                matrix[i][j] = Math.min(
-                    matrix[i - 1][j - 1] + 1, // substitution
-                    matrix[i][j - 1] + 1,     // insertion
-                    matrix[i - 1][j] + 1      // deletion
-                );
-            }
-        }
-    }
-    return matrix[b.length][a.length];
-}
-
 export const LATIN_TICKER_ALIASES: Record<string, string> = {
     "CIB": "COMI",
     "IECC": "IEEC",
@@ -250,18 +226,9 @@ export function correctStockSymbol(symbol: string, validSymbols: string[]): stri
         return upperSym;
     }
 
-    let bestMatch = upperSym;
-    let minDistance = 2; // Maximum edit distance allowed
-
-    for (const valid of validSymbols) {
-        const dist = getLevenshteinDistance(upperSym, valid);
-        if (dist < minDistance) {
-            minDistance = dist;
-            bestMatch = valid;
-        }
-    }
-
-    return bestMatch;
+    // An edit-distance neighbour may be a completely different listed company.
+    // Unknown symbols remain unknown; only documented aliases change identity.
+    return upperSym;
 }
 
 export function extractSymbolsFromText(
@@ -288,11 +255,6 @@ export function extractSymbolsFromText(
             found.push(LATIN_TICKER_ALIASES[token]);
         } else if (validSymbols.includes(token)) {
             found.push(token);
-        } else if (token.length >= 3) {
-            const corrected = correctStockSymbol(token, validSymbols);
-            if (corrected && validSymbols.includes(corrected) && corrected !== token) {
-                found.push(corrected);
-            }
         }
     }
 
