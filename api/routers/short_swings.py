@@ -1,4 +1,5 @@
 import os
+import hmac
 import datetime as dt
 from fastapi import APIRouter, Query, Request, HTTPException, Header
 from typing import Optional
@@ -9,9 +10,10 @@ router = APIRouter(prefix="/api/short-swings", tags=["Short Swings"])
 
 def _is_internal_authorized(x_admin_key: Optional[str]) -> bool:
     secret = (os.getenv("ADMIN_SECRET_KEY") or "").strip()
-    if not secret:
-        return True
-    return bool(x_admin_key and x_admin_key.strip() == secret)
+    # Missing configuration must fail closed.  This endpoint is also directly
+    # reachable on the Python service, so a missing secret must never turn
+    # ?is_pro=true into an entitlement bypass.
+    return bool(secret and x_admin_key and hmac.compare_digest(x_admin_key.strip(), secret))
 
 
 @router.get("")
@@ -51,7 +53,9 @@ def get_short_swings(
             if is_recent:
                 sym = t.get("symbol", "")
                 masked_active.append({
-                    "signal_id": t.get("signal_id"),
+                    # signal_id is derived from the real ticker/date and is
+                    # therefore sensitive just like the ticker itself.
+                    "signal_id": None,
                     "symbol": (sym[:2] + "**") if len(sym) > 2 else "**",
                     "name_ar": "سهم قيادي مشفر (متاح لـ PRO)",
                     "name_en": "PRO Signal",

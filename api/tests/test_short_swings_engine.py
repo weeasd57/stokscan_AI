@@ -81,6 +81,29 @@ def test_f1_unauthorized_pro_query_is_masked(client, monkeypatch):
         assert body_auth["active_trades"][0]["entry_price"] == 100.0
 
 
+def test_f1_missing_admin_secret_fails_closed(client, monkeypatch):
+    """A missing deployment secret must never authorize the private payload."""
+    monkeypatch.delenv("ADMIN_SECRET_KEY", raising=False)
+    mock_data = {
+        "status": "ok",
+        "active_trades": [{
+            "symbol": "COMI",
+            "entry_date": "2026-10-06",
+            "entry_price": 100.0,
+            "is_pending_entry": True,
+            "signal_id": "COMI_2026-10-06",
+        }],
+        "closed_trades": [],
+    }
+    with patch("api.routers.short_swings.get_cached_short_swings", return_value=mock_data):
+        response = client.get("/api/short-swings?is_pro=true")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_pro"] is False
+    assert body["active_trades"][0]["signal_id"] is None
+    assert body["active_trades"][0]["entry_price"] is None
+
+
 # =========================================================================
 # F2: Gap-Down Exit Pricing (Never Exit Above High)
 # =========================================================================
@@ -152,6 +175,28 @@ def test_f3_telegram_failure_does_not_mark_sent():
             assert saved_payload["sent_entries"].get("TEST_STOCK", {}).get("vip") is not True
 
 
+def test_f3_missing_delivery_checkpoint_does_not_send():
+    """Do not broadcast when receipt persistence is unavailable."""
+    from api.short_swings_daily import run_daily_short_swings
+
+    mock_swings = {
+        "as_of": "2026-10-07",
+        "active_trades": [{"symbol": "TEST_STOCK", "is_pending_entry": True}],
+        "closed_trades": [],
+    }
+    with patch("api.short_swings_daily.compute_short_swings", return_value=mock_swings), \
+         patch("api.short_swings_daily._get_supabase_client", return_value=None), \
+         patch("api.daily_bot_run._telegram_recommendation_writes_enabled", return_value=True), \
+         patch("api.daily_bot_run._notify_vip_telegram") as vip_send, \
+         patch("api.daily_bot_run._notify_free_telegram") as free_send:
+        result = run_daily_short_swings(trigger="scheduled", dry_run=False)
+
+    assert result["success"] is False
+    assert result["status"] == "checkpoint_unavailable"
+    vip_send.assert_not_called()
+    free_send.assert_not_called()
+
+
 # =========================================================================
 # F5: Causal Breakeven Activation
 # =========================================================================
@@ -216,6 +261,12 @@ def test_f8_empty_trades_kpis():
     assert kpis["win_rate_pct"] == 0.0
     assert kpis["profit_factor"] == 0.0
     assert kpis["total_return_pct"] == 0.0
+
+
+def test_f8_drawdown_includes_initial_cash_peak():
+    """The first losing trade must create drawdown instead of reporting zero."""
+    kpis = compute_kpis_from_trades([{"return_pct": -15.0, "exit_date": "2026-01-01"}])
+    assert kpis["max_drawdown_pct"] == 1.0
 
 
 # =========================================================================

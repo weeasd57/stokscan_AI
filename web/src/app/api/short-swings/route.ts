@@ -12,7 +12,9 @@ function maskTradesForFreeUser(trades: any[], cutoffDate: string) {
     if (isRecent) {
       const sym = String(t.symbol || "");
       return {
-        signal_id: t.signal_id,
+        // The backend signal id contains the real ticker/date; do not expose
+        // it to free users alongside the masked symbol.
+        signal_id: null,
         symbol: sym.length > 2 ? `${sym.slice(0, 2)}**` : "**",
         name_ar: "سهم قيادي مشفر (متاح لـ PRO)",
         name_en: "PRO Signal",

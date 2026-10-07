@@ -10,6 +10,9 @@ import requests
 from api.stock_ai import _init_supabase, supabase
 
 
+ACTIVE_PRO_PLAN_IDS = ["pro", "pro_6m", "pro_1y", "lifetime"]
+
+
 def pro_chat_id() -> str:
     return os.getenv("TELEGRAM_PRO_CHAT_ID", "").strip()
 
@@ -264,7 +267,7 @@ def record_vip_channel_join(telegram_user_id: int, invite_link: Optional[str] = 
         supabase.table("subscriptions")
         .select("current_period_end")
         .eq("user_id", user_id)
-        .eq("plan_id", "pro")
+        .in_("plan_id", ACTIVE_PRO_PLAN_IDS)
         .eq("status", "active")
         .order("current_period_end", desc=True)
         .limit(1)
@@ -311,7 +314,7 @@ def _expired_pro_subscriptions() -> Dict[str, datetime]:
     rows = (
         supabase.table("subscriptions")
         .select("user_id,status,current_period_end")
-        .eq("plan_id", "pro")
+        .in_("plan_id", ACTIVE_PRO_PLAN_IDS)
         .execute()
         .data
         or []

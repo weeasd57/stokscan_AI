@@ -44,6 +44,7 @@ _EASYKASH_INSTALLMENT_OPTIONS = [
     34,  # Forsa
 ]
 _PLANS = {"pro": 30, "pro_6m": 180, "pro_1y": 365, "lifetime": 36500}
+_ACTIVE_PRO_PLAN_IDS = list(_PLANS)
 
 
 def _hosted_checkout_url(value: Any) -> str:
@@ -372,7 +373,7 @@ def process_callback(payload: Dict[str, Any]) -> Dict[str, Any]:
     # Telegram is downstream of payment approval. Invite failures must not
     # roll the paid order back to pending or re-activate the same payment.
     try:
-        sub = supabase.table("subscriptions").select("current_period_end").eq("user_id", order["user_id"]).eq("plan_id", "pro").eq("status", "active").order("current_period_end", desc=True).limit(1).maybe_single().execute()
+        sub = supabase.table("subscriptions").select("current_period_end").eq("user_id", order["user_id"]).in_("plan_id", _ACTIVE_PRO_PLAN_IDS).eq("status", "active").order("current_period_end", desc=True).limit(1).maybe_single().execute()
         subscription_end = (sub.data or {}).get("current_period_end") if sub and sub.data else None
         if subscription_end:
             ensure_pro_invite(order["user_id"], str(subscription_end))
@@ -414,7 +415,7 @@ def order_status(order_id: str, user_id: str) -> Dict[str, Any]:
     end = None
     invite_link = ""
     if order.get("status") == "approved":
-        sub = supabase.table("subscriptions").select("current_period_end").eq("user_id", user_id).eq("plan_id", "pro").eq("status", "active").order("current_period_end", desc=True).limit(1).maybe_single().execute()
+        sub = supabase.table("subscriptions").select("current_period_end").eq("user_id", user_id).in_("plan_id", _ACTIVE_PRO_PLAN_IDS).eq("status", "active").order("current_period_end", desc=True).limit(1).maybe_single().execute()
         end = (sub.data or {}).get("current_period_end") if sub and sub.data else None
         if end:
             invite = ensure_pro_invite(user_id, str(end))

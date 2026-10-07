@@ -56,8 +56,18 @@ def compute_kpis_from_trades(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
             "losses_count": 0,
         }
 
-    returns = [float(t.get("return_pct", 0.0)) for t in trades]
-    sessions = [float(t.get("sessions") or t.get("holding_days") or 1) for t in trades]
+    def _date_key(value: Any) -> str:
+        if value is None:
+            return ""
+        parsed = pd.to_datetime(value, errors="coerce")
+        return "" if pd.isna(parsed) else parsed.strftime("%Y-%m-%d")
+
+    # The engine publishes closed trades newest-first for the UI.  Performance
+    # metrics must still be calculated chronologically or drawdown/compounding
+    # changes when the API sort order changes.
+    ordered_trades = sorted(trades, key=lambda t: _date_key(t.get("exit_date")))
+    returns = [float(t.get("return_pct", 0.0)) for t in ordered_trades]
+    sessions = [float(t.get("sessions") or t.get("holding_days") or 1) for t in ordered_trades]
     wins = [r for r in returns if r > 0]
     losses = [r for r in returns if r < 0]
 
@@ -82,12 +92,15 @@ def compute_kpis_from_trades(trades: List[Dict[str, Any]]) -> Dict[str, Any]:
     equity_curve = np.cumprod(1.0 + (trade_returns / 15.0))
     total_return = round(float((equity_curve[-1] - 1.0) * 100.0), 1) if len(equity_curve) else 0.0
 
-    peak = np.maximum.accumulate(equity_curve)
-    drawdowns = (equity_curve - peak) / peak
+    # Include the initial cash level as a peak.  Without it, a first losing
+    # trade incorrectly reports 0% drawdown.
+    curve_with_initial = np.concatenate(([1.0], equity_curve))
+    peak = np.maximum.accumulate(curve_with_initial)
+    drawdowns = (curve_with_initial - peak) / peak
     max_dd = round(float(abs(np.min(drawdowns)) * 100.0), 1) if len(drawdowns) else 0.0
 
     # Monthly trades calculation
-    exit_dates = [t["exit_date"] for t in trades if t.get("exit_date")]
+    exit_dates = [_date_key(t.get("exit_date")) for t in ordered_trades if t.get("exit_date")]
     if exit_dates:
         try:
             min_d = dt.date.fromisoformat(min(exit_dates))
@@ -242,6 +255,12 @@ def compute_short_swings() -> Dict[str, Any]:
         }
 
     # Normalize columns and filter EGX valid prices
+    # HF parquet/JSON snapshots expose pandas timestamps while Supabase rows
+    # usually expose ISO strings.  Normalize both sources before comparing or
+    # serializing dates; otherwise the standard loader crashes on Timestamp >=
+    # str when building the final closed-trade payload.
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    df = df.dropna(subset=["date"])
     for col in ["open", "high", "low", "close", "volume"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     df = df.dropna(subset=["open", "high", "low", "close", "volume"])
@@ -284,6 +303,8 @@ def compute_short_swings() -> Dict[str, Any]:
                 page += 1
             if all_new:
                 df_new = pd.DataFrame(all_new)
+                df_new["date"] = pd.to_datetime(df_new["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+                df_new = df_new.dropna(subset=["date"])
                 for col in ["open", "high", "low", "close", "volume"]:
                     df_new[col] = pd.to_numeric(df_new[col], errors="coerce")
                 df_new = df_new.dropna(subset=["open", "high", "low", "close", "volume"])
@@ -537,8 +558,13 @@ def compute_short_swings() -> Dict[str, Any]:
                 p["be_pending_activation"] = True
 
             # If already breakeven-secured and close falls below EMA10, schedule exit at next open
-            if p["be_active"] and b.close < b.ema10:
-                p["pending"] = "ema10_break"
+            if p["be_active"]:
+                # Trail only from the next session: today's candle is already
+                # past the open-fill decision above.  This keeps the displayed
+                # trailing stop and the simulated exit rule consistent.
+                p["sl_price"] = max(p["sl_price"], float(b.ema10))
+                if b.close < b.ema10:
+                    p["pending"] = "ema10_break"
 
             # Max holding period limit (20 sessions)
             if age >= 20 and not p["pending"]:
@@ -550,7 +576,7 @@ def compute_short_swings() -> Dict[str, Any]:
     # 5. New Actionable Pending Signals detected at today's close for TOMORROW'S session:
     today_signals_df = df[(df["date"] == last_date) & (df["signal"])].sort_values("turnover", ascending=False)
     seen_symbols = set()
-    for _, s_row in today_signals_df.iterrows():
+    for _, s_row in today_signals_df.head(15).iterrows():
         sym = s_row["symbol"]
         if sym in positions or sym in seen_symbols:
             continue
@@ -601,7 +627,7 @@ def compute_short_swings() -> Dict[str, Any]:
             "current_price": round(curr_price, 3),
             "reference_close": round(curr_price, 3),
             "return_pct": round(curr_gain, 2),
-            "stop_loss": round(active_stop, 3),
+            "stop_loss": round(p["entry_price"] * (1 - 0.04), 3),
             "trailing_stop": round(active_stop, 3),
             "ema10_trend": round(float(b.ema10), 3) if b else None,
             "is_breakeven_protected": p["be_active"],
@@ -625,7 +651,7 @@ def compute_short_swings() -> Dict[str, Any]:
         "status": "ok",
         "kpis": kpis,
         "active_trades": active_output,
-        "closed_trades": [t for t in closed_trades if t["exit_date"] >= "2026-01-01"],
+        "closed_trades": [t for t in closed_trades if str(t.get("exit_date") or "") >= "2026-01-01"],
         "total_active": len(active_output),
         "total_closed": len(closed_trades),
         "as_of": last_date

@@ -1,18 +1,6 @@
-alter table public.subscriptions
-  add column if not exists last_payment_order_id uuid;
-
-create table if not exists public.payment_entitlement_events (
-  payment_order_id uuid primary key references public.local_payment_orders(id) on delete cascade,
-  user_id uuid not null,
-  activated_at timestamptz not null default now()
-);
-
-alter table public.payment_entitlement_events enable row level security;
-
-create index if not exists subscriptions_last_payment_order_id_idx
-  on public.subscriptions (last_payment_order_id)
-  where last_payment_order_id is not null;
-
+-- Keep EasyKash activation compatible with every plan exposed by the app.
+-- This is a follow-up migration because the original idempotency migration may
+-- already be applied in production and cannot be edited retroactively there.
 create or replace function public.activate_easykash_subscription(
   p_user_id uuid,
   p_plan_id text,
@@ -38,11 +26,8 @@ begin
     raise exception 'Unsupported Pro plan';
   end if;
 
-  -- Serialize separate successful checkouts for the same account.
   perform pg_advisory_xact_lock(hashtextextended(p_user_id::text, 0));
 
-  -- Durable per-order ledger: protects retries even after later orders replace
-  -- the subscription's last_payment_order_id marker.
   insert into public.payment_entitlement_events (payment_order_id, user_id)
   values (p_payment_order_id, p_user_id)
   on conflict (payment_order_id) do nothing
@@ -84,20 +69,17 @@ begin
 
   if v_subscription.id is not null then
     update public.subscriptions
-    set status = 'active',
-        provider = p_provider,
-        current_period_start = v_start,
-        current_period_end = v_end,
-        last_payment_order_id = p_payment_order_id,
-        updated_at = v_now
+    set status = 'active', provider = p_provider,
+        current_period_start = v_start, current_period_end = v_end,
+        last_payment_order_id = p_payment_order_id, updated_at = v_now
     where id = v_subscription.id;
   else
     insert into public.subscriptions (
       user_id, plan_id, status, provider, current_period_start,
       current_period_end, last_payment_order_id, created_at, updated_at
     ) values (
-      p_user_id, p_plan_id, 'active', p_provider, v_start,
-      v_end, p_payment_order_id, v_now, v_now
+      p_user_id, p_plan_id, 'active', p_provider, v_start, v_end,
+      p_payment_order_id, v_now, v_now
     );
   end if;
 
@@ -111,6 +93,3 @@ $$;
 
 revoke all on function public.activate_easykash_subscription(uuid, text, integer, text, uuid, integer) from public, anon, authenticated;
 grant execute on function public.activate_easykash_subscription(uuid, text, integer, text, uuid, integer) to service_role;
-
-revoke all on table public.payment_entitlement_events from public, anon, authenticated;
-grant select, insert on table public.payment_entitlement_events to service_role;

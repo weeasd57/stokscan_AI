@@ -1,13 +1,14 @@
 """
 Daily Short Swings Automation & Telegram Dispatch Module
 Coordinates EOD short swings computation and dual-channel Telegram publishing:
-- VIP Channel: Complete, unmasked trade alerts with entry prices, -4% stop loss, breakeven lock, and EMA10 trailing stops.
+- VIP Channel: Complete, unmasked trade alerts with entry prices, -4% initial stop, breakeven lock, and EMA10 trailing stops.
 - Free Channel: Masked teaser alerts highlighting institutional volume surges and sectors with PRO upgrade links.
 - Verified Outbox Receipts: Atomic, per-channel receipt tracking ensuring failed notifications can be retried without duplicate broadcasts.
 """
 import os
 import sys
 import json
+import threading
 import datetime as dt
 from typing import Dict, List, Any, Optional, Set
 from zoneinfo import ZoneInfo
@@ -18,6 +19,11 @@ if project_root not in sys.path:
 
 from api.short_swings_engine import compute_short_swings
 from api.web_origin import get_web_origin
+
+
+# A daily run must have one publisher in this process.  Without a guard, two
+# scheduler retries can both read an empty sent-cache and broadcast duplicates.
+_DELIVERY_LOCK = threading.Lock()
 
 
 def _get_supabase_client():
@@ -92,7 +98,9 @@ def build_vip_entry_message(trades: List[Dict[str, Any]], as_of_date: str, web_o
         sym = t.get("symbol", "")
         name = t.get("name_ar", sym)
         close_ref = float(t.get("reference_close") or t.get("entry_price") or t.get("current_price") or 0.0)
-        sl_price = float(t.get("stop_loss") or t.get("trailing_stop") or (close_ref * 0.96))
+        # For an active trade, trailing_stop is the current executable level;
+        # stop_loss remains the original -4% risk reference.
+        sl_price = float(t.get("trailing_stop") or t.get("stop_loss") or (close_ref * 0.96))
         sl_pct = ((sl_price / close_ref) - 1.0) * 100.0 if close_ref > 0 else -4.0
         sig_type = t.get("trigger_type", "اختراق قمة 20 جلسة مع انفجار سيولة")
         sector = t.get("sector", "عام")
@@ -101,7 +109,7 @@ def build_vip_entry_message(trades: List[Dict[str, Any]], as_of_date: str, web_o
             f"🔹 *{name}* (`{sym}`) — قطاع {sector}",
             f"  • *سعر الإغلاق المرجعي:* `{close_ref:.2f}` ج.م",
             f"  • *نقطة الدخول المقترحة:* مع افتتاح جلسة الغد (شرط عدم الافتتاح بفجوة صاعدة > 2.0%)",
-            f"  • *وقف الخسارة الصارم:* `{sl_price:.2f}` ج.م (`{sl_pct:.1f}%` من الإغلاق)",
+            f"  • *الوقف الحالي:* `{sl_price:.2f}` ج.م (`{sl_pct:.1f}%` من الإغلاق) | الوقف المبدئي -4%",
             f"  • *تأمين الصفقة (Breakeven):* عند وصول السعر إلى `+{close_ref * 1.045:.2f}` ج.م (+4.5%) يُرفع الوقف لنقطة الدخول بدءاً من الجلسة التالية.",
             f"  • *استراتيجية جني الأرباح:* الوقف يتبع متوسط `EMA10` يومياً لركوب كامل الموجة 🚀",
             f"  • *النموذج الفني:* {sig_type}",
@@ -214,7 +222,7 @@ def build_free_exit_message(exits: List[Dict[str, Any]], as_of_date: str, web_or
     return "\n".join(lines)
 
 
-def run_daily_short_swings(trigger: str = "manual", dry_run: bool = False) -> Dict[str, Any]:
+def _run_daily_short_swings(trigger: str = "manual", dry_run: bool = False) -> Dict[str, Any]:
     """
     Main entry point for EOD daily execution:
     1. Computes all active & closed short swings.
@@ -294,6 +302,18 @@ def run_daily_short_swings(trigger: str = "manual", dry_run: bool = False) -> Di
             "status": "dry_run",
             "message": f"Dry run: {len(vip_entries_to_send)} VIP entries, {len(vip_exits_to_send)} VIP exits",
             "report": delivery_report
+        }
+
+    # Verified receipt state is the idempotency boundary.  If Supabase is
+    # unavailable, sending would succeed but the next retry could not know it
+    # already sent the message, so fail closed and let the scheduler retry.
+    if sb is None:
+        delivery_report["failures"].append("delivery_checkpoint_unavailable")
+        return {
+            "success": False,
+            "status": "checkpoint_unavailable",
+            "message": "Short-swings delivery checkpoint is unavailable; no Telegram message was sent.",
+            "report": delivery_report,
         }
 
     from api.daily_bot_run import _notify_vip_telegram, _notify_free_telegram, _telegram_recommendation_writes_enabled
@@ -421,6 +441,21 @@ def run_daily_short_swings(trigger: str = "manual", dry_run: bool = False) -> Di
         "count": len(vip_entries_to_send) + len(vip_exits_to_send),
         "report": delivery_report
     }
+
+
+def run_daily_short_swings(trigger: str = "manual", dry_run: bool = False) -> Dict[str, Any]:
+    """Run the publisher once; concurrent scheduler retries do not duplicate sends."""
+    if not _DELIVERY_LOCK.acquire(blocking=False):
+        return {
+            "success": False,
+            "status": "already_running",
+            "message": "Short-swings delivery is already running; duplicate send suppressed.",
+            "report": {"failures": ["already_running"]},
+        }
+    try:
+        return _run_daily_short_swings(trigger=trigger, dry_run=dry_run)
+    finally:
+        _DELIVERY_LOCK.release()
 
 
 if __name__ == "__main__":

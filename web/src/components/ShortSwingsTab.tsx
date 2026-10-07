@@ -1233,7 +1233,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                         </div>
                         <div>
                           <span className="text-zinc-500 block text-[10px]">
-                            {trade.is_pending_entry ? "الوقف المبدئي (EMA10):" : "الوقف المتحرك (EMA10):"}
+                            {trade.is_pending_entry ? "الوقف المبدئي (-4%):" : "الوقف المتحرك (EMA10):"}
                           </span>
                           <span className="font-mono font-black text-amber-600 dark:text-amber-400">
                             {trade.trailing_stop != null ? safeNum(trade.trailing_stop).toFixed(2) : "—"} ج.م
@@ -2017,7 +2017,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
 
                   <div className="p-3 border-2 border-black bg-amber-50 dark:bg-amber-950/30">
                     <span className="text-[10px] text-amber-700 dark:text-amber-400 font-black uppercase block">
-                      {selectedActiveTrade.is_pending_entry ? "الوقف المبدئي (EMA10)" : "الوقف المتحرك (EMA10)"}
+                      {selectedActiveTrade.is_pending_entry ? "الوقف المبدئي (-4%)" : "الوقف المتحرك (EMA10)"}
                     </span>
                     <span className="text-base font-black font-mono text-amber-600 dark:text-amber-400 mt-0.5 block">
                       {selectedActiveTrade.trailing_stop != null ? safeNum(selectedActiveTrade.trailing_stop).toFixed(2) : "—"} ج.م
@@ -2073,7 +2073,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                     <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200 leading-relaxed">
                       {selectedActiveTrade.is_pending_entry ? (
                         <span>
-                          مستوى الوقف المبدئي محدد عند <strong>{selectedActiveTrade.trailing_stop != null ? safeNum(selectedActiveTrade.trailing_stop).toFixed(2) : "—"} ج.م</strong> (EMA10). فور تنفيذ الشراء مع افتتاح الغد، يتبع الوقف آلياً المتوسط المتحرك الأسي 10 أيام يومياً لحجز الأرباح.
+                          مستوى الوقف المبدئي محدد عند <strong>{selectedActiveTrade.trailing_stop != null ? safeNum(selectedActiveTrade.trailing_stop).toFixed(2) : "—"} ج.م</strong> (-4% من السعر المرجعي). بعد التنفيذ وتأمين الصفقة عند +4.5%، يبدأ رفع الوقف آلياً مع متوسط EMA10 لحجز الأرباح.
                         </span>
                       ) : (
                         <span>
