@@ -62,7 +62,7 @@ def test_report_stage_keeps_completed_data_contract_and_persists_failure_details
     import time
     import types
     from pathlib import Path
-    job = next(node for node in ast.parse(Path('api/daily_bot_run.py').read_text()).body
+    job = next(node for node in ast.parse(Path('api/daily_bot_run.py').read_text(encoding='utf-8')).body
                if isinstance(node, ast.AsyncFunctionDef) and node.name == 'run_daily_job')
     wrapper = ast.parse('def bind():\n    job_status="running"\n    steps_log=[]\n    active_steps={}\n').body[0]
     wrapper.body.extend(node for node in job.body if isinstance(node, ast.FunctionDef)

@@ -330,12 +330,24 @@ def _run_daily_short_swings(trigger="manual", dry_run=False, phase="close", job_
             return {"success": True, "status": "dry_run", "message": "Dry run; no delivery", "count": len(entries) + len(exits)}
         # Store the exact calculation once. Retries deliver this snapshot rather
         # than regenerating a different message or running the whole daily job.
-        payload["swings"] = {"status": "ok", "as_of": as_of, "phase": phase,
-                             "active_trades": entries + updates, "closed_trades": exits}
+        payload["swings"] = swings
         saved = replace_checkpoint(sb, key, payload, claimed)
         if not saved:
             return {"success": False, "status": "checkpoint_unavailable", "message": "Cannot persist short-swings snapshot"}
         claimed = saved
+        # Persist the complete display snapshot independently of Telegram
+        # delivery. HF rebuilds can restore it without replaying history.
+        display_row = read_checkpoint(sb, "short_swings_latest")
+        display = ((display_row or {}).get("payload") or {}).get("swings") or {}
+        display_version = (display.get("as_of") or "", display.get("computed_at") or "")
+        version = (swings.get("as_of") or "", swings.get("computed_at") or "")
+        if version >= display_version:
+            if not replace_checkpoint(sb, "short_swings_latest", {"swings": swings}, display_row):
+                raise RuntimeError("Cannot persist shared short-swings display snapshot")
+            from api.cache_invalidation import invalidate_cache_tags, TAG_SHORT_SWINGS
+            invalidated = invalidate_cache_tags([TAG_SHORT_SWINGS])
+            if invalidated.get("error"):
+                raise RuntimeError("Short-swings display cache invalidation failed")
         if not _telegram_recommendation_writes_enabled() and (entries or exits or updates):
             raise RuntimeError("Telegram recommendation writes are disabled")
         legacy_state = _get_sent_cache_state(sb, as_of)
@@ -361,8 +373,6 @@ def _run_daily_short_swings(trigger="manual", dry_run=False, phase="close", job_
             raise RuntimeError("Cannot confirm short-swings completion checkpoint")
         if not failures:
             _RECOVERY_DONE.add(key)
-            from api.cache_invalidation import invalidate_cache_tags, TAG_SHORT_SWINGS
-            invalidate_cache_tags([TAG_SHORT_SWINGS])
         return {"success": not failures, "status": payload["status"],
                 "message": f"Short swings {phase}: {len(entries)} entries, {len(exits)} exits, {len(updates)} updates; " + (", ".join(failures) or "completed"),
                 "count": len(entries) + len(exits), "report": {**delivery_report, "failures": failures}}

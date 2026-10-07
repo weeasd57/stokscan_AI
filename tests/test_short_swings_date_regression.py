@@ -45,3 +45,46 @@ def test_archive_timestamps_and_rest_strings_produce_serialisable_session_result
     assert ('exchange', 'EGX') in queries and ('date', '2026-10-06') in queries
     assert json.loads((tmp_path / 'cache.json').read_text()) == result
     json.dumps(result)
+
+
+def test_ajwa_pending_signal_enters_next_session_without_reusing_old_price(monkeypatch, tmp_path):
+    dates = pd.bdate_range(end='2026-10-05', periods=90)
+    rows = [{'symbol': 'AJWA', 'exchange': 'EGX', 'date': day,
+             'open': 100+i, 'close': 100+i, 'high': 100.5+i,
+             'low': 99.5+i, 'volume': 100000} for i, day in enumerate(dates)]
+    rows += [
+        {'symbol':'AJWA','exchange':'EGX','date':'2026-10-06','open':190.23,
+         'high':197.5,'low':187,'close':197.44,'volume':227633},
+        {'symbol':'AJWA','exchange':'EGX','date':'2026-10-07','open':197.44,
+         'high':201,'low':194.26,'close':196.16,'volume':228709},
+    ]
+    monkeypatch.setitem(sys.modules, 'api.stock_ai', types.SimpleNamespace(_init_supabase=lambda: None, supabase=None))
+    monkeypatch.setattr('api.hf_history_cache.load_history_snapshot', lambda _: pd.DataFrame(rows))
+    monkeypatch.setattr(engine, 'load_stock_metadata', lambda: {})
+    monkeypatch.setattr(engine, 'CACHE_PATHS', [tmp_path/'cache.json'])
+    result = engine.compute_short_swings(phase='close')
+    trade = next(t for t in result['active_trades'] if t['symbol'] == 'AJWA')
+    assert trade['signal_date'] == '2026-10-06'
+    assert trade['entry_date'] == '2026-10-07'
+    assert not trade['is_pending_entry']
+    assert trade['current_price'] == 196.16
+    assert trade['price_date'] == '2026-10-07'
+    assert trade['entry_price'] == pytest.approx(197.736)
+
+
+def test_hf_rebuild_restores_durable_snapshot_once_without_recomputing(monkeypatch, tmp_path):
+    path = tmp_path/'cache.json'
+    path.write_text(json.dumps({'as_of':'2026-09-24','kpis':{},'active_trades':[]}), encoding='utf-8')
+    saved = {'status':'ok','as_of':'2026-10-07','computed_at':'2026-10-07T15:00:00Z',
+             'kpis':{},'active_trades':[{'symbol':'AJWA'}],'closed_trades':[]}
+    reads = []
+    def restore():
+        reads.append(True)
+        return saved
+    monkeypatch.setattr(engine, '_SNAPSHOT_BOOTSTRAPPED', False)
+    monkeypatch.setattr(engine, 'CACHE_PATHS', [path])
+    monkeypatch.setattr(engine, '_restore_saved_snapshot', restore)
+    monkeypatch.setattr(engine, 'compute_short_swings', lambda: pytest.fail('Visitor must not recompute history'))
+    assert engine.get_cached_short_swings() == saved
+    assert engine.get_cached_short_swings() == saved
+    assert len(reads) == 1

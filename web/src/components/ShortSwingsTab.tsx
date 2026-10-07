@@ -39,8 +39,7 @@ import {
   Activity
 } from "lucide-react";
 import StockLogo from "./StockLogo";
-import { formatShortSwingReturn, shortSwingSessionState, shortSwingQuote } from "@/lib/short-swings-view";
-import ActiveTradeCard from "./short-swings/ActiveTradeCard";
+import { formatShortSwingReturn, shortSwingQuote } from "@/lib/short-swings-view";
 import { isShariaCompliant } from "@/lib/shariaStocks";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -54,10 +53,10 @@ export interface ShortSwingTrade {
   exit_date?: string;
   entry_price?: number | null;
   current_price?: number | null;
+  exit_price?: number | null;
+  return_pct: number | null;
   price_date?: string | null;
   ema10_trend?: number | null;
-  exit_price?: number | null;
-  return_pct: number;
   trailing_stop?: number | null;
   is_breakeven_protected?: boolean;
   max_gain_pct?: number;
@@ -197,6 +196,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
 
   const loadData = useCallback(async (isRefresh = false) => {
     try {
+      setLoadError(false);
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
 
@@ -207,11 +207,15 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
           "Pragma": "no-cache"
         }
       });
-      if (!res.ok) throw new Error("Short-swing snapshot unavailable");
-      const json = await res.json();
-      if (!Array.isArray(json.active_trades) || !Array.isArray(json.closed_trades)) throw new Error("Invalid short-swing snapshot");
-      setData(json);
-      setLoadError(false);
+      if (res.ok) {
+        const json = await res.json();
+        json.active_trades = (json.active_trades || []).map((trade: ShortSwingTrade) => {
+          if (trade.is_pending_entry) return trade;
+          const quote = shortSwingQuote(trade, json.as_of);
+          return { ...trade, current_price: quote.price, return_pct: quote.returnPct };
+        });
+        setData(json);
+      } else throw new Error(`Short swings HTTP ${res.status}`);
     } catch (err) {
       setLoadError(true);
       console.error("Failed to load short swings data:", err);
@@ -400,8 +404,8 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
   const filteredClosedTrades = useMemo(() => {
     return closedTrades.filter((t) => {
       if (selectedSector && t.sector !== selectedSector) return false;
-      if (filterResult === "win" && t.return_pct <= 0) return false;
-      if (filterResult === "loss" && t.return_pct > 0) return false;
+      if (filterResult === "win" && (t.return_pct == null || t.return_pct <= 0)) return false;
+      if (filterResult === "loss" && (t.return_pct == null || t.return_pct > 0)) return false;
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
         const sym = (t.symbol || "").toLowerCase();
@@ -424,8 +428,8 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
     return allTrades.filter((t) => {
       if (selectedSector && t.sector !== selectedSector) return false;
       if (allFilterResult === "active" && !t.is_active) return false;
-      if (allFilterResult === "win" && (t.is_active || t.return_pct <= 0)) return false;
-      if (allFilterResult === "loss" && (t.is_active || t.return_pct > 0)) return false;
+      if (allFilterResult === "win" && (t.is_active || t.return_pct == null || t.return_pct <= 0)) return false;
+      if (allFilterResult === "loss" && (t.is_active || t.return_pct == null || t.return_pct > 0)) return false;
       if (searchTerm.trim()) {
         const q = searchTerm.toLowerCase();
         const sym = (t.symbol || "").toLowerCase();
@@ -443,42 +447,91 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
     return filteredAllTrades.slice(start, start + pageSize);
   }, [filteredAllTrades, allPage, pageSize]);
 
-  const sessionState = shortSwingSessionState(data?.as_of);
-  const selectedQuote = selectedActiveTrade ? shortSwingQuote(selectedActiveTrade, data?.as_of) : null;
-
   return (
-    <div className="space-y-4 w-full min-w-0" dir={isAr ? "rtl" : "ltr"}>
-      <section className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden">
-        <div className="h-1 bg-amber-400" />
-        <div className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-2 min-w-0">
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold tracking-wide text-amber-700 dark:text-amber-300"><Zap className="w-4 h-4" />EGX BOTS · {isAr ? "متابعة الزخم" : "Momentum monitoring"}</span>
-            <h1 className="text-2xl sm:text-3xl font-black text-zinc-950 dark:text-white">{isAr ? "التوصيات القصيرة" : "Short swing signals"}</h1>
-            <p className="text-sm text-zinc-500 leading-relaxed">{isAr ? "تابع إشارات الدخول والوقف ونتائج الصفقات حسب آخر جلسة محفوظة." : "Entry signals, stops and trade outcomes from the latest saved session."}</p>
-          </div>
-          <div className="flex gap-2 shrink-0">
-            <button onClick={() => loadData(true)} disabled={refreshing || loading} className="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-200 dark:border-zinc-700 px-4 py-2.5 text-xs font-bold text-zinc-800 dark:text-zinc-200 disabled:opacity-50 hover:bg-zinc-50 dark:hover:bg-zinc-900">
-              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />{refreshing ? (isAr ? "جار التحميل…" : "Loading…") : (isAr ? "تحديث العرض" : "Reload view")}
-            </button>
-            {!userHasPro && <Link href="/pricing" className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-300 px-4 py-2.5 text-xs font-bold text-zinc-950 hover:bg-amber-200"><Crown className="w-4 h-4" />PRO</Link>}
-          </div>
-        </div>
-      </section>
+    <div className="space-y-6 w-full" dir="rtl">
+      {/* ── 1. HEADER & HERO BANNER (Neo-Brutalist) ── */}
+      <div className="border-4 border-black dark:border-white bg-[#FFE600] text-black shadow-[6px_6px_0px_#000] dark:shadow-[6px_6px_0px_#fff] p-5 sm:p-7 relative overflow-hidden">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 relative z-10">
+          <div className="space-y-2 max-w-3xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 border-2 border-black bg-black text-[#FFE600] text-xs font-black uppercase tracking-wider shadow-[2px_2px_0px_#000]">
+                <Flame className="w-4 h-4 fill-[#FFE600]" />
+                <span>الصفقات القصيرة ⚡ PRO</span>
+              </span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 border-2 border-black bg-white text-black text-xs font-black shadow-[2px_2px_0px_#000]">
+                <Zap className="w-3.5 h-3.5 text-amber-600 fill-amber-500" />
+                <span>خطف الزخم والاتجاه (1 - 20 جلسة تداول)</span>
+              </span>
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 border-2 border-black bg-emerald-400 text-black text-xs font-black shadow-[2px_2px_0px_#000]">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>وقف صارم 4% • حماية رأس المال</span>
+              </span>
+            </div>
 
-      <div role="status" className={`rounded-xl border px-4 py-3 ${sessionState === "today" ? "border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50" : "border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30"}`}>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-          <span>{isAr ? "آخر جلسة بيانات:" : "Latest data session:"} <bdi className="font-mono">{data?.as_of || "—"}</bdi></span>
-          {data && <span className="text-xs text-amber-700 dark:text-amber-300">{sessionState === "previous" ? (isAr ? "بيانات جلسة سابقة" : "Previous session data") : sessionState === "unknown" ? (isAr ? "تاريخ البيانات غير مؤكد" : "Session date unverified") : (isAr ? "بيانات جلسة اليوم" : "Today's session data")}</span>}
-          {data?.phase === "midday" && <span className="text-xs text-zinc-500">{isAr ? "تحديث أثناء الجلسة؛ النتائج مؤقتة حتى الإغلاق" : "Intraday update; provisional until close"}</span>}
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-black tracking-tight leading-tight">
+              نظام الصفقات القصيرة وركوب موجات الصعود
+            </h1>
+
+            <p className="text-xs sm:text-sm font-bold text-zinc-900 leading-relaxed max-w-2xl">
+              استراتيجية رقمية صارمة لا تدخل إلا مع <strong>انفجار السيولة المؤسسية (&gt;140%)</strong> بعد كسر قمم تماسك 20 جلسة. يتم تأمين الصفقة آلياً عند ربح +4.5%، وترك الأرباح تنطلق دون سقف عبر الوقف المتحرك <strong>EMA10</strong>؛ النتائج التاريخية لا تضمن النتائج المقبلة.
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row lg:flex-col items-stretch lg:items-end gap-3 shrink-0">
+            <button
+              onClick={() => loadData(true)}
+              disabled={refreshing}
+              className="h-11 px-5 border-2 border-black bg-white hover:bg-zinc-100 text-black font-black text-xs uppercase flex items-center justify-center gap-2 shadow-[3px_3px_0px_#000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+              <span>{refreshing ? "جار التحديث..." : "تحديث الإشارات"}</span>
+            </button>
+
+            {!userHasPro && (
+              <Link
+                href="/pricing"
+                className="h-11 px-5 border-2 border-black bg-black hover:bg-zinc-900 text-[#FFE600] font-black text-xs uppercase flex items-center justify-center gap-2 shadow-[3px_3px_0px_#000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
+              >
+                <Crown className="w-4 h-4 text-[#FFE600]" />
+                <span>ترقية الحساب إلى PRO</span>
+              </Link>
+            )}
+          </div>
         </div>
-        <p className="mt-1.5 text-xs text-zinc-500 leading-relaxed">{sessionState === "previous" ? (isAr ? "الصفقات والأسعار أدناه تخص الجلسة المكتوبة، ولا تؤكد استمرار الصفقة أو سعرها اليوم." : "Trades and quotes belong to the displayed session, not a confirmed current position or today's price.") : (isAr ? "الأسعار حسب البيانات المحفوظة. النتائج محاكاة تاريخية وليست تنفيذ صفقات أو ضمان ربح." : "Saved quotes. Results are historical simulation, not executed trades or a profit guarantee.")}</p>
       </div>
-      {loadError && <div role="alert" className="rounded-xl border border-rose-200 dark:border-rose-900 p-4 text-sm text-rose-700 dark:text-rose-300">{data ? (isAr ? "تعذّر تحديث العرض؛ ما زالت آخر بيانات محملة ظاهرة." : "Reload failed; the last loaded snapshot is still displayed.") : (isAr ? "تعذّر تحميل التوصيات. حاول تحديث العرض مرة أخرى." : "Could not load signals. Try reloading the view.")}</div>}
+
+      {/* ── 2. FREE USER 15-DAY DELAY NOTICE (Neo-Brutalist) ── */}
+      {!userHasPro && (
+        <div className="p-4 border-4 border-black dark:border-white bg-sky-200 text-black font-bold flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs shadow-[4px_4px_0px_#000] dark:shadow-[4px_4px_0px_#fff]">
+          <div className="flex items-center gap-2.5">
+            <Clock className="w-5 h-5 shrink-0 text-black" />
+            <div>
+              <span className="font-black block text-sm">ميزة الشفافية والتأخير الزمني (15 يوماً):</span>
+              <span className="text-zinc-800 font-bold">
+                كافة الصفقات التاريخية الأقدم من 15 يوماً (بما فيها كامل صفقات شهري أغسطس وسبتمبر) معروضة مجاناً بالكامل لك لتدقيق الأداء. الإشارات المفتوحة والصفقات المغلقة في آخر 15 يوماً مشفرة وتتاح فوراً لمشتركي PRO.
+              </span>
+            </div>
+          </div>
+          <Link
+            href="/pricing"
+            className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black text-xs uppercase text-[#FFE600] shadow-[2px_2px_0px_#000] hover:bg-zinc-800 transition-all"
+          >
+            فتح كل الإشارات الحديثة
+          </Link>
+        </div>
+      )}
+
+      <div className="border-2 border-amber-500 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm font-bold" role="status">
+        {isAr ? "آخر جلسة بيانات:" : "Latest data session:"} {data?.as_of || "—"}
+        {data?.phase === "midday" && (isAr ? " • تحديث أثناء الجلسة؛ النتائج مؤقتة حتى الإغلاق" : " • Intraday update; provisional until close")}
+        <p className="text-xs mt-1">{isAr ? "تحقق من تاريخ الجلسة قبل استخدام الأسعار؛ الأداء المعروض محاكاة تاريخية وليس تنفيذ صفقات أو ضمان ربح." : "Check the session date before using prices. Performance is historical simulation, not executed trades or a profit guarantee."}</p>
+      </div>
+      {loadError && <div role="alert" className="border-2 border-rose-500 p-3 text-sm font-bold">
+        {isAr ? "تعذر تحميل الصفقات المحفوظة. حاول تحديث العرض." : "Saved trades could not be loaded. Refresh the display."}
+      </div>}
 
       {/* ── 3. COMPARISON SECTION: المتوسطة vs القصيرة (User's Core Requirement) ── */}
-      <details className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4">
-        <summary className="cursor-pointer text-sm font-bold text-zinc-700 dark:text-zinc-200">{isAr ? "كيف تعمل الاستراتيجية؟ ومتى تختار القصيرة؟" : "How does the strategy work?"}</summary>
-        <div className="space-y-4 mt-4">
+      <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-5 sm:p-6 shadow-[4px_4px_0px_#000] dark:shadow-[4px_4px_0px_#fff] space-y-4">
         <div className="flex items-center gap-2.5 border-b-2 border-black dark:border-white pb-3">
           <div className="w-8 h-8 border-2 border-black bg-[#FFE600] flex items-center justify-center font-black">
             <Info className="w-4 h-4 text-black" />
@@ -562,11 +615,10 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
             </ul>
           </div>
         </div>
-        </div>
-      </details>
+      </div>
 
       {/* ── 4. SUB-TABS NAVIGATION BAR (Identical to Medium Swings) ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900  p-1.5 gap-2 select-none">
+      <div className="grid grid-cols-2 sm:grid-cols-4 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] p-1.5 gap-2 select-none">
         {[
           { id: "active", label: isAr ? "الصفقات النشطة (المفتوحة)" : "Active Swings", count: activeTrades.length, icon: Zap },
           { id: "closed", label: isAr ? "أرشيف الصفقات (المغلقة)" : "Closed Trades", count: closedTrades.length, icon: History },
@@ -581,7 +633,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               onClick={() => {
                 setViewMode(tab.id as any);
               }}
-              className={`rounded-lg py-2.5 sm:py-3 px-3 sm:px-4 font-black text-xs sm:text-sm flex items-center justify-between gap-2 transition-all duration-100 active:scale-98 border-2 ${
+              className={`py-2.5 sm:py-3 px-3 sm:px-4 font-black text-xs sm:text-sm flex items-center justify-between gap-2 transition-all duration-100 active:scale-98 border-2 ${
                 isSelected
                   ? tab.isSpecial
                     ? "bg-[#FFE600] text-black border-black shadow-[2px_2px_0px_#000]"
@@ -617,10 +669,10 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
       </div>
 
       {/* ── 5. KEY SYSTEM KPIs (Neo-Brutalist Grid - Hidden on Calendar to avoid duplicate stats) ── */}
-      {!loading && data && viewMode !== "calendar" && (
+      {viewMode !== "calendar" && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           {/* KPI 1 */}
-          <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-sm">
+          <div className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[4px_4px_0px_#000] dark:shadow-[4px_4px_0px_#fff]">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-black uppercase text-zinc-500">عامل الربح (Profit Factor)</span>
               <div className="w-7 h-7 border-2 border-black bg-amber-400 flex items-center justify-center font-black text-black">
@@ -636,7 +688,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
           </div>
 
           {/* KPI 2 */}
-          <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-sm">
+          <div className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[4px_4px_0px_#000] dark:shadow-[4px_4px_0px_#fff]">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-black uppercase text-zinc-500">نسبة النجاح (Win Rate)</span>
               <div className="w-7 h-7 border-2 border-black bg-emerald-400 flex items-center justify-center font-black text-black">
@@ -652,7 +704,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
           </div>
 
           {/* KPI 3 */}
-          <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-sm">
+          <div className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[4px_4px_0px_#000] dark:shadow-[4px_4px_0px_#fff]">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-black uppercase text-zinc-500">متوسط مدة الصفقة</span>
               <div className="w-7 h-7 border-2 border-black bg-sky-400 flex items-center justify-center font-black text-black">
@@ -668,7 +720,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
           </div>
 
           {/* KPI 4 */}
-          <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-sm">
+          <div className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[4px_4px_0px_#000] dark:shadow-[4px_4px_0px_#fff]">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-black uppercase text-zinc-500">أعلى صفقة رابحة</span>
               <div className="w-7 h-7 border-2 border-black bg-rose-400 flex items-center justify-center font-black text-black">
@@ -895,11 +947,11 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                 {calendarDays.map((cell, idx) => {
                   const dayTrades = tradesByDate.get(cell.dateStr) || [];
                   const hasTrades = cell.isCurrentMonth && dayTrades.length > 0;
-                  const wins = dayTrades.filter((t) => t.return_pct > 0).length;
-                  const losses = dayTrades.filter((t) => t.return_pct <= 0).length;
+                  const wins = dayTrades.filter((t) => t.return_pct != null && t.return_pct > 0).length;
+                  const losses = dayTrades.filter((t) => t.return_pct != null && t.return_pct <= 0).length;
                   const netDailyPct = dayTrades.reduce((acc, t) => acc + (t.return_pct || 0), 0);
-                  const maxGainTrade = dayTrades.length > 0 ? [...dayTrades].sort((a, b) => b.return_pct - a.return_pct)[0] : null;
-                  const isBigRunnerDay = maxGainTrade && maxGainTrade.return_pct >= 15;
+                  const maxGainTrade = dayTrades.length > 0 ? [...dayTrades].sort((a, b) => safeNum(b.return_pct) - safeNum(a.return_pct))[0] : null;
+                  const isBigRunnerDay = maxGainTrade && maxGainTrade.return_pct != null && maxGainTrade.return_pct >= 15;
                   const isToday = cell.dateStr === todayDateStr;
                   const isSelected = selectedDayTrades?.date === cell.dateStr;
 
@@ -1058,20 +1110,351 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
         </div>
       )}
 
-      {viewMode === "active" && <section aria-label={isAr ? "متابعة الصفقات القصيرة" : "Short trade monitoring"} className="space-y-4">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="text-lg font-bold text-zinc-950 dark:text-white">{isAr ? "الصفقات في آخر جلسة محفوظة" : "Trades in the saved session"} <span className="text-sm text-zinc-500">({activeTrades.length})</span></h3>
-          <span className="text-xs text-zinc-500">{isAr ? "سعر الدخول · آخر سعر · الوقف" : "Entry · Saved price · Stop"}</span>
+      {/* ── 7. VIEW 2: ACTIVE TRADES (الصفقات النشطة المفتوحة) ── */}
+      {viewMode === "active" && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <h3 className="text-lg font-black text-black dark:text-white flex items-center gap-2">
+              <Zap className="w-5 h-5 text-amber-500" />
+              <span>الصفقات النشطة المفتوحة حالياً ({activeTrades.length})</span>
+            </h3>
+            <span className="text-xs font-bold text-zinc-500">
+              تُراجع أثناء الجلسة وبعد الإغلاق؛ الأسعار حسب آخر بيانات محفوظة
+            </span>
+          </div>
+
+          {/* Filters Bar */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[4px_4px_0px_#000] dark:shadow-[4px_4px_0px_#fff]">
+            <div className="relative flex items-center">
+              <Search className="absolute right-3 w-4 h-4 text-zinc-400" />
+              <input
+                type="text"
+                placeholder="بحث برمز السهم أو الاسم..."
+                value={activeSearchTerm}
+                onChange={(e) => setActiveSearchTerm(e.target.value)}
+                className="w-full h-10 pr-9 pl-3 border-2 border-black bg-zinc-50 dark:bg-zinc-900 text-xs font-bold text-black dark:text-white focus:outline-none"
+              />
+            </div>
+
+            <div className="relative flex items-center">
+              <select
+                value={activeSector}
+                onChange={(e) => setActiveSector(e.target.value)}
+                className="w-full h-10 px-3 border-2 border-black bg-zinc-50 dark:bg-zinc-900 text-xs font-bold text-black dark:text-white focus:outline-none"
+              >
+                <option value="">جميع القطاعات ({sectors.length})</option>
+                {sectors.map((sec) => (
+                  <option key={sec} value={sec}>{sec}</option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              onClick={() => setActiveShariaOnly(!activeShariaOnly)}
+              className={`h-10 px-4 border-2 border-black font-black text-xs flex items-center justify-center gap-2 transition-all shadow-[2px_2px_0px_#000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
+                activeShariaOnly ? "bg-emerald-400 text-black" : "bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300"
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>المتوافقة شرعياً فقط (حلال)</span>
+            </button>
+          </div>
+
+          {filteredActiveTrades.length === 0 ? (
+            <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-8 text-center shadow-[4px_4px_0px_#000]">
+              <Info className="w-8 h-8 text-zinc-400 mx-auto mb-2" />
+              <p className="text-sm font-black text-zinc-700 dark:text-zinc-300">
+                لا توجد صفقات قصيرة نشطة تطابق معايير البحث الحالية.
+              </p>
+            </div>
+          ) : (
+            <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[4px_4px_0px_#000] dark:shadow-[4px_4px_0px_#fff] overflow-hidden">
+              {/* Mobile Cards View */}
+              <div className="md:hidden flex flex-col divide-y-4 divide-black dark:divide-white">
+                {filteredActiveTrades.map((trade, idx) => (
+                  <div
+                    key={`${trade.symbol}-${idx}`}
+                    onClick={() => setSelectedActiveTrade(trade)}
+                    className="p-4 space-y-3 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-all"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 border-2 border-black bg-[#FFE600] flex items-center justify-center font-black font-mono text-sm text-black shadow-[2px_2px_0px_#000]">
+                          {idx + 1}
+                        </div>
+                        {trade.is_locked ? (
+                          <div className="w-8 h-8 border-2 border-black bg-amber-400 flex items-center justify-center">
+                            <Lock className="w-4 h-4 text-black" />
+                          </div>
+                        ) : (
+                          <StockLogo symbol={trade.symbol} size="md" />
+                        )}
+                        <div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-black text-base text-indigo-600 dark:text-indigo-400 font-mono">
+                              {trade.is_locked ? "••••••" : trade.symbol}
+                            </span>
+                            {trade.is_pending_entry && (
+                              <span className="px-1.5 py-0.5 border border-black bg-[#FFE600] text-black text-[9px] font-black animate-pulse">
+                                ⚡ دخول جلسة الغد
+                              </span>
+                            )}
+                            {!trade.is_locked && isShariaCompliant(trade.symbol) && (
+                              <span className="inline-flex items-center gap-0.5 px-1 py-0.2 border border-black bg-emerald-400 text-black text-[8px] font-black uppercase">
+                                حلال
+                              </span>
+                            )}
+                            {trade.is_breakeven_protected && (
+                              <span className="px-1.5 py-0.2 border border-black bg-emerald-300 text-black text-[9px] font-black">
+                                مؤمنة بربح
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-xs text-zinc-500 font-bold block truncate max-w-[160px]">
+                            {trade.is_locked ? "متاح لمشتركي PRO" : (trade.name_ar || trade.sector)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="text-left font-mono">
+                        {trade.is_pending_entry ? (
+                          <span className="text-xs font-black px-2 py-1 border border-black bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200">
+                            0.0% (في انتظار الافتتاح)
+                          </span>
+                        ) : (
+                          <span
+                            dir="ltr"
+                            className={`text-base font-black px-2 py-0.5 border border-black ${
+                              safeNum(trade.return_pct) >= 0 ? "bg-emerald-200 text-emerald-900" : "bg-rose-200 text-rose-900"
+                            }`}
+                          >
+                            {formatShortSwingReturn(trade.return_pct)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Stats 2x2 */}
+                    {!trade.is_locked && (
+                      <div className="grid grid-cols-2 gap-2 text-xs font-bold bg-zinc-50 dark:bg-zinc-900 p-2.5 border-2 border-black">
+                        <div>
+                          <span className="text-zinc-500 block text-[10px]">
+                            {trade.is_pending_entry ? "سعر الإغلاق المرجعي:" : "سعر الدخول:"}
+                          </span>
+                          <span className="font-mono font-black text-black dark:text-white">
+                            {trade.is_pending_entry
+                              ? `${trade.reference_close != null ? safeNum(trade.reference_close).toFixed(2) : (trade.entry_price != null ? safeNum(trade.entry_price).toFixed(2) : "—")} ج.م`
+                              : `${trade.entry_price != null ? safeNum(trade.entry_price).toFixed(2) : "—"} ج.م`}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-zinc-500 block text-[10px]">
+                            {trade.is_pending_entry ? "التنفيذ المقترح:" : "السعر الحالي:"}
+                          </span>
+                          <span className="font-black text-black dark:text-white text-[11px]">
+                            {trade.is_pending_entry ? "مع افتتاح الغد" : `${trade.current_price != null ? safeNum(trade.current_price).toFixed(2) : "—"} ج.م`}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-zinc-500 block text-[10px]">
+                            {trade.is_pending_entry ? "الوقف المبدئي (-4%):" : "الوقف المتحرك (EMA10):"}
+                          </span>
+                          <span className="font-mono font-black text-amber-600 dark:text-amber-400">
+                            {trade.trailing_stop != null ? safeNum(trade.trailing_stop).toFixed(2) : "—"} ج.م
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-zinc-500 block text-[10px]">موعد الدخول:</span>
+                          <span className="font-mono font-black text-black dark:text-white">{trade.entry_date}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] font-bold text-zinc-500 truncate">
+                        {trade.trigger_type || "اختراق قمة 20 جلسة + سيولة"}
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedActiveTrade(trade);
+                        }}
+                        className="px-2.5 py-1 border border-black bg-zinc-100 hover:bg-[#FFE600] text-black text-[10px] font-black uppercase flex items-center gap-1 transition-all"
+                      >
+                        <span>عرض التفاصيل</span>
+                        <ChevronLeft className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto w-full">
+                <table className="w-full text-right border-collapse whitespace-nowrap">
+                  <thead>
+                    <tr className="text-xs font-black uppercase text-black dark:text-white bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white select-none">
+                      <th className="px-4 py-3.5 text-center w-12 border-l border-zinc-200 dark:border-zinc-800">#</th>
+                      <th className="px-6 py-3.5 text-right border-l border-zinc-200 dark:border-zinc-800">السهم والشركة</th>
+                      <th className="px-4 py-3.5 text-center border-l border-zinc-200 dark:border-zinc-800">القطاع</th>
+                      <th className="px-4 py-3.5 text-center border-l border-zinc-200 dark:border-zinc-800">تاريخ الدخول</th>
+                      <th className="px-4 py-3.5 text-center border-l border-zinc-200 dark:border-zinc-800">سعر الدخول</th>
+                      <th className="px-4 py-3.5 text-center border-l border-zinc-200 dark:border-zinc-800">السعر الحالي</th>
+                      <th className="px-4 py-3.5 text-center border-l border-zinc-200 dark:border-zinc-800">الوقف المتحرك (EMA10)</th>
+                      <th className="px-4 py-3.5 text-center border-l border-zinc-200 dark:border-zinc-800">العائد الحالي</th>
+                      <th className="px-4 py-3.5 text-center border-l border-zinc-200 dark:border-zinc-800">حماية رأس المال</th>
+                      <th className="px-4 py-3.5 text-center">إجراء</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y-2 divide-black dark:divide-white">
+                    {filteredActiveTrades.map((trade, idx) => {
+                      return (
+                        <tr
+                          key={`${trade.symbol}-${idx}`}
+                          onClick={() => setSelectedActiveTrade(trade)}
+                          className="hover:bg-zinc-50 dark:hover:bg-zinc-900/60 cursor-pointer transition-colors text-xs font-bold"
+                        >
+                          {/* Rank */}
+                          <td className="px-4 py-4 text-center font-mono font-black border-l border-zinc-200 dark:border-zinc-800">
+                            <span className="w-7 h-7 inline-flex items-center justify-center border border-black bg-zinc-100 dark:bg-zinc-800">
+                              {idx + 1}
+                            </span>
+                          </td>
+
+                          {/* Symbol & Name */}
+                          <td className="px-6 py-4 border-l border-zinc-200 dark:border-zinc-800">
+                            <div className="flex items-center gap-3">
+                              {trade.is_locked ? (
+                                <div className="w-9 h-9 border-2 border-black bg-amber-400 flex items-center justify-center">
+                                  <Lock className="w-4 h-4 text-black" />
+                                </div>
+                              ) : (
+                                <StockLogo symbol={trade.symbol} size="md" />
+                              )}
+                              <div>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-mono font-black text-sm text-indigo-600 dark:text-indigo-400">
+                                    {trade.is_locked ? "••••••" : trade.symbol}
+                                  </span>
+                                  {trade.is_pending_entry && (
+                                    <span className="px-1.5 py-0.5 border border-black bg-[#FFE600] text-black text-[9px] font-black animate-pulse">
+                                      ⚡ دخول جلسة الغد
+                                    </span>
+                                  )}
+                                  {!trade.is_locked && isShariaCompliant(trade.symbol) && (
+                                    <span className="px-1.5 py-0.2 border border-black bg-emerald-400 text-black text-[8px] font-black uppercase">
+                                      حلال
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[11px] text-zinc-500 font-bold block truncate max-w-[170px]">
+                                  {trade.is_locked ? "صفقة مشفرة لـ PRO" : (trade.name_ar || trade.sector)}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Sector */}
+                          <td className="px-4 py-4 text-center text-zinc-600 dark:text-zinc-400 border-l border-zinc-200 dark:border-zinc-800">
+                            {trade.sector || "—"}
+                          </td>
+
+                          {/* Entry Date */}
+                          <td className="px-4 py-4 text-center font-mono border-l border-zinc-200 dark:border-zinc-800">
+                            {trade.is_pending_entry ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-black bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 font-black text-[11px]">
+                                <Clock className="w-3 h-3 text-amber-600" />
+                                <span>{trade.entry_date}</span>
+                              </span>
+                            ) : (
+                              trade.entry_date
+                            )}
+                          </td>
+
+                          {/* Entry Price */}
+                          <td className="px-4 py-4 text-center font-mono border-l border-zinc-200 dark:border-zinc-800">
+                            {trade.is_locked ? (
+                              "🔒"
+                            ) : trade.is_pending_entry ? (
+                              <div className="flex flex-col items-center">
+                                <span className="text-[11px] font-black text-indigo-700 dark:text-indigo-400">افتتاح الغد</span>
+                                <span className="text-[10px] text-zinc-500 font-normal">مرجعي: {safeNum(trade.reference_close || trade.entry_price).toFixed(2)}</span>
+                              </div>
+                            ) : (
+                              `${trade.entry_price != null ? safeNum(trade.entry_price).toFixed(2) : "—"} ج.م`
+                            )}
+                          </td>
+
+                          {/* Current Price */}
+                          <td className="px-4 py-4 text-center font-mono font-black border-l border-zinc-200 dark:border-zinc-800">
+                            {trade.is_locked ? "🔒" : `${trade.current_price != null ? safeNum(trade.current_price).toFixed(2) : "—"} ج.م`}
+                          </td>
+
+                          {/* Trailing Stop EMA10 */}
+                          <td className="px-4 py-4 text-center font-mono font-black text-amber-600 dark:text-amber-400 border-l border-zinc-200 dark:border-zinc-800">
+                            {trade.is_locked ? "🔒" : `${trade.trailing_stop != null ? safeNum(trade.trailing_stop).toFixed(2) : "—"} ج.م`}
+                          </td>
+
+                          {/* Current Return */}
+                          <td className="px-4 py-4 text-center font-mono font-black border-l border-zinc-200 dark:border-zinc-800">
+                            {trade.is_pending_entry ? (
+                              <span className="inline-block px-2 py-0.5 border border-black bg-amber-100 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 text-[11px]">
+                                0.0% (في انتظار الافتتاح)
+                              </span>
+                            ) : (
+                              <span
+                                dir="ltr"
+                                className={`inline-block px-2 py-0.5 border border-black ${
+                                  safeNum(trade.return_pct) >= 0 ? "bg-emerald-200 text-emerald-900" : "bg-rose-200 text-rose-900"
+                                }`}
+                              >
+                                {formatShortSwingReturn(trade.return_pct)}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Breakeven Protection */}
+                          <td className="px-4 py-4 text-center border-l border-zinc-200 dark:border-zinc-800">
+                            {trade.is_pending_entry ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-black bg-[#FFE600] text-black text-[10px] font-black">
+                                <Zap className="w-3 h-3 text-black" />
+                                <span>إشارة جديدة</span>
+                              </span>
+                            ) : trade.is_breakeven_protected ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-black bg-emerald-400 text-black text-[10px] font-black">
+                                <ShieldCheck className="w-3 h-3" />
+                                <span>مؤمنة بربح</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 border border-zinc-300 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-[10px] font-bold">
+                                <Clock className="w-3 h-3" />
+                                <span>قيد التتبع</span>
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Details Button */}
+                          <td className="px-4 py-4 text-center">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedActiveTrade(trade);
+                              }}
+                              className="px-3 py-1 border-2 border-black bg-[#FFE600] text-black font-black text-[11px] shadow-[2px_2px_0px_#000] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all"
+                            >
+                              التفاصيل والإشارة
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3">
-          <label className="relative"><span className="sr-only">{isAr ? "بحث في الصفقات" : "Search trades"}</span><Search className="absolute right-3 top-3 w-4 h-4 text-zinc-400" /><input type="search" placeholder={isAr ? "رمز السهم أو الشركة" : "Ticker or company"} value={activeSearchTerm} onChange={e => setActiveSearchTerm(e.target.value)} className="w-full min-w-0 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-transparent h-10 pr-9 pl-3 text-sm text-zinc-900 dark:text-white focus-visible:outline-amber-500" /></label>
-          <select aria-label={isAr ? "القطاع" : "Sector"} value={activeSector} onChange={e => setActiveSector(e.target.value)} className="w-full min-w-0 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 h-10 text-sm text-zinc-900 dark:text-white"><option value="">{isAr ? "كل القطاعات" : "All sectors"}</option>{sectors.map(sec => <option key={sec} value={sec}>{sec}</option>)}</select>
-          <button aria-pressed={activeShariaOnly} onClick={() => setActiveShariaOnly(!activeShariaOnly)} className={`rounded-lg border h-10 flex justify-center items-center gap-2 text-xs font-bold ${activeShariaOnly ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300" : "border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300"}`}><ShieldCheck className="w-4 h-4" />{isAr ? "المتوافقة شرعياً فقط" : "Sharia compliant only"}</button>
-        </div>
-        {loading ? <div aria-label={isAr ? "جار تحميل الصفقات" : "Loading trades"} className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">{[0,1,2].map(n => <div key={n} className="h-64 rounded-2xl bg-zinc-100 dark:bg-zinc-900 animate-pulse" />)}</div>
-          : !data ? null : filteredActiveTrades.length === 0 ? <div className="rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-700 p-8 text-center text-sm text-zinc-500">{isAr ? "لا توجد صفقات تطابق البحث في الجلسة المعروضة." : "No matching trades in the saved session."}</div>
-          : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">{filteredActiveTrades.map((trade, idx) => <ActiveTradeCard key={`${trade.symbol}-${idx}`} trade={trade} session={data.as_of} previousSession={sessionState !== "today"} isAr={isAr} onDetails={setSelectedActiveTrade} />)}</div>}
-      </section>}
+      )}
 
       {/* ── 8. VIEW 3: CLOSED TRADES LIST & TABLE (قائمة الصفقات المغلقة) ── */}
       {viewMode === "closed" && (
@@ -1159,7 +1542,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               </thead>
               <tbody className="divide-y-2 divide-black font-bold">
                 {paginatedTrades.map((t, idx) => {
-                  const isWin = t.return_pct > 0;
+                  const isWin = t.return_pct != null && t.return_pct > 0;
                   return (
                     <tr
                       key={`${t.symbol}-${idx}`}
@@ -1333,7 +1716,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               </thead>
               <tbody className="divide-y-2 divide-black font-bold">
                 {paginatedAllTrades.map((t, idx) => {
-                  const isWin = t.return_pct > 0;
+                  const isWin = t.return_pct != null && t.return_pct > 0;
                   return (
                     <tr
                       key={`${t.symbol}-${idx}-${t.is_active ? "active" : "closed"}`}
@@ -1375,7 +1758,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                         {t.is_locked ? "—" : `${t.entry_price != null ? safeNum(t.entry_price).toFixed(2) : "—"} ج.م`}
                       </td>
                       <td className="p-3 font-mono">
-                        {t.is_locked ? "—" : `${(t.is_active ? shortSwingQuote(t, data?.as_of).price : t.exit_price) != null ? safeNum(t.is_active ? shortSwingQuote(t, data?.as_of).price : t.exit_price).toFixed(2) : "—"} ج.م`}
+                        {t.is_locked ? "—" : `${(t.is_active ? t.current_price : t.exit_price) != null ? safeNum(t.is_active ? t.current_price : t.exit_price).toFixed(2) : "—"} ج.م`}
                       </td>
                       <td className="p-3 font-mono">{t.sessions ? `${t.sessions} جلسات` : "—"}</td>
                       <td className="p-3 font-mono font-black">
@@ -1386,7 +1769,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                               : "bg-rose-400 text-black"
                           }`}
                         >
-                          {formatShortSwingReturn(t.is_active ? shortSwingQuote(t, data?.as_of).returnPct : t.return_pct)}
+                          {formatShortSwingReturn(t.return_pct)}
                         </span>
                       </td>
                       <td className="p-3 text-zinc-500 text-[11px]">
@@ -1441,7 +1824,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
           dir="rtl"
         >
           <div
-            className="w-full max-w-2xl border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-xl space-y-5 max-h-[85vh] overflow-y-auto"
+            className="w-full max-w-2xl border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[8px_8px_0px_#000] dark:shadow-[8px_8px_0px_#fff] space-y-5 max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -1475,7 +1858,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                 </div>
               ) : (
                 selectedDayTrades.trades.map((t, i) => {
-                const isWin = t.return_pct > 0;
+                const isWin = t.return_pct != null && t.return_pct > 0;
                 return (
                   <div
                     key={`${t.symbol}-${i}`}
@@ -1568,10 +1951,8 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            role="dialog" aria-modal="true" aria-label="تفاصيل الصفقة القصيرة"
-            className="relative w-full max-w-2xl rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xl overflow-hidden my-auto max-h-[92vh] flex flex-col text-black dark:text-white"
+            className="relative w-full max-w-2xl border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[8px_8px_0px_#000] dark:shadow-[8px_8px_0px_#fff] overflow-hidden my-auto max-h-[92vh] flex flex-col text-black dark:text-white"
           >
-            <div className="px-4 py-2 text-xs text-zinc-600 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900">جلسة البيانات: <bdi>{data?.as_of || "—"}</bdi>{selectedQuote?.issue && !selectedActiveTrade.is_locked ? " · السعر والعائد غير مؤكدين" : ""}</div>
             {/* Header */}
             <div className="p-4 sm:p-5 border-b-4 border-black dark:border-white bg-[#FFE600] text-black flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
@@ -1594,7 +1975,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                     )}
                     {selectedActiveTrade.is_breakeven_protected && (
                       <span className="px-1.5 py-0.5 border border-black bg-emerald-300 text-black text-[9px] font-black">
-                        وقف مرفوع حسب السجل
+                        مؤمنة بربح التعادل
                       </span>
                     )}
                   </div>
@@ -1642,19 +2023,19 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                     </span>
                     <span className="text-base font-black font-mono mt-0.5 block">
                       {selectedActiveTrade.is_pending_entry
-                        ? selectedActiveTrade.entry_date || "جلسة الدخول المقترحة"
+                        ? "افتتاح الغد"
                         : `${selectedActiveTrade.entry_price != null ? safeNum(selectedActiveTrade.entry_price).toFixed(2) : "—"} ج.م`}
                     </span>
                   </div>
 
                   <div className="p-3 border-2 border-black bg-zinc-50 dark:bg-zinc-900">
                     <span className="text-[10px] text-zinc-500 font-black uppercase block">
-                      {selectedActiveTrade.is_pending_entry ? "إغلاق جلسة الإشارة (مرجعي)" : "آخر سعر محفوظ"}
+                      {selectedActiveTrade.is_pending_entry ? "إغلاق اليوم (مرجعي)" : "السعر الحالي"}
                     </span>
                     <span className="text-base font-black font-mono mt-0.5 block">
                       {selectedActiveTrade.is_pending_entry
-                        ? `${selectedActiveTrade.reference_close != null ? safeNum(selectedActiveTrade.reference_close).toFixed(2) : (selectedQuote?.price != null ? selectedQuote.price.toFixed(2) : "—")} ج.م`
-                        : `${selectedQuote?.price != null ? selectedQuote.price.toFixed(2) : "—"} ج.م`}
+                        ? `${selectedActiveTrade.reference_close != null ? safeNum(selectedActiveTrade.reference_close).toFixed(2) : safeNum(selectedActiveTrade.current_price).toFixed(2)} ج.م`
+                        : `${selectedActiveTrade.current_price != null ? safeNum(selectedActiveTrade.current_price).toFixed(2) : "—"} ج.م`}
                     </span>
                   </div>
 
@@ -1667,17 +2048,17 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                     </span>
                   </div>
 
-                  <div className={`p-3 border-2 border-black ${selectedQuote?.returnPct == null && !selectedActiveTrade.is_pending_entry ? "bg-zinc-100 dark:bg-zinc-900" : selectedActiveTrade.is_pending_entry ? "bg-amber-100 dark:bg-amber-950/40" : (safeNum(selectedActiveTrade.return_pct) >= 0 ? "bg-emerald-100 dark:bg-emerald-950/40" : "bg-rose-100 dark:bg-rose-950/40")}`}>
+                  <div className={`p-3 border-2 border-black ${selectedActiveTrade.is_pending_entry ? "bg-amber-100 dark:bg-amber-950/40" : (safeNum(selectedActiveTrade.return_pct) >= 0 ? "bg-emerald-100 dark:bg-emerald-950/40" : "bg-rose-100 dark:bg-rose-950/40")}`}>
                     <span className="text-[10px] text-zinc-600 font-black uppercase block">
-                      {selectedActiveTrade.is_pending_entry ? "حالة الإشارة" : "العائد حسب السعر المحفوظ"}
+                      {selectedActiveTrade.is_pending_entry ? "حالة الإشارة" : "العائد الحالي"}
                     </span>
                     <span
                       dir="ltr"
-                      className={`text-base font-black font-mono mt-0.5 block ${selectedQuote?.returnPct == null && !selectedActiveTrade.is_pending_entry ? "text-zinc-600 dark:text-zinc-400" : selectedActiveTrade.is_pending_entry ? "text-amber-900 dark:text-amber-200" : (safeNum(selectedActiveTrade.return_pct) >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-rose-700 dark:text-rose-300")}`}
+                      className={`text-base font-black font-mono mt-0.5 block ${selectedActiveTrade.is_pending_entry ? "text-amber-900 dark:text-amber-200" : (safeNum(selectedActiveTrade.return_pct) >= 0 ? "text-emerald-700 dark:text-emerald-300" : "text-rose-700 dark:text-rose-300")}`}
                     >
                       {selectedActiveTrade.is_pending_entry
-                        ? "لم يبدأ العائد (انتظار الافتتاح)"
-                        : formatShortSwingReturn(selectedQuote?.returnPct, 2)}
+                        ? "0.0% (انتظار الافتتاح)"
+                        : formatShortSwingReturn(selectedActiveTrade.return_pct, 2)}
                     </span>
                   </div>
                 </div>
@@ -1689,17 +2070,17 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                     <div className="flex items-center gap-2">
                       <TrendingUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                       <h4 className="text-xs font-black uppercase text-emerald-900 dark:text-emerald-200">
-                        {selectedActiveTrade.is_pending_entry ? "إشارة الدخول للجلسة التالية للإشارة" : "إشارة وتوقيت الدخول (Momentum Entry Setup)"}
+                        {selectedActiveTrade.is_pending_entry ? "إشارة الدخول الاستباقية لجلسة الغد" : "إشارة وتوقيت الدخول (Momentum Entry Setup)"}
                       </h4>
                     </div>
                     <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200 leading-relaxed">
                       {selectedActiveTrade.is_pending_entry ? (
                         <span>
-                          تحققت إشارة الشراء الفنية مع إغلاق جلسة الإشارة بناءً على اختراق قمة تماسك 20 جلسة تداول مع تدفق سيولة مؤسسية تجاوزت <strong>140%</strong>. التنفيذ المقترح مع <strong>افتتاح الجلسة التالية للإشارة</strong> (سعر الإغلاق المرجعي: <strong>{((selectedActiveTrade.reference_close ?? selectedQuote?.price)?.toFixed(2) || "—")} ج.م</strong>) بشرط ألا يتجاوز الافتتاح فجوة سعرية صاعدة أعلى من <strong>+2.0%</strong>.
+                          تحققت إشارة الشراء الفنية مع إغلاق اليوم بناءً على اختراق قمة تماسك 20 جلسة تداول مع تدفق سيولة مؤسسية تجاوزت <strong>140%</strong>. التنفيذ المقترح مع <strong>افتتاح جلسة الغد</strong> (سعر الإغلاق المرجعي: <strong>{safeNum(selectedActiveTrade.reference_close || selectedActiveTrade.current_price).toFixed(2)} ج.م</strong>) بشرط ألا يتجاوز الافتتاح فجوة سعرية صاعدة أعلى من <strong>+2.0%</strong>.
                         </span>
                       ) : (
                         <span>
-                          سجلت المحاكاة دخول السهم بتاريخ <strong>{selectedActiveTrade.entry_date}</strong> بسعر <strong>{selectedActiveTrade.entry_price != null ? safeNum(selectedActiveTrade.entry_price).toFixed(2) : "—"} ج.م</strong> بناءً على إشارة فنية رقمية صارمة: اختراق قمة تماسك 20 جلسة تداول مع تدفق سيولة مؤسسية تجاوزت <strong>140%</strong> من متوسط التداول اليومي.
+                          دخل السهم بتاريخ <strong>{selectedActiveTrade.entry_date}</strong> بسعر <strong>{selectedActiveTrade.entry_price != null ? safeNum(selectedActiveTrade.entry_price).toFixed(2) : "—"} ج.م</strong> بناءً على إشارة فنية رقمية صارمة: اختراق قمة تماسك 20 جلسة تداول مع تدفق سيولة مؤسسية تجاوزت <strong>140%</strong> من متوسط التداول اليومي.
                         </span>
                       )}
                     </p>
@@ -1720,7 +2101,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                         </span>
                       ) : (
                         <span>
-                          الاستراتيجية تتبع قاعدة <strong>ركوب الاتجاه دون سقف للأرباح (Run Winners)</strong>. مستوى الوقف المتحرك الحالي محدد عند <strong>{selectedActiveTrade.trailing_stop != null ? safeNum(selectedActiveTrade.trailing_stop).toFixed(2) : "—"} ج.م</strong> ويتبع يومياً المتوسط المتحرك الأسي 10 أيام (EMA10). تعتمد المحاكاة على الوقف المحفوظ وقواعد الخروج؛ السعر المعروض لا يؤكد تنفيذ أمر فعلي.
+                          الاستراتيجية تتبع قاعدة <strong>ركوب الاتجاه دون سقف للأرباح (Run Winners)</strong>. مستوى الوقف المتحرك الحالي محدد عند <strong>{selectedActiveTrade.trailing_stop != null ? safeNum(selectedActiveTrade.trailing_stop).toFixed(2) : "—"} ج.م</strong> ويتبع يومياً المتوسط المتحرك الأسي 10 أيام (EMA10). أمر الخروج الرقمي ينفذ فقط عند أول إغلاق مؤكد أسفل هذا المتوسط.
                         </span>
                       )}
                     </p>
@@ -1737,11 +2118,11 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                     <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200 leading-relaxed">
                       {selectedActiveTrade.is_pending_entry ? (
                         <span>
-                          ⏳ سيتم تفعيل تأمين رأس المال تلقائياً ورفع الوقف إلى سعر الشراء بمجرد تحقيق ربح +4.5% من سعر تنفيذ الافتتاح لتقليل المخاطر؛ فجوات السعر والانزلاق قد تؤدي إلى خسارة.
+                          ⏳ عند بلوغ +4.5% يُجدول رفع الوقف لنقطة التعادل من الجلسة التالية. الفجوات والانزلاق قد تؤثر على التنفيذ.
                         </span>
                       ) : selectedActiveTrade.is_breakeven_protected ? (
                         <span className="text-emerald-700 dark:text-emerald-300">
-                          🛡️ <strong>تم تأمين الصفقة بنجاح:</strong> تجاوزت الصفقة ربح +4.5%، مما أدى آلياً لرفع الوقف إلى نقطة التعادل، مع استمرار مخاطر فجوات السعر والانزلاق عند التنفيذ.
+                          🛡️ <strong>تم رفع الوقف:</strong> بلغ السعر مستوى التأمين ورُفع الوقف إلى نقطة التعادل. يظل التنفيذ معرضاً للفجوات والانزلاق.
                         </span>
                       ) : (
                         <span>

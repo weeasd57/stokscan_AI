@@ -14,6 +14,7 @@ import os
 import sys
 import json
 import gzip
+import threading
 import datetime as dt
 from pathlib import Path
 from collections import defaultdict
@@ -30,6 +31,44 @@ CACHE_PATHS = [
     Path("api/data/short_swings_cache.json"),
     Path("scratch/short_swings_cache.json"),
 ]
+
+_SNAPSHOT_BOOTSTRAP_LOCK = threading.Lock()
+_SNAPSHOT_BOOTSTRAPPED = False
+
+
+def _write_snapshot_files(result):
+    """Write shared computed data, never rebuild history from a visitor request."""
+    for cp in CACHE_PATHS:
+        try:
+            cp.parent.mkdir(parents=True, exist_ok=True)
+            tmp = cp.with_suffix(f".tmp.{os.getpid()}")
+            with open(tmp, "w", encoding="utf-8") as stream:
+                json.dump(result, stream, ensure_ascii=False)
+            os.replace(tmp, cp)
+            return
+        except OSError:
+            continue
+
+
+def _restore_saved_snapshot():
+    """One bounded read per process restores the durable result after HF rebuilds."""
+    from api import stock_ai
+    from api.daily_recovery_state import read_checkpoint
+    stock_ai._init_supabase()
+    row = read_checkpoint(stock_ai.supabase, "short_swings_latest")
+    return (row or {}).get("payload", {}).get("swings")
+
+
+def _persist_saved_snapshot(client, result):
+    from api.daily_recovery_state import read_checkpoint, replace_checkpoint
+    old = read_checkpoint(client, "short_swings_latest")
+    saved = ((old or {}).get("payload") or {}).get("swings") or {}
+    version = lambda item: (item.get("as_of") or "", item.get("computed_at") or "")
+    if version(saved) > version(result):
+        return False
+    if not replace_checkpoint(client, "short_swings_latest", {"swings": result}, old):
+        raise RuntimeError("Cannot persist shared short-swings display snapshot")
+    return True
 
 EXIT_REASON_LABELS = {
     "ema10_break": "كسر متوسط EMA10 (حماية أرباح)",
@@ -222,7 +261,8 @@ def compute_short_swings(*, phase: str = None) -> Dict[str, Any]:
     from zoneinfo import ZoneInfo
     now_cairo = dt.datetime.now(ZoneInfo("Africa/Cairo"))
     if phase is None:
-        phase = "midday" if now_cairo.hour * 60 + now_cairo.minute < 14 * 60 + 30 else "close"
+        minutes = now_cairo.hour * 60 + now_cairo.minute
+        phase = "midday" if 10 * 60 <= minutes < 14 * 60 + 30 else "close"
     if phase not in {"midday", "close"}:
         raise ValueError("Invalid short-swings phase")
     session_date = now_cairo.date().isoformat()
@@ -674,6 +714,24 @@ def compute_short_swings(*, phase: str = None) -> Dict[str, Any]:
     # Calculate dynamic performance metrics directly from all closed trades
     kpis = compute_kpis_from_trades(closed_trades)
 
+    # Keep bounded evidence for operator review of a missing recent signal.
+    # This is generated once with the daily calculation, never by visitors.
+    audit_dates = dates[-2:]
+    audit = df[df['date'].isin(audit_dates) & (df['volume'] >= df['vol_ma20'] * 1.2)].copy()
+    signal_audit = []
+    for _, row in audit.sort_values(['date', 'turnover'], ascending=False).head(120).iterrows():
+        signal_audit.append({
+            'symbol': row['symbol'], 'date': row['date'],
+            'breadth': round(float(row['breadth']), 4),
+            'volume_ratio': round(float(row['volume'] / row['vol_ma20']), 3),
+            'liquid': bool(row['liquid']),
+            'trend_aligned': bool(row['close'] > row['ema10'] > row['ema20'] > row['ema50']),
+            'breakout': bool(row['close'] > row['high20']),
+            'positive_candle': bool(row['close'] > row['open']),
+            'return_20': round(float(row['ret20']), 4),
+            'signal': bool(row['signal']),
+        })
+
     result = {
         "status": "ok",
         "kpis": kpis,
@@ -685,7 +743,17 @@ def compute_short_swings(*, phase: str = None) -> Dict[str, Any]:
         "phase": phase,
         "session_complete": phase == "close",
         "computed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "signal_audit": signal_audit,
     }
+
+    # Admin repair calculations must survive the next deployment too. Failed
+    # persistence remains visible; the daily publisher retries it before sends.
+    try:
+        if supabase:
+            _persist_saved_snapshot(supabase, result)
+    except Exception as error:
+        print(f"[SHORT_SWINGS] Durable snapshot save failed: {type(error).__name__}")
+        result["snapshot_persistence_error"] = type(error).__name__
 
     # Atomic write to cache files
     for cp in CACHE_PATHS:
@@ -703,6 +771,28 @@ def compute_short_swings(*, phase: str = None) -> Dict[str, Any]:
     return result
 
 def get_cached_short_swings() -> Dict[str, Any]:
+    global _SNAPSHOT_BOOTSTRAPPED
+    # HF filesystems are ephemeral. A repository-shipped cache must not win
+    # over the last successfully computed shared snapshot after a deployment.
+    with _SNAPSHOT_BOOTSTRAP_LOCK:
+        if not _SNAPSHOT_BOOTSTRAPPED:
+            try:
+                saved = _restore_saved_snapshot()
+                if saved and saved.get("status") == "ok" and saved.get("as_of"):
+                    local = []
+                    for cp in CACHE_PATHS:
+                        try:
+                            with open(cp, encoding="utf-8") as stream:
+                                local.append(json.load(stream))
+                        except (OSError, ValueError):
+                            pass
+                    saved_version = (saved["as_of"], saved.get("computed_at") or "")
+                    if not local or saved_version >= max((d.get("as_of") or "", d.get("computed_at") or "") for d in local):
+                        _write_snapshot_files(saved)
+            except Exception as error:
+                print(f"[SHORT_SWINGS] Durable snapshot restore failed: {type(error).__name__}")
+            finally:
+                _SNAPSHOT_BOOTSTRAPPED = True
     for cp in CACHE_PATHS:
         if cp.exists():
             try:
@@ -712,7 +802,8 @@ def get_cached_short_swings() -> Dict[str, Any]:
                         return data
             except Exception:
                 continue
-    return compute_short_swings()
+    return {"status": "unavailable", "as_of": None, "active_trades": [],
+            "closed_trades": [], "kpis": compute_kpis_from_trades([])}
 
 if __name__ == "__main__":
     res = compute_short_swings()

@@ -223,7 +223,7 @@ def test_next_run_uses_cairo_dst_and_both_slots(monkeypatch):
 
 def test_actual_midday_job_never_touches_ordinary_recommendations(monkeypatch):
     # Execute the actual function, replacing only external/provider boundaries.
-    tree = ast.parse(Path('api/daily_bot_run.py').read_text())
+    tree = ast.parse(Path('api/daily_bot_run.py').read_text(encoding='utf-8'))
     job = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'run_daily_job')
     saved, forbidden, invalidations = [], [], []
     class Persist:
