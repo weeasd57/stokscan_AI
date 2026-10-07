@@ -26,6 +26,8 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+from api.short_swing_published import load_published_signals as _load_published_signals
+
 CACHE_PATHS = [
     Path(__file__).parent / "data" / "short_swings_cache.json",
     Path("api/data/short_swings_cache.json"),
@@ -482,6 +484,25 @@ def compute_short_swings(*, phase: str = None) -> Dict[str, Any]:
                 "ema10": row.ema10
             })
 
+    # Publication is authoritative entry intent. Later history corrections or
+    # market-gate recalculations must not silently erase a delivered signal.
+    published_signals = _load_published_signals(supabase) if supabase else []
+    for published in published_signals:
+        signal_date = published['signal_date']
+        nxt = next_date_map.get(signal_date)
+        if not nxt:
+            continue
+        symbol = published['symbol']
+        prior_bar = market.get((symbol, signal_date))
+        sig_map[nxt] = [s for s in sig_map[nxt] if s['symbol'] != symbol]
+        sig_map[nxt].append({
+            'symbol': symbol, 'signal_date': signal_date, 'date': nxt,
+            'close': published['reference_close'],
+            'turnover': prior_bar.turnover if prior_bar else 0,
+            'sig_type': published.get('trigger_type') or 'إشارة منشورة محفوظة',
+            'published': True,
+        })
+
     # Run execution simulation
     positions = {}
     closed_trades = []
@@ -527,9 +548,9 @@ def compute_short_swings(*, phase: str = None) -> Dict[str, Any]:
                 del positions[sym]
 
         # 3. Enter new positions at today's open based on yesterday's signals
-        day_signals = sorted(sig_map.get(day, []), key=lambda s: -s["turnover"])
+        day_signals = sorted(sig_map.get(day, []), key=lambda s: (not s.get('published', False), -s["turnover"]))
         for s in day_signals:
-            if len(positions) >= 15 or s["symbol"] in positions:
+            if (len(positions) >= 15 and not s.get('published')) or s["symbol"] in positions:
                 continue
             b = market.get((s["symbol"], day))
             if not b or b.volume <= 0 or b.high == b.low:
@@ -549,6 +570,7 @@ def compute_short_swings(*, phase: str = None) -> Dict[str, Any]:
                 "symbol": s["symbol"],
                 "date": day,
                 "signal_date": s["signal_date"],
+                "published": bool(s.get('published')),
                 "index": i,
                 "entry_price": fill,
                 "sl_price": fill * (1 - 0.04),
@@ -642,7 +664,15 @@ def compute_short_swings(*, phase: str = None) -> Dict[str, Any]:
     if phase == "midday":
         today_signals_df = today_signals_df.iloc[:0]
     seen_symbols = set()
-    for _, s_row in today_signals_df.head(15).iterrows():
+    today_rows = []
+    for published in published_signals:
+        if published['signal_date'] == last_date:
+            bar = market.get((published['symbol'], last_date))
+            today_rows.append({'symbol': published['symbol'], 'close': published['reference_close'],
+                               'ema10': bar.ema10 if bar else published['reference_close'],
+                               'sig_type': published.get('trigger_type') or 'إشارة منشورة محفوظة'})
+    today_rows.extend(today_signals_df.head(15).to_dict('records'))
+    for s_row in today_rows:
         sym = s_row["symbol"]
         if sym in positions or sym in seen_symbols:
             continue
@@ -689,6 +719,7 @@ def compute_short_swings(*, phase: str = None) -> Dict[str, Any]:
             "sector": m_info.get("sector", "عام"),
             "entry_date": p["date"],
             "signal_date": p.get("signal_date", p["date"]),
+            "published": bool(p.get('published')),
             "entry_price": round(p["entry_price"], 3),
             "current_price": round(curr_price, 3) if b else None,
             "price_date": b.date if b else None,

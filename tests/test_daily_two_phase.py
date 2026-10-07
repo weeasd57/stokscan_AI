@@ -299,6 +299,7 @@ def test_current_archive_candle_is_replaced_and_midday_breakout_is_not_final(mon
     monkeypatch.setattr('api.hf_history_cache.load_history_snapshot', lambda *_: pd.DataFrame(rows))
     monkeypatch.setattr(engine, 'CACHE_PATHS', [tmp_path/'shorts.json'])
     monkeypatch.setattr(engine, 'load_stock_metadata', lambda: {})
+    monkeypatch.setattr(engine, '_load_published_signals', lambda _: [])
     midday = engine.compute_short_swings(phase='midday')
     close = engine.compute_short_swings(phase='close')
     assert ('date', today.isoformat()) in read_filters

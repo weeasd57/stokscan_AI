@@ -272,6 +272,9 @@ def _dispatch_trade(sb, trade, kind, channel, as_of, legacy_state, phase="close"
         error = getattr(outcome, "error", None) or {}
         if bool(outcome) and receipts:
             status = "sent"
+            if kind == 'entry':
+                from api.short_swing_published import record_published_signal
+                record_published_signal(sb, trade, {'channel': channel, 'receipts': receipts, 'as_of': as_of})
         elif not receipts and error.get("error_code") in {400, 401, 403, 404, 429}:
             status = "failed"  # An explicit rejected API request is safe to retry.
         else:
