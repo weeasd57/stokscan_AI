@@ -16,7 +16,7 @@ const subscriptionEnd = "2030-09-22T00:00:00Z";
 function query(data: unknown, error: { code: string } | null = null) {
   const result = { data, error };
   const chain: any = {};
-  for (const method of ["select", "eq", "not", "order", "limit", "update"]) chain[method] = jest.fn(() => chain);
+  for (const method of ["select", "eq", "in", "not", "order", "limit", "update"]) chain[method] = jest.fn(() => chain);
   chain.maybeSingle = jest.fn(async () => result);
   chain.then = (resolve: (value: typeof result) => void) => Promise.resolve(result).then(resolve);
   return chain;

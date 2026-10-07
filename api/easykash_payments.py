@@ -43,7 +43,7 @@ _EASYKASH_INSTALLMENT_OPTIONS = [
     33,  # Klivvr (shown under EasyKash Installments)
     34,  # Forsa
 ]
-_PLANS = {"pro": 30, "pro_6m": 180, "pro_1y": 365}
+_PLANS = {"pro": 30, "pro_6m": 180, "pro_1y": 365, "lifetime": 36500}
 
 
 def _hosted_checkout_url(value: Any) -> str:
@@ -104,6 +104,14 @@ def payment_config() -> Dict[str, Any]:
         monthly,
         {"id": "pro_6m", "name_ar": "6 شهور", "name_en": "6 Months", "amount_egp": int(plan_amount_egp("pro_6m")), "days": 180},
         {"id": "pro_1y", "name_ar": "سنة", "name_en": "1 Year", "amount_egp": int(plan_amount_egp("pro_1y")), "days": 365},
+        {
+            "id": "lifetime",
+            "name_ar": "مدى الحياة (Lifetime)",
+            "name_en": "Lifetime Deal",
+            "amount_egp": int(plan_amount_egp("lifetime")),
+            "days": 36500,
+            "badge": "حصري لـ 20 مقعداً 🔥",
+        },
     ]
     # Founders counter: count active Pro subscribers to show remaining spots live
     founders_limit = int(settings.get("founders_limit") or os.getenv("FOUNDERS_LIMIT", "100"))
@@ -121,6 +129,20 @@ def payment_config() -> Dict[str, Any]:
         founders_count = 0
     founders_remaining = max(0, founders_limit - founders_count)
 
+    # Lifetime spots counter: strictly limited to 20 users only
+    lifetime_limit = int(settings.get("lifetime_limit") or os.getenv("LIFETIME_LIMIT", "20"))
+    lifetime_count = 0
+    try:
+        if supabase:
+            res_life = supabase.table("subscriptions").select("user_id", count="exact").eq("status", "active").eq("plan_id", "lifetime").execute()
+            if res_life and res_life.data:
+                lifetime_count = len(set(r.get("user_id") for r in res_life.data if r.get("user_id")))
+            else:
+                lifetime_count = res_life.count or 0
+    except Exception:
+        lifetime_count = 0
+    lifetime_remaining = max(0, lifetime_limit - lifetime_count)
+
     return {
         "enabled": enabled,
         "mode": "easykash" if enabled else "disabled",
@@ -133,6 +155,13 @@ def payment_config() -> Dict[str, Any]:
             "count": founders_count,
             "remaining": founders_remaining,
             "is_open": founders_remaining > 0,
+        },
+        "lifetime": {
+            "limit": lifetime_limit,
+            "count": lifetime_count,
+            "remaining": lifetime_remaining,
+            "is_open": lifetime_remaining > 0,
+            "price_egp": int(plan_amount_egp("lifetime")),
         },
     }
 
@@ -180,6 +209,18 @@ def create_checkout(user_id: str, plan_id: str, email: str, name: str, mobile: s
     _init_supabase()
     if not supabase:
         raise RuntimeError("Supabase is not initialized")
+
+    if plan_id == "lifetime":
+        life_limit = int(billing_settings().get("lifetime_limit") or os.getenv("LIFETIME_LIMIT", "20"))
+        try:
+            res_check = supabase.table("subscriptions").select("user_id", count="exact").eq("status", "active").eq("plan_id", "lifetime").execute()
+            current_life = len(set(r.get("user_id") for r in res_check.data if r.get("user_id"))) if (res_check and res_check.data) else (res_check.count or 0)
+            if current_life >= life_limit:
+                raise ValueError("عذراً، اكتملت جميع مقاعد باقة مدى الحياة (20/20)")
+        except ValueError:
+            raise
+        except Exception:
+            pass
 
     order_id = str(uuid4())
     amount = Decimal(str(plan_amount_egp(plan_id))).quantize(Decimal("0.01"))

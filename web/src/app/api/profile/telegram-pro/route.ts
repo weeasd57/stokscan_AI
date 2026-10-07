@@ -127,7 +127,7 @@ export async function GET() {
     .from("subscriptions")
     .select("plan_id,status,current_period_end")
     .eq("user_id", user.id)
-    .eq("plan_id", "pro")
+    .in("plan_id", ["pro", "lifetime", "pro_lifetime"])
     .eq("status", "active")
     .order("current_period_end", { ascending: false })
     .limit(1)

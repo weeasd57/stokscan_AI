@@ -28,6 +28,9 @@ import {
   ExternalLink,
   Info,
   Activity,
+  Crown,
+  Flame,
+  Award,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -66,7 +69,7 @@ export default function PricingClient() {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const planParam = params.get("plan");
-      if (planParam && ["pro", "pro_6m", "pro_1y"].includes(planParam)) {
+      if (planParam && ["pro", "pro_6m", "pro_1y", "lifetime"].includes(planParam)) {
         setSelectedPlan(planParam);
       }
     }
@@ -78,6 +81,12 @@ export default function PricingClient() {
   // Live founders counter from backend — refreshed every time localConfig is fetched
   const foundersRemaining: number = localConfig?.founders?.remaining ?? null;
   const foundersIsOpen: boolean = localConfig?.founders?.is_open ?? true;
+
+  // Live lifetime spots counter from backend — strictly limited to 20 users
+  const lifetimeLimit: number = localConfig?.lifetime?.limit ?? 20;
+  const lifetimeCount: number = localConfig?.lifetime?.count ?? 0;
+  const lifetimeRemaining: number = localConfig?.lifetime?.remaining ?? Math.max(0, lifetimeLimit - lifetimeCount);
+  const lifetimeIsOpen: boolean = localConfig?.lifetime?.is_open ?? (lifetimeRemaining > 0);
 
   const normalizedMobile = customerMobile.trim().replace(/[\s-]/g, "").replace(/^\+20/, "0").replace(/^0020/, "0");
   const isMobileValid = /^01[0125]\d{8}$/.test(normalizedMobile);
@@ -334,20 +343,35 @@ export default function PricingClient() {
   const monthlyDiscount = localConfig?.plans?.find((item: any) => item.id === "pro")?.discount || null;
   const monthlyPrice = Number(monthlyDiscount?.original_amount_egp ?? localConfig?.plans?.find((item: any) => item.id === "pro")?.amount_egp ?? 200);
   const paidPlans = [
-    { id: "pro", name_ar: "شهر واحد", name_en: "1 Month", days: 30, amount_egp: 200, badge: null },
-    { id: "pro_6m", name_ar: "6 شهور", name_en: "6 Months", days: 180, amount_egp: 1000, badge: isAr ? "الأكثر طلباً ⭐" : "Most Popular ⭐" },
-    { id: "pro_1y", name_ar: "سنة كاملة", name_en: "1 Year", days: 365, amount_egp: 1800, badge: isAr ? "أكبر توفير 💎" : "Max Value 💎" },
+    { id: "pro", name_ar: "شهر واحد", name_en: "1 Month", days: 30, amount_egp: 200, badge: null, isLifetime: false },
+    { id: "pro_6m", name_ar: "6 شهور", name_en: "6 Months", days: 180, amount_egp: 1000, badge: isAr ? "الأكثر طلباً ⭐" : "Most Popular ⭐", isLifetime: false },
+    { id: "pro_1y", name_ar: "سنة كاملة", name_en: "1 Year", days: 365, amount_egp: 1800, badge: isAr ? "أكبر توفير 💎" : "Max Value 💎", isLifetime: false },
+    {
+      id: "lifetime",
+      name_ar: "مدى الحياة (VIP)",
+      name_en: "Lifetime VIP",
+      days: 36500,
+      amount_egp: 2250,
+      badge: isAr
+        ? (lifetimeRemaining > 0 ? `حصري لـ ${lifetimeRemaining} مقعداً 🔥` : "اكتملت المقاعد ❌")
+        : (lifetimeRemaining > 0 ? `${lifetimeRemaining} Spots Left 🔥` : "Sold Out ❌"),
+      isLifetime: true,
+    },
   ].map((plan) => {
     const configured = localConfig?.plans?.find((item: any) => item.id === plan.id);
     const amount = Number(configured?.amount_egp ?? plan.amount_egp);
     const days = Number(configured?.days ?? plan.days);
-    const monthlyEquivalent = Math.round((amount / days) * 30);
+    const monthlyEquivalent = plan.isLifetime ? null : Math.round((amount / days) * 30);
     return {
       ...plan,
       amount_egp: amount,
       days,
       monthlyEquivalent,
-      savingsPct: monthlyPrice > 0 ? Math.max(0, Math.round((1 - monthlyEquivalent / monthlyPrice) * 100)) : 0,
+      savingsPct: plan.isLifetime
+        ? 95
+        : monthlyPrice > 0 && monthlyEquivalent
+        ? Math.max(0, Math.round((1 - monthlyEquivalent / monthlyPrice) * 100))
+        : 0,
     };
   });
 
@@ -370,6 +394,15 @@ export default function PricingClient() {
     { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? `${proLimits.chat_messages_per_month} رسالة شات بوت ذكي شهرياً` : `${proLimits.chat_messages_per_month} smart chatbot messages / month`, included: true },
     { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? `حتى ${proLimits.portfolio_stocks} أسهم نشطة في المحفظة` : `Up to ${proLimits.portfolio_stocks} active portfolio stocks`, included: true },
     { icon: <Activity className="w-4 h-4" />, text: isAr ? "النشاط غير الطبيعي — أسهم بحجم تداول غير طبيعي + تقييم AI" : "Unusual Activity — volume spikes + AI scoring", included: true },
+  ];
+
+  const lifetimeFeatures = [
+    { icon: <Crown className="w-4 h-4 text-purple-600 dark:text-yellow-400" />, text: isAr ? "صلاحية كاملة مدى الحياة للأبد (36,500 يوم بدون أي تجديد أو اشتراك متكرر)" : "Permanent lifetime access (never expires, zero recurring renewals)", included: true },
+    { icon: <ShieldCheck className="w-4 h-4 text-emerald-500" />, text: isAr ? "قناة VIP على تليجرام (إشارات وتوصيات يومية فورية للأبد)" : "VIP Telegram Channel forever", included: true },
+    { icon: <Zap className="w-4 h-4 text-emerald-500" />, text: isAr ? "الصفقات القصيرة ⚡ PRO ومتابعة الأرباح كاملة بدون تشفير" : "Short Swings ⚡ PRO momentum trades unmasked", included: true },
+    { icon: <MessageSquare className="w-4 h-4 text-emerald-500" />, text: isAr ? `${proLimits.chat_messages_per_month} استشارة شات بوت شهرياً تتجدد تلقائياً للأبد` : `${proLimits.chat_messages_per_month} AI chat messages refreshed monthly for life`, included: true },
+    { icon: <Activity className="w-4 h-4 text-emerald-500" />, text: isAr ? "النشاط غير الطبيعي للأسهم + المحفظة الموسعة (10 أسهم)" : "Unusual Activity + 10 portfolio stock slots", included: true },
+    { icon: <Sparkles className="w-4 h-4 text-yellow-500" />, text: isAr ? "أولوية قصوى لكافة التحديثات والميزات المستقبلية" : "VIP priority for all future updates", included: true },
   ];
 
   // ── STEP 3: SUBMITTED / PAYMENT RESULT ─────────────────────────────────────
@@ -405,21 +438,27 @@ export default function PricingClient() {
                 orderStatus === "failed"
                   ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300"
                   : orderStatus === "approved"
-                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                  ? selectedPlanDetails?.id === "lifetime"
+                    ? "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300"
+                    : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
                   : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
               }`}
             >
               {orderStatus === "failed"
                 ? isAr ? "فشلت العملية" : "Payment Incomplete"
                 : orderStatus === "approved"
-                ? isAr ? "تم التفعيل بنجاح" : "Pro Activated"
+                ? selectedPlanDetails?.id === "lifetime"
+                  ? isAr ? "تم تفعيل باقة مدى الحياة (LIFETIME VIP) 👑" : "Lifetime VIP Activated 👑"
+                  : isAr ? "تم التفعيل بنجاح" : "Pro Activated"
                 : isAr ? "جاري التحقق من الدفع" : "Verifying Payment"}
             </span>
             <h2 className="text-2xl sm:text-3xl font-black text-zinc-950 dark:text-white">
               {orderStatus === "failed"
                 ? isAr ? "لم تكتمل عملية الدفع" : "Payment was not completed"
                 : orderStatus === "approved"
-                ? isAr ? "أهلاً بك في EGX BOTS Pro! 🎉" : "Welcome to EGX BOTS Pro! 🎉"
+                ? selectedPlanDetails?.id === "lifetime"
+                  ? isAr ? "أهلاً بك في نخبة EGX BOTS مدى الحياة! 👑🎉" : "Welcome to EGX BOTS Lifetime VIP! 👑🎉"
+                  : isAr ? "أهلاً بك في EGX BOTS Pro! 🎉" : "Welcome to EGX BOTS Pro! 🎉"
                 : isAr ? "في انتظار إشعار تأكيد الدفع ⏳" : "Awaiting payment confirmation ⏳"}
             </h2>
             <p className="text-sm font-semibold text-zinc-600 dark:text-zinc-300 leading-relaxed max-w-md mx-auto">
@@ -429,7 +468,11 @@ export default function PricingClient() {
                   : "We didn't receive payment confirmation from EasyKash. You can try again or reach out to our team."
                 : orderStatus === "approved"
                 ? isAr
-                  ? `تم تأكيد اشتراكك في باقة Pro لمدة ${selectedPlanDetails?.days || 30} يوماً بنجاح. حسابك نشط الآن بكامل الصلاحيات!`
+                  ? selectedPlanDetails?.id === "lifetime"
+                    ? "تم تفعيل اشتراكك الدائم في باقة مدى الحياة (Lifetime VIP) بنجاح للأبد! حسابك نشط الآن بكامل الصلاحيات مدى الحياة وبدون أي تجديدات شهرية."
+                    : `تم تأكيد اشتراكك في باقة Pro لمدة ${selectedPlanDetails?.days || 30} يوماً بنجاح. حسابك نشط الآن بكامل الصلاحيات!`
+                  : selectedPlanDetails?.id === "lifetime"
+                  ? "Your Lifetime VIP subscription is now active forever! Full access granted for life with zero recurring renewals."
                   : `Your Pro plan is now active for ${selectedPlanDetails?.days || 30} days with full benefits!`
                 : isAr
                 ? "تم استلام طلبك وجاري انتظار تأكيد السداد من EasyKash تلقائياً. الصفحة ستُحدّث الحالة فور وصول الإشعار."
@@ -464,7 +507,11 @@ export default function PricingClient() {
             <div className="space-y-4 pt-2">
               {subscriptionEnd && (
                 <p className="text-xs font-black text-emerald-600 dark:text-emerald-400">
-                  {isAr
+                  {selectedPlanDetails?.id === "lifetime"
+                    ? isAr
+                      ? "مدة الاشتراك: مدى الحياة للأبد (اشتراك دائم) 👑"
+                      : "Subscription Duration: Lifetime Forever 👑"
+                    : isAr
                     ? `تاريخ انتهاء الاشتراك: ${new Date(subscriptionEnd).toLocaleDateString("ar-EG")}`
                     : `Valid until: ${new Date(subscriptionEnd).toLocaleDateString()}`}
                 </p>
@@ -655,7 +702,7 @@ export default function PricingClient() {
                 <button
                   type="button"
                   onClick={() => startEasyKashPayment()}
-                  disabled={busy || (!!user && !isMobileValid)}
+                  disabled={busy || (!!user && !isMobileValid) || (selectedPlan === "lifetime" && !lifetimeIsOpen)}
                   className="w-full flex items-center justify-center gap-3 border-4 border-black dark:border-white bg-emerald-500 hover:bg-emerald-600 text-zinc-950 dark:text-black font-black text-base py-4 px-6 uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_#ffffff] hover:-translate-y-0.5 active:translate-y-0 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {busy ? (
@@ -665,7 +712,9 @@ export default function PricingClient() {
                       <LockKeyhole className="w-5 h-5" />
                       {!user
                         ? isAr ? "سجّل الدخول للمتابعة" : "Sign in to Continue"
-                        : isAr ? `المتابعة للدفع الآمن (${proPrice} ج.م) 🔒` : `Proceed to Secure Checkout (${proPrice} EGP) 🔒`}
+                        : selectedPlan === "lifetime" && !lifetimeIsOpen
+                        ? isAr ? "عذراً، اكتملت جميع مقاعد باقة مدى الحياة (20/20)" : "Lifetime Deal is Sold Out"
+                        : isAr ? `المتابعة للدفع الآمن (${proPrice.toLocaleString()} ج.م) 🔒` : `Proceed to Secure Checkout (${proPrice.toLocaleString()} EGP) 🔒`}
                     </>
                   )}
                 </button>
@@ -688,7 +737,10 @@ export default function PricingClient() {
                 <span className="text-[10px] font-black uppercase tracking-widest text-emerald-400 block mb-1">
                   {isAr ? "فاتورة الاشتراك" : "ORDER INVOICE"}
                 </span>
-                <h3 className="text-2xl font-black">EGX BOTS Pro</h3>
+                <h3 className="text-2xl font-black flex items-center gap-2">
+                  {selectedPlanDetails.isLifetime && <Crown className="w-6 h-6 text-yellow-400" />}
+                  {selectedPlanDetails.isLifetime ? "EGX BOTS Lifetime VIP" : "EGX BOTS Pro"}
+                </h3>
                 <p className="text-xs font-semibold text-zinc-400 mt-1">
                   {isAr ? selectedPlanDetails.name_ar : selectedPlanDetails.name_en}
                 </p>
@@ -698,21 +750,34 @@ export default function PricingClient() {
               <div className="space-y-3 border-b border-zinc-800 pb-4 text-xs font-bold">
                 <div className="flex justify-between">
                   <span className="text-zinc-400">{isAr ? "الخطة:" : "Plan:"}</span>
-                  <span className="font-black text-emerald-400">Pro VIP</span>
+                  <span className="font-black text-emerald-400">
+                    {selectedPlanDetails.isLifetime ? (isAr ? "مدى الحياة (Lifetime VIP)" : "Lifetime VIP") : "Pro VIP"}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">{isAr ? "فترة الاشتراك:" : "Duration:"}</span>
-                  <span className="font-mono">{selectedPlanDetails.days} {isAr ? "يوماً" : "days"}</span>
+                  <span className="font-mono">
+                    {selectedPlanDetails.isLifetime
+                      ? (isAr ? "مدى الحياة للأبد (دائم)" : "Lifetime Forever")
+                      : `${selectedPlanDetails.days} ${isAr ? "يوماً" : "days"}`}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">{isAr ? "وسيلة الدفع:" : "Method:"}</span>
                   <span>{isAr ? "تُحدد داخل EasyKash" : "Chosen on EasyKash"}</span>
                 </div>
-                {selectedPlanDetails.savingsPct > 0 && (
-                  <div className="flex justify-between text-emerald-400">
-                    <span>{isAr ? "نسبة التوفير:" : "Savings:"}</span>
-                    <span>{isAr ? `وفرت ${selectedPlanDetails.savingsPct}%` : `${selectedPlanDetails.savingsPct}% OFF`}</span>
+                {selectedPlanDetails.isLifetime ? (
+                  <div className="flex justify-between text-yellow-400">
+                    <span>{isAr ? "الميزة الكبرى:" : "Perk:"}</span>
+                    <span>{isAr ? "بدون أي تجديد شهري للأبد" : "Zero recurring renewals"}</span>
                   </div>
+                ) : (
+                  selectedPlanDetails.savingsPct > 0 && (
+                    <div className="flex justify-between text-emerald-400">
+                      <span>{isAr ? "نسبة التوفير:" : "Savings:"}</span>
+                      <span>{isAr ? `وفرت ${selectedPlanDetails.savingsPct}%` : `${selectedPlanDetails.savingsPct}% OFF`}</span>
+                    </div>
+                  )
                 )}
               </div>
 
@@ -720,7 +785,7 @@ export default function PricingClient() {
               <div className="flex items-baseline justify-between border-b border-zinc-800 pb-5">
                 <span className="text-sm font-black">{isAr ? "المبلغ الإجمالي:" : "Total Amount:"}</span>
                 <div className="text-end">
-                  <span className="text-3xl font-black text-emerald-400">{proPrice}</span>
+                  <span className="text-3xl font-black text-emerald-400">{proPrice.toLocaleString()}</span>
                   <span className="text-xs font-bold text-zinc-400 ms-1">ج.م</span>
                 </div>
               </div>
@@ -728,24 +793,53 @@ export default function PricingClient() {
               {/* Included Benefits List */}
               <div className="space-y-2 text-xs font-bold">
                 <span className="text-[10px] font-black uppercase text-zinc-400 tracking-wider block">
-                  {isAr ? "الميزات المشمولة فوراً:" : "INCLUDED WITH PRO:"}
+                  {selectedPlanDetails.isLifetime
+                    ? (isAr ? "ميزات باقة مدى الحياة VIP:" : "INCLUDED WITH LIFETIME VIP:")
+                    : (isAr ? "الميزات المشمولة فوراً:" : "INCLUDED WITH PRO:")}
                 </span>
-                <div className="flex items-center gap-2 text-zinc-300">
-                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span>{isAr ? "قناة VIP على تليجرام (إشارات وتوصيات يومية فور صدورها بدون تأخير)" : "VIP Telegram Channel (instant daily signals without delay)"}</span>
-                </div>
-                <div className="flex items-center gap-2 text-zinc-300">
-                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span>{isAr ? "الصفقات القصيرة ⚡ PRO (إشارات الزخم السريعة والوقف المتحرك بدون تشفير)" : "Short Swings ⚡ PRO (instant momentum runners unmasked)"}</span>
-                </div>
-                <div className="flex items-center gap-2 text-zinc-300">
-                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span>{isAr ? `${proLimits.chat_messages_per_month} رسالة ذكاء اصطناعي شهرياً` : `${proLimits.chat_messages_per_month} monthly AI chat messages`}</span>
-                </div>
-                <div className="flex items-center gap-2 text-zinc-300">
-                  <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span>{isAr ? `محفظة تداول حتى ${proLimits.portfolio_stocks} أسهم` : `${proLimits.portfolio_stocks} active portfolio stock slots`}</span>
-                </div>
+                {selectedPlanDetails.isLifetime ? (
+                  <>
+                    <div className="flex items-center gap-2 text-yellow-300 font-black">
+                      <Crown className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+                      <span>{isAr ? "صلاحية مدى الحياة للأبد بدون تجديد" : "Permanent lifetime access, zero renewals"}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-zinc-300">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{isAr ? "قناة VIP على تليجرام فورية للأبد" : "VIP Telegram Channel for life"}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-zinc-300">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{isAr ? "الصفقات القصيرة ⚡ PRO ومتابعة الأرباح" : "Short Swings ⚡ PRO unmasked"}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-zinc-300">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{isAr ? `${proLimits.chat_messages_per_month} رسالة ذكاء اصطناعي تتجدد شهرياً للأبد` : `${proLimits.chat_messages_per_month} AI chat messages renewed monthly for life`}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-zinc-300">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{isAr ? `محفظة حتى ${proLimits.portfolio_stocks} أسهم + كشف السيولة غير الطبيعية` : `Up to ${proLimits.portfolio_stocks} portfolio stocks + volume spikes`}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-2 text-zinc-300">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{isAr ? "قناة VIP على تليجرام (إشارات وتوصيات يومية فور صدورها بدون تأخير)" : "VIP Telegram Channel (instant daily signals without delay)"}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-zinc-300">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{isAr ? "الصفقات القصيرة ⚡ PRO (إشارات الزخم السريعة والوقف المتحرك بدون تشفير)" : "Short Swings ⚡ PRO (instant momentum runners unmasked)"}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-zinc-300">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{isAr ? `${proLimits.chat_messages_per_month} رسالة ذكاء اصطناعي شهرياً` : `${proLimits.chat_messages_per_month} monthly AI chat messages`}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-zinc-300">
+                      <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>{isAr ? `محفظة تداول حتى ${proLimits.portfolio_stocks} أسهم` : `${proLimits.portfolio_stocks} active portfolio stock slots`}</span>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Secure Notice */}
@@ -778,6 +872,108 @@ export default function PricingClient() {
               ? "تحليلات كمية، وتوصيات مبنية على الذكاء الاصطناعي، وقناة VIP حصرية لتداول البورصة المصرية بثقة."
               : "Quantitative analysis, AI-driven stock signals, and VIP channel access for the Egyptian Stock Exchange."}
           </p>
+
+          {/* ── LIFETIME VIP SPOTLIGHT BANNER ── */}
+          <div className="relative border-4 border-black dark:border-white bg-gradient-to-br from-purple-950 via-indigo-950 to-zinc-950 text-white p-6 sm:p-8 shadow-[8px_8px_0px_#FFE600] dark:shadow-[8px_8px_0px_#FFE600] overflow-hidden">
+            {/* Neon corner badge */}
+            <div className="absolute top-0 end-0 bg-[#FFE600] text-black font-black text-[11px] sm:text-xs px-4 py-1.5 border-b-3 border-s-3 border-black tracking-wider uppercase flex items-center gap-1.5 shadow-sm">
+              <Crown className="w-4 h-4 fill-black" />
+              {isAr ? "فرصة استثنائية · 20 مقعداً فقط" : "LIMITED TO 20 SPOTS ONLY"}
+            </div>
+
+            <div className="grid lg:grid-cols-12 gap-6 items-center pt-4 sm:pt-0">
+              <div className="lg:col-span-8 space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-500/30 border border-purple-400/50 text-purple-200 text-xs font-black tracking-wide">
+                    <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                    {isAr ? "باقة مدى الحياة (LIFETIME VIP)" : "LIFETIME VIP DEAL"}
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-red-500/20 border border-red-500/50 text-red-300 text-[11px] font-black animate-pulse">
+                    <Flame className="w-3 h-3 text-red-400" />
+                    {isAr ? "محدودة لـ 20 مستثمراً فقط" : "Strictly 20 Spots"}
+                  </span>
+                </div>
+
+                <div>
+                  <h2 className="text-2xl sm:text-4xl font-black text-white tracking-tight leading-tight">
+                    {isAr ? "ادفع 2,250 ج.م مرة واحدة.. واستفد بـ Pro مدى الحياة للأبد 👑" : "Pay 2,250 EGP Once.. Access Pro Forever for Life 👑"}
+                  </h2>
+                  <p className="text-xs sm:text-sm font-semibold text-zinc-300 mt-2 leading-relaxed max-w-2xl">
+                    {isAr
+                      ? "اشتراك دائم بدون أي رسوم أو تجديدات شهرية نهائياً. تمتع بكافة إشارات وتوصيات قناة VIP الفورية، والصفقات القصيرة ⚡ PRO، و350 استشارة ذكاء اصطناعي تتجدد شهرياً تلقائياً للأبد."
+                      : "Permanent membership with zero recurring monthly fees forever. Unrestricted VIP Telegram channel signals, Short Swings PRO trades, and 350 monthly AI queries refreshed automatically for life."}
+                  </p>
+                </div>
+
+                {/* Progress & spots tracker */}
+                <div className="bg-black/60 border-2 border-purple-400/40 p-4 space-y-2.5 max-w-xl">
+                  <div className="flex items-center justify-between text-xs font-black">
+                    <span className="text-[#FFE600] flex items-center gap-1.5">
+                      <Award className="w-4 h-4 text-[#FFE600]" />
+                      {isAr ? "حالة المقاعد المتاحة:" : "Spots Availability:"}
+                    </span>
+                    <span className="font-mono text-white">
+                      {lifetimeIsOpen
+                        ? (isAr ? `متبقي ${lifetimeRemaining} من أصل ${lifetimeLimit} مقعداً` : `${lifetimeRemaining} of ${lifetimeLimit} spots left`)
+                        : (isAr ? "اكتملت جميع المقاعد (20/20) ❌" : "SOLD OUT (20/20) ❌")}
+                    </span>
+                  </div>
+                  {/* Visual Progress bar */}
+                  <div className="w-full bg-zinc-800 border border-zinc-700 h-3 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-yellow-400 to-[#FFE600] transition-all duration-500"
+                      style={{ width: `${Math.min(100, Math.max(5, (lifetimeCount / lifetimeLimit) * 100))}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] font-bold text-zinc-400">
+                    {isAr
+                      ? "⚡ بمجرد اكتمال الـ 20 مقعداً، سيتم إغلاق الباقة نهائياً ولن تُتاح مجدداً."
+                      : "⚡ Once all 20 spots are claimed, this offer will be permanently closed."}
+                  </p>
+                </div>
+              </div>
+
+              {/* Price & Action */}
+              <div className="lg:col-span-4 border-4 border-[#FFE600] bg-black/80 p-5 sm:p-6 text-center space-y-4 shadow-[6px_6px_0px_#FFE600]">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-[#FFE600] block">
+                    {isAr ? "سعر الباقة لمرة واحدة" : "ONE-TIME LIFETIME PRICE"}
+                  </span>
+                  <div className="flex items-baseline justify-center gap-1.5 mt-1">
+                    <span className="text-4xl sm:text-5xl font-black text-white">2,250</span>
+                    <span className="text-sm font-bold text-[#FFE600]">ج.م</span>
+                  </div>
+                  <span className="text-[11px] font-bold text-zinc-400 block mt-1">
+                    {isAr ? "دفعة واحدة فقط للأبد · بدون أي مصاريف أخرى" : "One-time payment · Zero recurring fees"}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={!lifetimeIsOpen}
+                  onClick={() => {
+                    setSelectedPlan("lifetime");
+                    setStep("payment");
+                  }}
+                  className={`w-full flex items-center justify-center gap-2 border-3 border-black py-4 px-4 font-black uppercase text-sm tracking-wider shadow-[4px_4px_0px_#fff] transition-all ${
+                    lifetimeIsOpen
+                      ? "bg-[#FFE600] hover:bg-yellow-400 text-black hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+                      : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
+                  }`}
+                >
+                  <Crown className="w-4 h-4 fill-current" />
+                  {lifetimeIsOpen
+                    ? (isAr ? "احجز مقعدك مدى الحياة الآن 👑" : "Claim Lifetime Deal 👑")
+                    : (isAr ? "اكتملت المقاعد (Sold Out)" : "Sold Out (20/20)")}
+                </button>
+
+                <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-zinc-400">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>{isAr ? "تفعيل تلقائي وفوري عبر EasyKash" : "Instant Activation via EasyKash"}</span>
+                </div>
+              </div>
+            </div>
+          </div>
 
           {/* Founding Members Hero Callout */}
           <div className="max-w-2xl mx-auto border-3 border-black bg-gradient-to-r from-amber-300 via-[#FFE600] to-yellow-400 p-4 shadow-[4px_4px_0px_#000] text-black">
@@ -828,10 +1024,10 @@ export default function PricingClient() {
           </div>
         )}
 
-        {/* Plans Grid */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 items-stretch">
+        {/* Plans Grid (5 Plans) */}
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 items-stretch">
           {/* ── 01. Free Plan Card ── */}
-          <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,0.2)] p-6 space-y-6 flex flex-col justify-between">
+          <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,0.2)] p-5 sm:p-6 space-y-6 flex flex-col justify-between">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-xl font-black text-zinc-950 dark:text-white">
@@ -878,24 +1074,35 @@ export default function PricingClient() {
             </button>
           </div>
 
-          {/* ── 02, 03, 04. Paid Pro Plans ── */}
+          {/* ── 02, 03, 04, 05. Paid Plans (Monthly, 6M, 1Y, Lifetime) ── */}
           {paidPlans.map((plan) => {
             const isFeatured = plan.id === "pro_6m";
-            const isMax = plan.id === "pro_1y";
+            const isLifetime = plan.isLifetime;
             const planDiscount = plan.id === "pro" && monthlyDiscount?.active ? monthlyDiscount : null;
+            const featuresList = isLifetime ? lifetimeFeatures : proFeatures;
+
             return (
               <div
                 key={plan.id}
-                className={`border-4 border-black dark:border-white p-6 space-y-6 flex flex-col justify-between relative transition-all ${
-                  isFeatured
-                    ? "bg-emerald-50/70 dark:bg-emerald-950/30 ring-4 ring-emerald-500 shadow-[6px_6px_0px_#10b981]"
-                    : "bg-white dark:bg-zinc-950 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_#10b981]"
+                className={`border-4 p-5 sm:p-6 space-y-6 flex flex-col justify-between relative transition-all ${
+                  isLifetime
+                    ? "border-purple-600 dark:border-purple-400 bg-gradient-to-b from-purple-50 via-white to-purple-50/50 dark:from-purple-950/40 dark:via-zinc-950 dark:to-purple-950/20 shadow-[6px_6px_0px_#7c3aed] dark:shadow-[6px_6px_0px_#a855f7]"
+                    : isFeatured
+                    ? "border-black dark:border-white bg-emerald-50/70 dark:bg-emerald-950/30 ring-4 ring-emerald-500 shadow-[6px_6px_0px_#10b981]"
+                    : "border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_#10b981]"
                 }`}
               >
                 {/* Top Badge */}
                 {(planDiscount || plan.badge) && (
                   <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                    <span className="border-2 border-black dark:border-white bg-amber-300 text-black text-[10px] font-black uppercase px-3 py-0.5 tracking-wider shadow-[2px_2px_0px_rgba(0,0,0,1)] whitespace-nowrap">
+                    <span
+                      className={`border-2 border-black dark:border-white text-[10px] font-black uppercase px-3 py-0.5 tracking-wider shadow-[2px_2px_0px_rgba(0,0,0,1)] whitespace-nowrap flex items-center gap-1 ${
+                        isLifetime
+                          ? "bg-[#FFE600] text-black"
+                          : "bg-amber-300 text-black"
+                      }`}
+                    >
+                      {isLifetime && <Crown className="w-3 h-3 fill-black" />}
                       {planDiscount
                         ? (isAr
                             ? (foundersRemaining !== null
@@ -912,21 +1119,32 @@ export default function PricingClient() {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-xl font-black text-zinc-950 dark:text-white">
-                        Pro · {isAr ? plan.name_ar : plan.name_en}
+                      <h3 className="text-xl font-black text-zinc-950 dark:text-white flex items-center gap-1.5">
+                        {isLifetime && <Crown className="w-5 h-5 text-purple-600 dark:text-yellow-400 shrink-0" />}
+                        {isLifetime ? (isAr ? "مدى الحياة VIP" : "Lifetime VIP") : `Pro · ${isAr ? plan.name_ar : plan.name_en}`}
                       </h3>
                       <span className="text-[11px] font-bold text-zinc-500">
-                        {plan.days} {isAr ? "يوماً كاملة" : "days access"}
+                        {isLifetime
+                          ? (isAr ? "صلاحية دائمة للأبد" : "Permanent forever")
+                          : `${plan.days} ${isAr ? "يوماً كاملة" : "days access"}`}
                       </span>
                     </div>
-                    <span className="text-[10px] font-black border-2 border-black dark:border-white bg-emerald-500 text-white px-2 py-0.5">
-                      PRO
+                    <span
+                      className={`text-[10px] font-black border-2 border-black dark:border-white px-2 py-0.5 ${
+                        isLifetime
+                          ? "bg-purple-600 text-yellow-300 shadow-[1px_1px_0px_#000]"
+                          : "bg-emerald-500 text-white"
+                      }`}
+                    >
+                      {isLifetime ? "VIP 20" : "PRO"}
                     </span>
                   </div>
 
                   <div>
                     <div className="flex items-baseline gap-1">
-                      <span className="text-4xl font-black text-zinc-950 dark:text-white">{plan.amount_egp}</span>
+                      <span className="text-4xl font-black text-zinc-950 dark:text-white">
+                        {plan.amount_egp.toLocaleString()}
+                      </span>
                       <span className="text-xs font-bold text-zinc-500">ج.م</span>
                       {planDiscount && (
                         <span className="ms-1 text-lg font-black text-zinc-400 line-through">
@@ -935,22 +1153,46 @@ export default function PricingClient() {
                       )}
                     </div>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">
-                        {isAr ? `ما يعادل ${plan.monthlyEquivalent} ج.م / شهر` : `EGP ${plan.monthlyEquivalent}/mo`}
-                      </span>
+                      {isLifetime ? (
+                        <span className="text-xs font-bold text-purple-700 dark:text-purple-300 flex items-center gap-1">
+                          <Sparkles className="w-3.5 h-3.5 text-yellow-500" />
+                          {isAr ? "دفعة واحدة للأبد" : "One-time payment"}
+                        </span>
+                      ) : (
+                        <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">
+                          {isAr ? `ما يعادل ${plan.monthlyEquivalent} ج.م / شهر` : `EGP ${plan.monthlyEquivalent}/mo`}
+                        </span>
+                      )}
                       {plan.savingsPct > 0 && (
-                        <span className="border border-emerald-600/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-1.5 py-0.5 text-[10px] font-black rounded">
-                          {isAr ? `توفير ${plan.savingsPct}%` : `${plan.savingsPct}% OFF`}
+                        <span
+                          className={`border px-1.5 py-0.5 text-[10px] font-black rounded ${
+                            isLifetime
+                              ? "border-purple-600/40 bg-purple-500/10 text-purple-700 dark:text-purple-300"
+                              : "border-emerald-600/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                          }`}
+                        >
+                          {isLifetime
+                            ? (isAr ? "أفضل قيمة 👑" : "Best Value 👑")
+                            : (isAr ? `توفير ${plan.savingsPct}%` : `${plan.savingsPct}% OFF`)}
                         </span>
                       )}
                     </div>
                   </div>
 
+                  {/* Seat availability ticker for lifetime card */}
+                  {isLifetime && (
+                    <div className="border border-purple-500/40 bg-purple-500/10 dark:bg-purple-950/40 p-2 text-center text-[11px] font-bold text-purple-900 dark:text-purple-200">
+                      {lifetimeIsOpen
+                        ? (isAr ? `متبقي ${lifetimeRemaining} مقعداً فقط من أصل 20` : `${lifetimeRemaining} of 20 spots remaining`)
+                        : (isAr ? "اكتملت جميع المقاعد (20/20) ❌" : "All 20 spots claimed ❌")}
+                    </div>
+                  )}
+
                   <div className="border-t-2 border-zinc-200 dark:border-zinc-800 pt-4">
                     <ul className="space-y-3">
-                      {proFeatures.map((f, i) => (
+                      {featuresList.map((f, i) => (
                         <li key={i} className="flex items-start gap-2.5 text-xs font-bold leading-tight text-zinc-800 dark:text-zinc-200">
-                          <span className="shrink-0 mt-0.5 text-emerald-500"><Check className="w-3.5 h-3.5" /></span>
+                          <span className="shrink-0 mt-0.5 text-emerald-500">{f.icon || <Check className="w-3.5 h-3.5" />}</span>
                           <span>{f.text}</span>
                         </li>
                       ))}
@@ -960,20 +1202,38 @@ export default function PricingClient() {
 
                 <button
                   type="button"
+                  disabled={isLifetime && !lifetimeIsOpen}
                   onClick={() => {
                     setSelectedPlan(plan.id);
                     setStep("payment");
                   }}
                   className={`w-full flex items-center justify-center gap-2 border-4 border-black dark:border-white py-3.5 px-4 text-xs font-black uppercase tracking-wider shadow-[3px_3px_0px_rgba(0,0,0,1)] hover:-translate-y-0.5 active:translate-y-0 transition-all ${
-                    isFeatured
+                    isLifetime
+                      ? lifetimeIsOpen
+                        ? "bg-[#FFE600] hover:bg-yellow-400 text-black shadow-[3px_3px_0px_#000]"
+                        : "bg-zinc-300 dark:bg-zinc-800 text-zinc-500 cursor-not-allowed"
+                      : isFeatured
                       ? "bg-emerald-500 hover:bg-emerald-600 text-zinc-950 dark:text-black font-black"
                       : "bg-zinc-900 hover:bg-black text-white dark:bg-white dark:text-black dark:hover:bg-zinc-100"
                   }`}
                 >
-                  <LockKeyhole className="w-3.5 h-3.5" />
-                  {isPro
-                    ? isAr ? "تجديد الباقة" : "Renew Plan"
-                    : isAr ? "اشترك في هذه الخطة" : "Subscribe to Plan"}
+                  {isLifetime ? (
+                    <>
+                      <Crown className="w-4 h-4 fill-current" />
+                      {lifetimeIsOpen
+                        ? isPro
+                          ? (isAr ? "ترقية لمدى الحياة (2,250 ج.م)" : "Upgrade to Lifetime")
+                          : (isAr ? "احجز مقعدك (2,250 ج.م) 👑" : "Get Lifetime Deal 👑")
+                        : (isAr ? "اكتملت المقاعد (Sold Out)" : "Sold Out (20/20)")}
+                    </>
+                  ) : (
+                    <>
+                      <LockKeyhole className="w-3.5 h-3.5" />
+                      {isPro
+                        ? isAr ? "تجديد الباقة" : "Renew Plan"
+                        : isAr ? "اشترك في هذه الخطة" : "Subscribe to Plan"}
+                    </>
+                  )}
                 </button>
               </div>
             );

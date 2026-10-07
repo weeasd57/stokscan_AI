@@ -194,7 +194,7 @@ class PaymentConfigTests(unittest.TestCase):
         ):
             config = payment_config()
         plan_ids = [plan["id"] for plan in config["plans"]]
-        self.assertEqual(plan_ids, ["pro", "pro_6m", "pro_1y"])
+        self.assertEqual(plan_ids, ["pro", "pro_6m", "pro_1y", "lifetime"])
         self.assertNotIn("pro_test", plan_ids)
         monthly = config["plans"][0]
         self.assertEqual(monthly["amount_egp"], 50)

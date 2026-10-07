@@ -15,7 +15,19 @@ export async function GET(req: NextRequest) {
     const snapshotAt = now.toISOString();
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
-    const [profilesRes, subscriptionsRes, botSubsRes, eventsRes, chatMessagesRes, chatSessionsRes, paymentsRes, kashierRes, positionsRes] = await Promise.all([
+    const [
+      profilesRes,
+      subscriptionsRes,
+      botSubsRes,
+      eventsRes,
+      chatMessagesRes,
+      chatSessionsRes,
+      paymentsRes,
+      kashierRes,
+      positionsRes,
+      egx30Res,
+      scanResultsRes,
+    ] = await Promise.all([
       supabase.from("profiles").select("id,language,telegram_chat_id,notification_channel,created_at", { count: "exact" }).range(0, 999),
       supabase.from("subscriptions").select("user_id,plan_id,status,current_period_end,created_at"),
       supabase.from("bot_subscriptions").select("service_type,notifications_enabled"),
@@ -25,6 +37,8 @@ export async function GET(req: NextRequest) {
       supabase.from("local_payment_orders").select("user_id,amount_egp,status,provider,payment_review_status,created_at").order("created_at", { ascending: false }).limit(500),
       supabase.from("kashier_payments").select("user_id,amount_paid,status,created_at").order("created_at", { ascending: false }).limit(500),
       supabase.from("positions").select("user_id,symbol,status").eq("status", "open").limit(10000),
+      supabase.from("stock_prices").select("date,close").eq("symbol", "EGX30").order("date", { ascending: true }).limit(1000),
+      supabase.from("scan_results").select("id,created_at").limit(50000),
     ]);
 
     if (profilesRes.error) return NextResponse.json({ detail: profilesRes.error.message }, { status: 500 });
@@ -153,10 +167,12 @@ export async function GET(req: NextRequest) {
     const daysToLookBack = Math.max(Math.ceil((now.getTime() - earliestTime) / (1000 * 60 * 60 * 24)), 29);
     const signupsByDay: Record<string, number> = {};
     const proSignupsByDay: Record<string, number> = {};
+    const recsByDay: Record<string, number> = {};
     for (let i = daysToLookBack; i >= 0; i -= 1) {
       const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
       signupsByDay[date] = 0;
       proSignupsByDay[date] = 0;
+      recsByDay[date] = 0;
     }
     allProfiles.forEach((profile: any) => {
       const date = new Date(profile.created_at).toISOString().split("T")[0];
@@ -173,23 +189,62 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    // Build cumulative active Pro subscribers over time for accurate timeline tracking
+    // Track platform recommendations per day from scan_results
+    const scanResults = scanResultsRes?.data || [];
+    scanResults.forEach((scan: any) => {
+      if (scan.created_at) {
+        const date = new Date(scan.created_at).toISOString().split("T")[0];
+        if (date in recsByDay) recsByDay[date] += 1;
+      }
+    });
+
+    // Map daily EGX30 closing index prices
+    const egxPrices = egx30Res?.data || [];
+    const egxByDay: Record<string, number> = {};
+    egxPrices.forEach((row: any) => {
+      if (row.date && row.close != null) {
+        egxByDay[row.date] = Number(row.close);
+      }
+    });
+
+    // Seed last known EGX30 closing price before timeline start
+    let lastKnownEgx30: number | null = null;
+    const sortedTimelineDates = Object.keys(signupsByDay);
+    const firstDate = sortedTimelineDates[0];
+    const sortedEgxDates = Object.keys(egxByDay).sort();
+    for (const d of sortedEgxDates) {
+      if (d <= firstDate) {
+        lastKnownEgx30 = egxByDay[d];
+      } else {
+        break;
+      }
+    }
+
+    // Build timeline with cumulative/daily Pro, recommendations and forward-filled EGX30
     let cumulativePro = 0;
-    const growthTimeline = Object.entries(signupsByDay).map(([date, count]) => {
+    const growthTimeline = sortedTimelineDates.map((date) => {
+      const count = signupsByDay[date] || 0;
       const newPro = proSignupsByDay[date] || 0;
       cumulativePro += newPro;
+      if (egxByDay[date] != null) {
+        lastKnownEgx30 = egxByDay[date];
+      }
       return {
         date: date.slice(5),
         fullDate: date,
         count, // new daily users
         proCount: newPro, // new daily pro subscribers
         totalPro: cumulativePro, // cumulative active pro subscribers
+        recommendationsCount: recsByDay[date] || 0, // daily recommendations issued
+        egx30: egxByDay[date] ?? lastKnownEgx30 ?? null, // EGX30 index closing level
       };
     });
 
     const planMap = analytics.plans;
     return NextResponse.json({
       totalUsers: totalProfileCount,
+      totalRecommendations: scanResults.length,
+      currentEgx30: lastKnownEgx30,
       newUsers30Days,
       newUsers7Days,
       withTelegram,

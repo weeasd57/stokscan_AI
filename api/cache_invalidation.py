@@ -24,6 +24,7 @@ TAG_MARKET = "daily-market-data"
 TAG_NEWS = "daily-news-data"
 TAG_RECOMMENDATIONS = "daily-recommendations"
 TAG_SYMBOLS = "daily-symbols"
+TAG_SHORT_SWINGS = "daily-short-swings"
 
 # Steps that must complete before a tag's data can be considered refreshed.
 # `required_all` must every succeed; `required_any` needs at least one, which
@@ -34,6 +35,7 @@ TAG_STEP_REQUIREMENTS: Dict[str, Dict[str, tuple]] = {
     TAG_NEWS: {"required_all": ("news_sentiment",), "required_any": ()},
     TAG_RECOMMENDATIONS: {"required_all": (), "required_any": ("generate_recommendations", "evaluate_recommendations")},
     TAG_SYMBOLS: {"required_all": ("sync_inventory",), "required_any": ()},
+    TAG_SHORT_SWINGS: {"required_all": ("short_swings_daily",), "required_any": ()},
 }
 
 # Losing the price sync makes every downstream daily payload stale, so the run

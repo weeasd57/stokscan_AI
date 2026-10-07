@@ -57,7 +57,8 @@ export function planLimits(planId?: string | null): PlanLimits {
   if (!paymentsEnabled()) {
     return { ...UNLIMITED };
   }
-  return (planId || "").toLowerCase() === "pro" ? { ...PRO } : { ...FREE };
+  const p = (planId || "").toLowerCase();
+  return ["pro", "lifetime", "pro_lifetime"].includes(p) ? { ...PRO, name: planId || "pro" } : { ...FREE };
 }
 
 export function isPro(rows: Array<{ plan_id?: unknown; status?: unknown; current_period_end?: unknown | null }>): boolean {
@@ -67,7 +68,7 @@ export function isPro(rows: Array<{ plan_id?: unknown; status?: unknown; current
   const now = Date.now();
   for (const row of rows || []) {
     const plan = String(row.plan_id || "").toLowerCase();
-    if (plan !== "pro" || String(row.status || "").toLowerCase() !== "active") {
+    if (!["pro", "lifetime", "pro_lifetime"].includes(plan) || String(row.status || "").toLowerCase() !== "active") {
       continue;
     }
     if (row.current_period_end) {
@@ -85,7 +86,8 @@ export function isPro(rows: Array<{ plan_id?: unknown; status?: unknown; current
 export function hasActiveProSubscription(rows: Array<{ plan_id?: unknown; status?: unknown; current_period_end?: unknown | null }>): boolean {
   const now = Date.now();
   return (rows || []).some((row) => {
-    if (String(row.plan_id || "").toLowerCase() !== "pro") return false;
+    const plan = String(row.plan_id || "").toLowerCase();
+    if (!["pro", "lifetime", "pro_lifetime"].includes(plan)) return false;
     if (!["active", "trialing"].includes(String(row.status || "").toLowerCase())) return false;
     if (!row.current_period_end) return true;
     const end = new Date(String(row.current_period_end)).getTime();

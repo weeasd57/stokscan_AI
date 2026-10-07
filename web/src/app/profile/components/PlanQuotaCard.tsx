@@ -24,6 +24,7 @@ interface QuotaData {
     id: string;
     label: string;
     is_pro: boolean;
+    is_lifetime?: boolean;
     status: string;
     current_period_end: string | null;
     created_at: string | null;
@@ -155,12 +156,14 @@ export default function PlanQuotaCard({ refreshTrigger = 0 }: Props) {
               </h2>
               <span
                 className={`text-xs font-black uppercase px-2.5 py-0.5 border-2 border-black dark:border-white shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] ${
-                  isPro
+                  data?.plan?.is_lifetime
+                    ? "bg-purple-600 text-yellow-300"
+                    : isPro
                     ? "bg-emerald-500 text-white"
                     : "bg-zinc-200 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-100"
                 }`}
               >
-                {isPro ? "PRO" : isAr ? "مجاني" : "FREE"}
+                {data?.plan?.is_lifetime ? "LIFETIME VIP 👑" : isPro ? "PRO" : isAr ? "مجاني" : "FREE"}
               </span>
               {data?.plan?.is_founding_member && (
                 <span className="text-[10px] font-black uppercase px-2 py-0.5 border-2 border-black bg-gradient-to-r from-amber-400 to-[#FFE600] text-black shadow-[2px_2px_0px_rgba(0,0,0,1)] flex items-center gap-1">
@@ -169,7 +172,11 @@ export default function PlanQuotaCard({ refreshTrigger = 0 }: Props) {
               )}
             </div>
             <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400 mt-0.5">
-              {isPro
+              {data?.plan?.is_lifetime
+                ? isAr
+                  ? "عضوية مدى الحياة نشطة للأبد (بدون تجديد أو انتهاء)"
+                  : "Permanent lifetime membership (never expires)"
+                : isPro
                 ? isAr
                   ? "اشتراك Pro نشط مع كامل الصلاحيات"
                   : "Active Pro subscription with full access"
@@ -372,17 +379,28 @@ export default function PlanQuotaCard({ refreshTrigger = 0 }: Props) {
         </div>
       </div>
 
-      {/* ── Pro Plan Subscription Details Footer ── */}
-      {isPro && data?.plan?.current_period_end && (
+      {/* ── Pro / Lifetime Subscription Details Footer ── */}
+      {isPro && (
         <div className="mt-5 pt-4 border-t-2 border-emerald-500/30 space-y-2">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs font-bold text-zinc-600 dark:text-zinc-300">
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
               <span>
-                {isAr ? "تاريخ تجديد / انتهاء الاشتراك:" : "Renewal / Expiry date:"}{" "}
-                <strong className="text-black dark:text-white">
-                  {formatDate(data.plan.current_period_end)}
-                </strong>
+                {data?.plan?.is_lifetime ? (
+                  <>
+                    {isAr ? "صلاحية الحساب:" : "Account Validity:"}{" "}
+                    <strong className="text-purple-600 dark:text-purple-400 font-black">
+                      {isAr ? "مدى الحياة للأبد (اشتراك دائم) 👑" : "Lifetime Forever (Permanent) 👑"}
+                    </strong>
+                  </>
+                ) : (
+                  <>
+                    {isAr ? "تاريخ تجديد / انتهاء الاشتراك:" : "Renewal / Expiry date:"}{" "}
+                    <strong className="text-black dark:text-white">
+                      {formatDate(data?.plan?.current_period_end || null)}
+                    </strong>
+                  </>
+                )}
               </span>
             </div>
             <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
@@ -391,7 +409,7 @@ export default function PlanQuotaCard({ refreshTrigger = 0 }: Props) {
             </span>
           </div>
 
-          {data?.plan?.is_founding_member && (
+          {!data?.plan?.is_lifetime && data?.plan?.is_founding_member && (
             <div className="border border-amber-400/50 bg-amber-500/10 dark:bg-amber-950/20 p-2.5 rounded-none flex items-center justify-between gap-2 text-[11px] font-bold text-amber-900 dark:text-amber-300">
               <span className="flex items-center gap-1.5">
                 <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />

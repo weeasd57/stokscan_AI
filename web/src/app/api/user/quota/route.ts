@@ -42,7 +42,7 @@ export async function GET() {
 
     const pro = hasActiveProSubscription(subRows || []);
     const activeSub = subRows?.[0];
-    const planName = pro ? "pro" : "free";
+    const planName = pro ? (activeSub?.plan_id === "lifetime" ? "lifetime" : "pro") : "free";
     const limits = planLimits(planName);
 
     // 2. Chatbot messages used — read from the permanent ledger (ai_chatbot_limits).
@@ -101,7 +101,7 @@ export async function GET() {
 
     const portfolioLimit = limits.portfolio_stocks;
 
-    // 4. Founding member detection (first 100 distinct Pro members)
+    // 4. Founding member detection (first 100 distinct Pro / Lifetime members)
     let isFoundingMember = false;
     let foundingMemberNumber: number | null = null;
     if (pro) {
@@ -109,7 +109,7 @@ export async function GET() {
         .from("subscriptions")
         .select("user_id, created_at")
         .eq("status", "active")
-        .eq("plan_id", "pro")
+        .in("plan_id", ["pro", "lifetime", "pro_lifetime"])
         .order("created_at", { ascending: true })
         .limit(200);
       
@@ -124,12 +124,15 @@ export async function GET() {
       }
     }
 
+    const isLifetime = activeSub?.plan_id === "lifetime" || activeSub?.plan_id === "pro_lifetime";
+
     return NextResponse.json({
       ok: true,
       plan: {
         id: planName,
-        label: pro ? "Pro" : "مجاني",
+        label: isLifetime ? "مدى الحياة (Lifetime)" : (pro ? "Pro" : "مجاني"),
         is_pro: pro,
+        is_lifetime: isLifetime,
         status: activeSub?.status || "active",
         current_period_end: activeSub?.current_period_end || null,
         created_at: activeSub?.created_at || null,

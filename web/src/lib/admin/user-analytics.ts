@@ -110,7 +110,7 @@ export function buildUserAnalytics(input: {
   const excludedIds = input.excludeUserIds || new Set<string>();
   const activeProIds = new Set([...unique(
     (input.subscriptions || [])
-      .filter((sub) => String(sub.plan_id || "").toLowerCase() === "pro" && String(sub.status || "").toLowerCase() === "active" && !excludedIds.has(String(sub.user_id)))
+      .filter((sub) => ["pro", "lifetime", "pro_lifetime"].includes(String(sub.plan_id || "").toLowerCase()) && String(sub.status || "").toLowerCase() === "active" && !excludedIds.has(String(sub.user_id)))
       .map((sub) => String(sub.user_id))
   )].filter((id) => profileIds.has(id)));
   const pageEvents = (input.events || []).filter((event) => !event.event_name || event.event_name === "page_view");

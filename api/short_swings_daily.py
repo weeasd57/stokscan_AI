@@ -3,12 +3,13 @@ Daily Short Swings Automation & Telegram Dispatch Module
 Coordinates EOD short swings computation and dual-channel Telegram publishing:
 - VIP Channel: Complete, unmasked trade alerts with entry prices, -4% stop loss, breakeven lock, and EMA10 trailing stops.
 - Free Channel: Masked teaser alerts highlighting institutional volume surges and sectors with PRO upgrade links.
+- Verified Outbox Receipts: Atomic, per-channel receipt tracking ensuring failed notifications can be retried without duplicate broadcasts.
 """
 import os
 import sys
 import json
 import datetime as dt
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Set
 from zoneinfo import ZoneInfo
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -30,9 +31,10 @@ def _get_supabase_client():
 
 
 def _get_sent_cache_state(sb, as_of_date: str) -> Dict[str, Any]:
-    """Retrieve delivery history for short swings to avoid double-posting."""
+    """Retrieve verified delivery history for short swings to avoid double-posting."""
+    empty_state = {"sent_entries": {}, "sent_exits": {}, "last_updated": None}
     if not sb:
-        return {"sent_entries": [], "sent_exits": []}
+        return empty_state
     try:
         res = (
             sb.table("market_cache")
@@ -44,10 +46,22 @@ def _get_sent_cache_state(sb, as_of_date: str) -> Dict[str, Any]:
         )
         row = getattr(res, "data", None)
         if row and isinstance(row.get("payload"), dict):
-            return row["payload"]
+            payload = row["payload"]
+            # Backwards compatibility: convert legacy lists to dictionaries
+            entries = payload.get("sent_entries", {})
+            if isinstance(entries, list):
+                entries = {sym: {"vip": True, "free": True} for sym in entries}
+            exits = payload.get("sent_exits", {})
+            if isinstance(exits, list):
+                exits = {k: {"vip": True, "free": True} for k in exits}
+            return {
+                "sent_entries": entries,
+                "sent_exits": exits,
+                "last_updated": payload.get("last_updated")
+            }
     except Exception as e:
         print(f"[SHORT_SWINGS_DAILY] Failed to fetch sent cache: {e}")
-    return {"sent_entries": [], "sent_exits": []}
+    return empty_state
 
 
 def _save_sent_cache_state(sb, as_of_date: str, state: Dict[str, Any]):
@@ -58,7 +72,7 @@ def _save_sent_cache_state(sb, as_of_date: str, state: Dict[str, Any]):
             "cache_key": f"short_swings_sent_{as_of_date}",
             "country": "Egypt",
             "payload": state,
-            "computed_at": dt.datetime.utcnow().isoformat()
+            "computed_at": dt.datetime.now(dt.timezone.utc).isoformat()
         }).execute()
     except Exception as e:
         print(f"[SHORT_SWINGS_DAILY] Failed to save sent cache: {e}")
@@ -78,16 +92,17 @@ def build_vip_entry_message(trades: List[Dict[str, Any]], as_of_date: str, web_o
         sym = t.get("symbol", "")
         name = t.get("name_ar", sym)
         close_ref = float(t.get("reference_close") or t.get("entry_price") or t.get("current_price") or 0.0)
-        sl_price = float(t.get("trailing_stop") or (close_ref * 0.96))
+        sl_price = float(t.get("stop_loss") or t.get("trailing_stop") or (close_ref * 0.96))
+        sl_pct = ((sl_price / close_ref) - 1.0) * 100.0 if close_ref > 0 else -4.0
         sig_type = t.get("trigger_type", "اختراق قمة 20 جلسة مع انفجار سيولة")
         sector = t.get("sector", "عام")
 
         lines.extend([
             f"🔹 *{name}* (`{sym}`) — قطاع {sector}",
             f"  • *سعر الإغلاق المرجعي:* `{close_ref:.2f}` ج.م",
-            f"  • *نقطة الدخول المقترحة:* مع افتتاح جلسة الغد (شرط عدم الافتتاح بفجوة صاعدة > 2%)",
-            f"  • *وقف الخسارة الصارم:* `{sl_price:.2f}` ج.م (-4.0% من الإغلاق)",
-            f"  • *تأمين الصفقة (Breakeven):* عند وصول السعر إلى `+{close_ref * 1.045:.2f}` ج.م (+4.5%) يُرفع الوقف لنقطة الدخول فوراً.",
+            f"  • *نقطة الدخول المقترحة:* مع افتتاح جلسة الغد (شرط عدم الافتتاح بفجوة صاعدة > 2.0%)",
+            f"  • *وقف الخسارة الصارم:* `{sl_price:.2f}` ج.م (`{sl_pct:.1f}%` من الإغلاق)",
+            f"  • *تأمين الصفقة (Breakeven):* عند وصول السعر إلى `+{close_ref * 1.045:.2f}` ج.م (+4.5%) يُرفع الوقف لنقطة الدخول بدءاً من الجلسة التالية.",
             f"  • *استراتيجية جني الأرباح:* الوقف يتبع متوسط `EMA10` يومياً لركوب كامل الموجة 🚀",
             f"  • *النموذج الفني:* {sig_type}",
             ""
@@ -148,8 +163,8 @@ def build_vip_exit_message(exits: List[Dict[str, Any]], as_of_date: str, web_ori
         ret = e.get("return_pct", 0.0)
         entry = e.get("entry_price", 0.0)
         exit_p = e.get("exit_price", 0.0)
-        days = e.get("holding_days", 1)
-        reason = e.get("exit_reason", "إغلاق حسب الخطة")
+        days = e.get("sessions") or e.get("holding_days") or 1
+        reason = e.get("exit_reason") or e.get("reason") or "إغلاق حسب الخطة"
         sign = "+" if ret >= 0 else ""
         icon = "🟢" if ret > 0 else "🔴"
 
@@ -186,7 +201,7 @@ def build_free_exit_message(exits: List[Dict[str, Any]], as_of_date: str, web_or
         sym = e.get("symbol", "")
         name = e.get("name_ar", sym)
         ret = e.get("return_pct", 0.0)
-        days = e.get("holding_days", 1)
+        days = e.get("sessions") or e.get("holding_days") or 1
         lines.append(f"✅ *{name}* (`{sym}`): حقق `+{ret:.1f}%` خلال `{days}` جلسات تداول فقط!")
 
     lines.extend([
@@ -204,7 +219,7 @@ def run_daily_short_swings(trigger: str = "manual", dry_run: bool = False) -> Di
     Main entry point for EOD daily execution:
     1. Computes all active & closed short swings.
     2. Identifies new entries and exits for today's session.
-    3. Sends Telegram alerts to VIP & Free channels.
+    3. Sends Telegram alerts to VIP & Free channels with verified receipt tracking.
     """
     print("\n[SHORT_SWINGS_DAILY] Calculating short swings for EGX market...")
     swings = compute_short_swings()
@@ -215,112 +230,195 @@ def run_daily_short_swings(trigger: str = "manual", dry_run: bool = False) -> Di
 
     sb = _get_supabase_client()
     state = _get_sent_cache_state(sb, as_of)
-    sent_entries = set(state.get("sent_entries", []))
-    sent_exits = set(state.get("sent_exits", []))
+    sent_entries = dict(state.get("sent_entries", {}))
+    sent_exits = dict(state.get("sent_exits", {}))
 
-    # 1. Identify newly triggered pending entries for TOMORROW'S session that haven't been alerted yet
-    # These are high-priority pre-market swing signals generated at today's close.
-    new_entries = [
+    # Identify pending entries for tomorrow
+    candidate_entries = [
         t for t in active_trades
-        if t.get("is_pending_entry") and t.get("symbol") not in sent_entries
+        if t.get("is_pending_entry")
+    ]
+    if not candidate_entries:
+        candidate_entries = [
+            t for t in active_trades
+            if t.get("entry_date") == as_of
+        ]
+    if not candidate_entries and trigger == "manual":
+        candidate_entries = active_trades[:2]
+
+    # Partition entries by channel necessity
+    vip_entries_to_send = [
+        t for t in candidate_entries
+        if not sent_entries.get(t.get("symbol", ""), {}).get("vip", False)
+    ]
+    free_entries_to_send = [
+        t for t in candidate_entries
+        if not sent_entries.get(t.get("symbol", ""), {}).get("free", False)
     ]
 
-    # If no pending entry flag, fall back to today's entry_date
-    if not new_entries:
-        new_entries = [
-            t for t in active_trades
-            if t.get("entry_date") == as_of and t.get("symbol") not in sent_entries
-        ]
-
-    # If manual trigger test with no fresh alerts, pick latest 1-2 active unalerted
-    if not new_entries and trigger == "manual":
-        new_entries = [t for t in active_trades if t.get("symbol") not in sent_entries][:2]
-
-    # 2. Identify exits closed today
-    recent_exits = [
+    # Exits closed today
+    candidate_exits = [
         e for e in closed_trades
-        if e.get("exit_date") == as_of and f"{e.get('symbol')}_{e.get('exit_date')}" not in sent_exits
+        if e.get("exit_date") == as_of
+    ]
+    vip_exits_to_send = [
+        e for e in candidate_exits
+        if not sent_exits.get(f"{e.get('symbol')}_{e.get('exit_date')}", {}).get("vip", False)
+    ]
+    free_exits_to_send = [
+        e for e in candidate_exits
+        if not sent_exits.get(f"{e.get('symbol')}_{e.get('exit_date')}", {}).get("free", False)
     ]
 
     delivery_report = {
         "as_of": as_of,
         "total_active": len(active_trades),
         "total_closed": len(closed_trades),
-        "new_entries_count": len(new_entries),
-        "recent_exits_count": len(recent_exits),
+        "vip_entries_count": len(vip_entries_to_send),
+        "free_entries_count": len(free_entries_to_send),
+        "vip_exits_count": len(vip_exits_to_send),
+        "free_exits_count": len(free_exits_to_send),
         "vip_entries_sent": False,
         "free_entries_sent": False,
         "vip_exits_sent": False,
-        "free_exits_sent": False
+        "free_exits_sent": False,
+        "failures": []
     }
 
-    print(f"[SHORT_SWINGS_DAILY] Found {len(new_entries)} new entries and {len(recent_exits)} new exits as of {as_of}.")
+    print(f"[SHORT_SWINGS_DAILY] Actionable: VIP entries={len(vip_entries_to_send)}, Free entries={len(free_entries_to_send)}, VIP exits={len(vip_exits_to_send)}, Free exits={len(free_exits_to_send)} as of {as_of}.")
 
     if dry_run:
         print("[SHORT_SWINGS_DAILY] Dry run enabled; skipping Telegram notifications.")
-        return {"success": True, "message": f"Dry run: {len(new_entries)} entries, {len(recent_exits)} exits", "report": delivery_report}
+        return {
+            "success": True,
+            "status": "dry_run",
+            "message": f"Dry run: {len(vip_entries_to_send)} VIP entries, {len(vip_exits_to_send)} VIP exits",
+            "report": delivery_report
+        }
 
     from api.daily_bot_run import _notify_vip_telegram, _notify_free_telegram, _telegram_recommendation_writes_enabled
 
     if not _telegram_recommendation_writes_enabled():
         print("[SHORT_SWINGS_DAILY] Telegram recommendation writes are disabled.")
-        return {"success": True, "message": "Telegram writes disabled", "report": delivery_report}
+        return {
+            "success": True,
+            "status": "disabled",
+            "message": "Telegram writes disabled",
+            "report": delivery_report
+        }
 
-    # Dispatch New Entries
-    if new_entries:
-        vip_msg = build_vip_entry_message(new_entries, as_of, web_origin)
-        free_msg = build_free_entry_message(new_entries, as_of, web_origin)
+    has_attempted_sends = False
+    all_sends_succeeded = True
+    now_iso = dt.datetime.now(dt.timezone.utc).isoformat()
 
+    # 1. Dispatch VIP Entries
+    if vip_entries_to_send:
+        has_attempted_sends = True
+        vip_msg = build_vip_entry_message(vip_entries_to_send, as_of, web_origin)
         try:
-            vip_outcome = _notify_vip_telegram(vip_msg, "short_swings_vip_entry")
-            delivery_report["vip_entries_sent"] = bool(vip_outcome)
-            print(f"[SHORT_SWINGS_DAILY] VIP entry notification: {'Sent' if vip_outcome else 'Failed'}")
+            vip_outcome = bool(_notify_vip_telegram(vip_msg, "short_swings_vip_entry"))
+            delivery_report["vip_entries_sent"] = vip_outcome
+            if vip_outcome:
+                for t in vip_entries_to_send:
+                    sym = t.get("symbol", "")
+                    entry_rec = sent_entries.setdefault(sym, {"vip": False, "free": False, "date": as_of})
+                    entry_rec["vip"] = True
+                    entry_rec["vip_sent_at"] = now_iso
+                print(f"[SHORT_SWINGS_DAILY] VIP entries successfully broadcasted ({len(vip_entries_to_send)}).")
+            else:
+                all_sends_succeeded = False
+                delivery_report["failures"].append("vip_entries")
+                print("[SHORT_SWINGS_DAILY] VIP entries delivery failed.")
         except Exception as e:
-            print(f"[SHORT_SWINGS_DAILY] Failed to send VIP entries: {e}")
+            all_sends_succeeded = False
+            delivery_report["failures"].append(f"vip_entries_exc: {e}")
+            print(f"[SHORT_SWINGS_DAILY] Exception broadcasting VIP entries: {e}")
 
+    # 2. Dispatch Free Entries Teaser
+    if free_entries_to_send:
+        has_attempted_sends = True
+        free_msg = build_free_entry_message(free_entries_to_send, as_of, web_origin)
         try:
-            free_outcome = _notify_free_telegram(free_msg, "short_swings_free_teaser")
-            delivery_report["free_entries_sent"] = bool(free_outcome)
-            print(f"[SHORT_SWINGS_DAILY] Free teaser notification: {'Sent' if free_outcome else 'Failed'}")
+            free_outcome = bool(_notify_free_telegram(free_msg, "short_swings_free_teaser"))
+            delivery_report["free_entries_sent"] = free_outcome
+            if free_outcome:
+                for t in free_entries_to_send:
+                    sym = t.get("symbol", "")
+                    entry_rec = sent_entries.setdefault(sym, {"vip": False, "free": False, "date": as_of})
+                    entry_rec["free"] = True
+                    entry_rec["free_sent_at"] = now_iso
+                print(f"[SHORT_SWINGS_DAILY] Free entries teaser successfully broadcasted ({len(free_entries_to_send)}).")
+            else:
+                all_sends_succeeded = False
+                delivery_report["failures"].append("free_entries")
+                print("[SHORT_SWINGS_DAILY] Free entries teaser delivery failed.")
         except Exception as e:
-            print(f"[SHORT_SWINGS_DAILY] Failed to send Free entries teaser: {e}")
+            all_sends_succeeded = False
+            delivery_report["failures"].append(f"free_entries_exc: {e}")
+            print(f"[SHORT_SWINGS_DAILY] Exception broadcasting Free entries: {e}")
 
-        # Update sent cache
-        for t in new_entries:
-            sent_entries.add(t.get("symbol"))
-
-    # Dispatch Exits
-    if recent_exits:
-        vip_exit_msg = build_vip_exit_message(recent_exits, as_of, web_origin)
-        free_exit_msg = build_free_exit_message(recent_exits, as_of, web_origin)
-
+    # 3. Dispatch VIP Exits
+    if vip_exits_to_send:
+        has_attempted_sends = True
+        vip_exit_msg = build_vip_exit_message(vip_exits_to_send, as_of, web_origin)
         try:
-            vip_exit_outcome = _notify_vip_telegram(vip_exit_msg, "short_swings_vip_exit")
-            delivery_report["vip_exits_sent"] = bool(vip_exit_outcome)
+            vip_exit_outcome = bool(_notify_vip_telegram(vip_exit_msg, "short_swings_vip_exit"))
+            delivery_report["vip_exits_sent"] = vip_exit_outcome
+            if vip_exit_outcome:
+                for e in vip_exits_to_send:
+                    k = f"{e.get('symbol')}_{e.get('exit_date')}"
+                    exit_rec = sent_exits.setdefault(k, {"vip": False, "free": False, "date": as_of})
+                    exit_rec["vip"] = True
+                    exit_rec["vip_sent_at"] = now_iso
+                print(f"[SHORT_SWINGS_DAILY] VIP exits successfully broadcasted ({len(vip_exits_to_send)}).")
+            else:
+                all_sends_succeeded = False
+                delivery_report["failures"].append("vip_exits")
+                print("[SHORT_SWINGS_DAILY] VIP exits delivery failed.")
         except Exception as e:
-            print(f"[SHORT_SWINGS_DAILY] Failed to send VIP exits: {e}")
+            all_sends_succeeded = False
+            delivery_report["failures"].append(f"vip_exits_exc: {e}")
+            print(f"[SHORT_SWINGS_DAILY] Exception broadcasting VIP exits: {e}")
 
+    # 4. Dispatch Free Exits Recap
+    if free_exits_to_send:
+        free_exit_msg = build_free_exit_message(free_exits_to_send, as_of, web_origin)
         if free_exit_msg:
+            has_attempted_sends = True
             try:
-                free_exit_outcome = _notify_free_telegram(free_exit_msg, "short_swings_free_exit")
-                delivery_report["free_exits_sent"] = bool(free_exit_outcome)
+                free_exit_outcome = bool(_notify_free_telegram(free_exit_msg, "short_swings_free_exit"))
+                delivery_report["free_exits_sent"] = free_exit_outcome
+                if free_exit_outcome:
+                    for e in free_exits_to_send:
+                        k = f"{e.get('symbol')}_{e.get('exit_date')}"
+                        exit_rec = sent_exits.setdefault(k, {"vip": False, "free": False, "date": as_of})
+                        exit_rec["free"] = True
+                        exit_rec["free_sent_at"] = now_iso
+                    print(f"[SHORT_SWINGS_DAILY] Free exits recap successfully broadcasted.")
+                else:
+                    all_sends_succeeded = False
+                    delivery_report["failures"].append("free_exits")
+                    print("[SHORT_SWINGS_DAILY] Free exits delivery failed.")
             except Exception as e:
-                print(f"[SHORT_SWINGS_DAILY] Failed to send Free exits: {e}")
+                all_sends_succeeded = False
+                delivery_report["failures"].append(f"free_exits_exc: {e}")
+                print(f"[SHORT_SWINGS_DAILY] Exception broadcasting Free exits: {e}")
 
-        for e in recent_exits:
-            sent_exits.add(f"{e.get('symbol')}_{e.get('exit_date')}")
-
-    # Persist updated sent state
+    # Persist updated sent state ONLY with verified receipts
     _save_sent_cache_state(sb, as_of, {
-        "sent_entries": list(sent_entries),
-        "sent_exits": list(sent_exits),
-        "last_updated": dt.datetime.utcnow().isoformat()
+        "sent_entries": sent_entries,
+        "sent_exits": sent_exits,
+        "last_updated": dt.datetime.now(dt.timezone.utc).isoformat()
     })
 
+    overall_success = all_sends_succeeded if has_attempted_sends else True
+    status = "completed" if (has_attempted_sends and all_sends_succeeded) else ("partial" if (has_attempted_sends and not all_sends_succeeded) else "noop")
+
     return {
-        "success": True,
-        "message": f"Processed short swings: {len(new_entries)} new, {len(recent_exits)} exits",
-        "count": len(new_entries) + len(recent_exits),
+        "success": overall_success,
+        "status": status,
+        "message": f"Processed short swings (status={status}): {len(vip_entries_to_send)} VIP entries, {len(vip_exits_to_send)} VIP exits",
+        "count": len(vip_entries_to_send) + len(vip_exits_to_send),
         "report": delivery_report
     }
 

@@ -1,27 +1,43 @@
+import os
 import datetime as dt
-from fastapi import APIRouter, Query, Request, HTTPException
+from fastapi import APIRouter, Query, Request, HTTPException, Header
 from typing import Optional
 from api.short_swings_engine import get_cached_short_swings, compute_short_swings
 
 router = APIRouter(prefix="/api/short-swings", tags=["Short Swings"])
+
+
+def _is_internal_authorized(x_admin_key: Optional[str]) -> bool:
+    secret = (os.getenv("ADMIN_SECRET_KEY") or "").strip()
+    if not secret:
+        return True
+    return bool(x_admin_key and x_admin_key.strip() == secret)
+
 
 @router.get("")
 @router.get("/")
 def get_short_swings(
     request: Request,
     is_pro: bool = Query(False, description="Whether the requesting user has an active PRO subscription"),
-    refresh: bool = Query(False, description="Force recompute signals")
+    refresh: bool = Query(False, description="Force recompute signals"),
+    x_admin_key: Optional[str] = Header(None, alias="x-admin-key"),
 ):
     """
     Fetch active and historical short swing trades.
 
-    Encryption rules:
-      - Closed trades: NEVER encrypted for any user. Historical record is always fully visible.
+    Security & Entitlement:
+      - Closed trades: NEVER encrypted for any user. Historical record is always fully visible for auditing.
       - Active (open) trades: locked (is_locked=True) for free users ONLY IF entry_date is
-        within the last 15 days (the signal is still fresh & actionable).
-        Active trades older than 15 days are shown freely — the signal is no longer a live edge.
-      - PRO users: all trades fully unmasked at all times.
+        within the last 15 days (the signal is still fresh & actionable) or pending for tomorrow.
+        Active trades older than 15 days are shown freely.
+      - PRO unmasking and cache refresh require authenticated internal request (x-admin-key header).
+        Unauthenticated callers requesting is_pro=True or refresh=True are safely coerced to is_pro=False.
     """
+    is_internal = _is_internal_authorized(x_admin_key)
+    if not is_internal:
+        is_pro = False
+        refresh = False
+
     data = compute_short_swings() if refresh else get_cached_short_swings()
     cutoff_date = (dt.date.today() - dt.timedelta(days=15)).strftime("%Y-%m-%d")
 
@@ -35,6 +51,7 @@ def get_short_swings(
             if is_recent:
                 sym = t.get("symbol", "")
                 masked_active.append({
+                    "signal_id": t.get("signal_id"),
                     "symbol": (sym[:2] + "**") if len(sym) > 2 else "**",
                     "name_ar": "سهم قيادي مشفر (متاح لـ PRO)",
                     "name_en": "PRO Signal",
@@ -45,6 +62,8 @@ def get_short_swings(
                     "current_price": None,
                     "reference_close": None,
                     "trailing_stop": None,
+                    "stop_loss": None,
+                    "ema10_trend": None,
                     "return_pct": t.get("return_pct", 0.0),
                     "is_breakeven_protected": t.get("is_breakeven_protected", False),
                     "max_gain_pct": t.get("max_gain_pct", 0.0),
@@ -54,36 +73,35 @@ def get_short_swings(
                     "is_locked": True
                 })
             else:
-                # Active trade but entry is older than 15 days — show freely
                 masked_active.append({**t, "is_locked": False})
 
-        # Closed trades: ALWAYS fully visible for every user — historical audit is never restricted.
         unmasked_closed = [{**t, "is_locked": False} for t in data.get("closed_trades", [])]
 
         return {
+            "status": data.get("status", "ok"),
             "is_pro": False,
             "kpis": data.get("kpis", {}),
             "active_trades": masked_active,
             "closed_trades": unmasked_closed,
-            "total_active": data.get("total_active", 0),
-            "total_closed": data.get("total_closed", 0),
+            "total_active": data.get("total_active", len(masked_active)),
+            "total_closed": data.get("total_closed", len(unmasked_closed)),
             "as_of": data.get("as_of"),
             "cutoff_date_15d": cutoff_date,
             "upgrade_cta": "اشترك في باقة PRO للوصول اللحظي لإشارات الصفقات القصيرة فور ظهورها ومستويات الوقف المتحرك اليومية."
         }
-    
+
     # PRO users: all trades unmasked
     unmasked_closed = [{**t, "is_locked": False} for t in data.get("closed_trades", [])]
     unmasked_active = [{**t, "is_locked": False} for t in data.get("active_trades", [])]
 
     return {
+        "status": data.get("status", "ok"),
         "is_pro": True,
         "kpis": data.get("kpis", {}),
         "active_trades": unmasked_active,
         "closed_trades": unmasked_closed,
-        "total_active": data.get("total_active", 0),
-        "total_closed": data.get("total_closed", 0),
+        "total_active": data.get("total_active", len(unmasked_active)),
+        "total_closed": data.get("total_closed", len(unmasked_closed)),
         "as_of": data.get("as_of"),
         "cutoff_date_15d": cutoff_date
     }
-

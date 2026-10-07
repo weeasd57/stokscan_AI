@@ -99,6 +99,11 @@ def plan_amount_egp(plan_id: str) -> float:
         if settings.get("pro_1y_price_egp") is not None:
             return float(settings["pro_1y_price_egp"])
         return _env_price("PRO_1Y_PRICE_EGP", 1800)
+    if plan in ("lifetime", "pro_lifetime"):
+        settings = billing_settings()
+        if settings.get("lifetime_price_egp") is not None:
+            return float(settings["lifetime_price_egp"])
+        return _env_price("LIFETIME_PRICE_EGP", 2250)
     return _env_price("PRO_PRICE_EGP", 200)
 
 
@@ -112,7 +117,7 @@ def pro_regular_amount_egp() -> float:
 
 def subscription_days(plan_id: str) -> int:
     plan = (plan_id or "").strip().lower()
-    return {"pro": 30, "pro_6m": 180, "pro_1y": 365}.get(plan, 30)
+    return {"pro": 30, "pro_6m": 180, "pro_1y": 365, "lifetime": 36500, "pro_lifetime": 36500}.get(plan, 30)
 
 
 def activate_subscription(user_id: str, plan_id: str, provider: str = "easykash", payment_order_id: str | None = None) -> None:
@@ -121,7 +126,7 @@ def activate_subscription(user_id: str, plan_id: str, provider: str = "easykash"
     if not supabase:
         raise RuntimeError("Supabase is not initialized")
     requested_plan = (plan_id or "pro").strip().lower()
-    stored_plan = "pro" if requested_plan in {"pro", "pro_6m", "pro_1y"} else requested_plan
+    stored_plan = "pro" if requested_plan in {"pro", "pro_6m", "pro_1y"} else ("lifetime" if requested_plan in {"lifetime", "pro_lifetime"} else requested_plan)
     if not payment_order_id:
         raise ValueError("Payment order id is required for idempotent activation")
     supabase.rpc("activate_easykash_subscription", {

@@ -95,15 +95,15 @@ const safeNum = (val: unknown, fallback: number = 0): number => {
 };
 
 const DEFAULT_SHORT_SWING_KPIS = {
-  profit_factor: 1.51,
-  win_rate_pct: 54.8,
-  total_return_pct: 347.1,
-  max_drawdown_pct: 12.3,
-  avg_holding_days: 2.9,
-  avg_win_pct: 5.8,
-  avg_loss_pct: -4.4,
-  top_win_pct: 86.1,
-  monthly_trades_avg: 35.0,
+  profit_factor: 0,
+  win_rate_pct: 0,
+  total_return_pct: 0,
+  max_drawdown_pct: 0,
+  avg_holding_days: 0,
+  avg_win_pct: 0,
+  avg_loss_pct: 0,
+  top_win_pct: 0,
+  monthly_trades_avg: 0,
 };
 
 interface ShortSwingsTabProps {
@@ -192,7 +192,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
 
-      const res = await fetch(`/api/short-swings?is_pro=${isPro}${isRefresh ? "&refresh=true" : ""}`, {
+      const res = await fetch(`/api/short-swings${isRefresh ? "?refresh=true" : ""}`, {
         cache: "no-store",
         headers: {
           "Cache-Control": "no-cache",
@@ -445,7 +445,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               </span>
               <span className="inline-flex items-center gap-1 px-2.5 py-1 border-2 border-black bg-white text-black text-xs font-black shadow-[2px_2px_0px_#000]">
                 <Zap className="w-3.5 h-3.5 text-amber-600 fill-amber-500" />
-                <span>خطف الزخم والاتجاه (1 - 5 جلسات)</span>
+                <span>خطف الزخم والاتجاه (1 - 20 جلسة تداول)</span>
               </span>
               <span className="inline-flex items-center gap-1 px-2.5 py-1 border-2 border-black bg-emerald-400 text-black text-xs font-black shadow-[2px_2px_0px_#000]">
                 <ShieldCheck className="w-3.5 h-3.5" />
@@ -570,7 +570,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
             <ul className="text-xs font-bold text-zinc-700 dark:text-zinc-300 space-y-2">
               <li className="flex items-start gap-2">
                 <span className="text-amber-500 font-black">•</span>
-                <span><strong>المدى الزمني:</strong> سريع ومكثف (1 إلى 5 جلسات تداول فقط).</span>
+                <span><strong>المدى الزمني:</strong> سريع ومكثف (متوسط 2 إلى 6 جلسات، وحتى 20 جلسة كحد أقصى مع استمرار الاتجاه).</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-amber-500 font-black">•</span>

@@ -1362,9 +1362,10 @@ def _send_market_buy_hold(gate: Dict[str, Any], market_date: str) -> bool:
     if gap is not None:
         details.append(f"الفارق عن المتوسط: {float(gap):+.2f}%")
     message = (
-        f"⛔ امتناع فني عن توصيات شراء جديدة — {market_date}\n\nالسبب: {reason}"
+        f"⛔ امتناع فني عن توصيات شراء جديدة (سوينغ كونسل / التوصيات العامة) — {market_date}\n\nالسبب: {reason}"
         + ("\n" + "\n".join(details) if details else "")
-        + "\n\nلم تُنشأ توصيات شراء اليوم حفاظًا على ضوابط المخاطر. هذا قرار آلي مبني على بيانات السوق، وليس توصية بيع للمراكز القائمة."
+        + "\n\nلم تُنشأ توصيات شراء جديدة لنظام سوينغ كونسل (المتوسطة) اليوم حفاظًا على ضوابط المخاطر. هذا قرار آلي مبني على بيانات السوق، وليس توصية بيع للمراكز القائمة."
+        + "\n💡 ملاحظة: صفقات الزخم والمضاربة القصيرة (⚡ PRO) تخضع لقاطع اتساع وفلاتر سيولة مستقلة تمامًا."
     )
     if not day_delivery.get("vip"):
         day_delivery["vip"] = bool(_notify_vip_telegram(message, "market_buy_hold"))

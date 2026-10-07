@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
         .from("subscriptions")
         .select("current_period_end")
         .eq("user_id", user.id)
-        .eq("plan_id", "pro")
+        .in("plan_id", ["pro", "lifetime", "pro_lifetime"])
         .eq("status", "active")
         .order("current_period_end", { ascending: false })
         .limit(1)
