@@ -1535,11 +1535,19 @@ export default function MarketClient() {
 
     if (loading) {
         return (
-            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+            <div className="market-shell app-page-shell mx-auto max-w-[1600px] w-full px-4 py-8 md:px-6 md:py-12 mt-2" dir={isAr ? "rtl" : "ltr"}>
+                <BrandedPageHeader
+                    eyebrow={isAr ? "تحليل السوق" : "MARKET ANALYSIS"}
+                    title={t("market.title")}
+                    description={t("market.subtitle")}
+                    compact
+                />
+                <div className="flex flex-col items-center justify-center min-h-[40vh] gap-4" role="status">
                 <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
                 <p className="text-sm font-mono text-zinc-600 dark:text-zinc-500">
                     {isAr ? "جاري تحميل بيانات وتحليلات السوق البورصة المصرية..." : "Loading EGX market data and analysis..."}
                 </p>
+                </div>
             </div>
         );
     }
@@ -1547,6 +1555,13 @@ export default function MarketClient() {
     if (error || !data) {
         return (
             <div className="market-error mx-auto max-w-[1600px] w-full px-4 py-8 md:px-6 mt-2">
+                <BrandedPageHeader
+                    dir={isAr ? "rtl" : "ltr"}
+                    eyebrow={isAr ? "تحليل السوق" : "MARKET ANALYSIS"}
+                    title={t("market.title")}
+                    description={t("market.subtitle")}
+                    compact
+                />
                 <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-16 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] flex flex-col items-center justify-center gap-6 text-center">
                     <AlertTriangle className="w-12 h-12 text-red-500" />
                     <div className="space-y-2">

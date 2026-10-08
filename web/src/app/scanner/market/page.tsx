@@ -3,7 +3,7 @@ import { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "تحليل سوق البورصة المصرية ومؤشر EGX30 | EGX Market Analysis",
-  description: "تحليل شامل ومباشر لمؤشرات البورصة المصرية EGX 30 و EGX 70 وحركة السيولة النقدية وسعر الصرف وتحديد اتجاه السوق العام عبر الذكاء الاصطناعي.",
+  description: "تابع اتجاه البورصة المصرية ومؤشري EGX30 وEGX100، اتساع السوق وحركة السيولة وسعر الصرف وفق آخر تحديث بيانات محفوظ. راجع تاريخ التحديث وسياق توصيات الذكاء الاصطناعي.",
   keywords: [
     "تحليل البورصة المصرية",
     "مؤشر EGX30",
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "تحليل سوق البورصة المصرية ومؤشر EGX30 | EGX BOTS",
-    description: "تحليل شامل لمؤشرات البورصة المصرية EGX 30 و EGX 70 وتأثير السيولة وتحديد مسار السوق بالذكاء الاصطناعي.",
+    description: "اتجاه السوق ومؤشرا EGX30 وEGX100 وحركة السيولة وفق آخر تحديث محفوظ، مع تاريخ البيانات وسياق التحليل.",
     type: "website",
     url: "https://egxbots.com/scanner/market",
     images: [
@@ -35,7 +35,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "EGX Market Analysis & Economic Outlook | EGX BOTS",
-    description: "Detailed analysis of EGX 30, EGX 70, macroeconomic cycles and market liquidity.",
+    description: "EGX30 and EGX100 market direction, breadth and liquidity from the latest saved update, with the data timestamp.",
     images: ["https://egxbots.com/dashboard_preview.png"],
   },
 };
@@ -47,7 +47,7 @@ const structuredData = {
       "@type": "WebPage",
       "@id": "https://egxbots.com/scanner/market#webpage",
       "name": "تحليل سوق البورصة المصرية ومؤشر EGX30",
-      "description": "تحليل مباشر لمؤشرات البورصة المصرية EGX 30 و EGX 70 والسيولة بالذكاء الاصطناعي.",
+      "description": "تحليل مؤشري EGX30 وEGX100 واتجاه السوق والسيولة وفق آخر بيانات محفوظة.",
       "url": "https://egxbots.com/scanner/market"
     },
     {
