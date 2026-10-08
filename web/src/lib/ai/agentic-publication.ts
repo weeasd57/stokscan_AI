@@ -43,15 +43,28 @@ export function agenticFacts(evidence: AgenticEvidence[]): FactRecord[] {
         acc_score: row.accumulation_score ?? row.acc_score, dist_score: row.distribution_score ?? row.dist_score,
         target_price: row.take_profit_1 ?? row.target_price, profit_pct: row.profit_loss_pct ?? row.realized_return_pct ?? row.unrealized_return_pct,
         cost_basis: row.cost, profit_value: row.profit_loss_val,
+        close: row.close ?? row.current_price, price: row.current_price ?? row.close,
+        macd_hist: row.macd_hist ?? row.macd_histogram,
     })) }));
     const facts = buildFactRecords(adapted);
-    for (const e of evidence) for (const row of evidenceRows(e.data)) {
-        // Different calculated targets remain separate supported observations.
-        if (row.symbol && Number.isFinite(row.take_profit_2)) facts.push({ id: `${row.symbol}:target2`, symbol: row.symbol,
-            field: "target_price", value: row.take_profit_2, unit: "egp", as_of: row.date ?? null, source: e.source, tool: e.tool, fetched_at: new Date().toISOString() });
-        if (row.symbol && typeof row.entry_zone === "string") for (const value of row.entry_zone.match(/\d+(?:\.\d+)?/g) || []) {
-            facts.push({ id: `${row.symbol}:entry:${value}`, symbol: row.symbol, field: "entry_price", value: Number(value), unit: "egp",
-                as_of: row.date ?? null, source: e.source, tool: e.tool, fetched_at: new Date().toISOString() });
+    for (const e of evidence) {
+        for (const row of evidenceRows(e.data)) {
+            // Different calculated targets remain separate supported observations.
+            if (row.symbol && Number.isFinite(row.take_profit_2)) facts.push({ id: `${row.symbol}:target2`, symbol: row.symbol,
+                field: "target_price", value: row.take_profit_2, unit: "egp", as_of: row.date ?? null, source: e.source, tool: e.tool, fetched_at: new Date().toISOString() });
+            if (row.symbol && typeof row.entry_zone === "string") for (const value of row.entry_zone.match(/\d+(?:\.\d+)?/g) || []) {
+                facts.push({ id: `${row.symbol}:entry:${value}`, symbol: row.symbol, field: "entry_price", value: Number(value), unit: "egp",
+                    as_of: row.date ?? null, source: e.source, tool: e.tool, fetched_at: new Date().toISOString() });
+            }
+        }
+        if (e.tool === "manage_portfolio" && e.data?.summary) {
+            const sum = e.data.summary;
+            const meta = { as_of: e.data_time ?? null, source: e.source, tool: e.tool, fetched_at: new Date().toISOString() };
+            if (Number.isFinite(sum.total_invested)) facts.push({ id: "PORTFOLIO:total_invested", symbol: "PORTFOLIO", field: "cost_basis", value: sum.total_invested, unit: "egp", ...meta });
+            if (Number.isFinite(sum.total_market_value)) facts.push({ id: "PORTFOLIO:total_market_value", symbol: "PORTFOLIO", field: "market_value", value: sum.total_market_value, unit: "egp", ...meta });
+            if (Number.isFinite(sum.unrealized_pl_val)) facts.push({ id: "PORTFOLIO:unrealized_pl_val", symbol: "PORTFOLIO", field: "profit_value", value: sum.unrealized_pl_val, unit: "egp", ...meta });
+            if (Number.isFinite(sum.unrealized_pl_pct)) facts.push({ id: "PORTFOLIO:unrealized_pl_pct", symbol: "PORTFOLIO", field: "profit_pct", value: sum.unrealized_pl_pct, unit: "percent", ...meta });
+            if (Number.isFinite(sum.positions_count)) facts.push({ id: "PORTFOLIO:positions_count", symbol: "PORTFOLIO", field: "quantity", value: sum.positions_count, unit: "count", ...meta });
         }
     }
     return facts;
@@ -66,8 +79,21 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
     reasons.push(...checkAttribution(reply, facts));
     // Check numbers in markdown rows against the named stock, including rows with no currency unit.
     const allSymbols = [...new Set(evidence.flatMap(e => e.symbols))];
+    const portfolioFacts = facts.filter(f => f.symbol === "PORTFOLIO" || !f.symbol);
     let currentSymbol: string | null = allSymbols.length === 1 ? allSymbols[0] : null;
     let rankColIdx: number = -1;
+    let inTable = false;
+    let tableHadStockRow = false;
+
+    const matchesFact = (val: number, targetFacts: FactRecord[]): boolean => {
+        return targetFacts.some(f => {
+            const tol = Math.max(0.02, Math.abs(f.value) * 0.005);
+            if (Math.abs(val - f.value) <= tol) return true;
+            // If the recorded fact is negative (e.g. loss or drop), reporting the positive magnitude is standard in financial tables/prose.
+            if (f.value < 0 && Math.abs(val - Math.abs(f.value)) <= tol) return true;
+            return false;
+        });
+    };
 
     for (const rawLine of reply.split("\n")) {
         const line = rawLine.trim();
@@ -77,11 +103,18 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
         }
 
         if (!line.startsWith("|")) {
+            inTable = false;
+            tableHadStockRow = false;
             if (!line.startsWith("#") && allSymbols.length > 1) {
                 currentSymbol = null;
             }
             rankColIdx = -1;
             continue;
+        }
+
+        if (!inTable) {
+            inTable = true;
+            tableHadStockRow = false;
         }
 
         if (/^\|[\s\-:|]+\|$/.test(line)) continue;
@@ -95,7 +128,23 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
 
         if (!cells.some(c => /\d/.test(c))) continue;
 
-        const symbol = lineSymbol || currentSymbol;
+        const isSummaryRow = cells.some(c => /^(?:(?:ال)?إجمالي|(?:ال)?مجموع|(?:ال)?محفظ[ةه]|(?:إجمالي|مجموع)\s*(?:ال)?محفظ[ةه]|(?:ال)?كلي|total|summary|overall)$/i.test(c.replace(/[*_#]/g, "").trim()));
+
+        if (lineSymbol) {
+            tableHadStockRow = true;
+        }
+
+        let symbol: string | null = null;
+        if (isSummaryRow) {
+            symbol = "PORTFOLIO";
+        } else if (lineSymbol) {
+            symbol = lineSymbol;
+        } else if (!tableHadStockRow) {
+            symbol = currentSymbol;
+        } else {
+            symbol = null;
+        }
+
         if (!symbol) continue;
 
         const filteredCells = cells.filter((cell, idx) => {
@@ -105,7 +154,14 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
         });
 
         const clean = filteredCells.join(" | ")
-            .replace(/\d{4}[-/]\d{2}[-/]\d{2}/g, "")
+            .replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+            .replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
+            .replace(/٫/g, ".")
+            .replace(/(?<=\d)\s*[-−–—]\s*(?=\d)/g, " ")
+            .replace(/(\d+(?:\.\d+)?)\s*[%٪]?\s*[-−–](?!\s*\d)/g, "-$1")
+            .replace(/[−–—]/g, "-")
+            .replace(/\b\d{4}[-/]\d{2}[-/]\d{2}\b/g, "")
+            .replace(/\b\d{2}[-/]\d{2}[-/]\d{4}\b/g, "")
             .replace(/(?<=\d),(?=\d{3}(?:\D|$))/g, "")
             .replace(/\b(?:RSI|EMA|SMA|BB)[ _-]?(?:\(\s*\d+(?:[\s,]+\d+)*\s*\)|\d+)\b/gi, "")
             .replace(/\bMACD\s*\(\s*\d+[\s,]+\d+[\s,]+\d+\s*\)/gi, "")
@@ -115,10 +171,13 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
         const matches = [...clean.matchAll(/[-+]?\d+(?:\.\d+)?/g)];
         if (!matches.length) continue;
 
-        const stockFacts = facts.filter(f => f.symbol === symbol);
+        const targetFacts = symbol === "PORTFOLIO"
+            ? (portfolioFacts.length ? portfolioFacts : facts)
+            : facts.filter(f => f.symbol === symbol);
+
         for (const match of matches) {
             const n = Number(match[0]);
-            if (!stockFacts.some(f => Math.abs(n - f.value) <= Math.max(0.015, Math.abs(f.value) * 0.005))) {
+            if (!matchesFact(n, targetFacts)) {
                 reasons.push(`table_value_not_grounded:${symbol}:${n}`);
             }
         }

@@ -274,4 +274,30 @@ describeLive("Audit Fixes Verification - Live Tests", () => {
         expect(res.response).toMatch(/(ADIB|TYCN|BTFH)/i);
         expect(res.response).not.toContain("— | — | —");
     }, 60000);
+
+    test("10. 'حلل المحفظه' should accurately analyze user portfolio without falling back to safeAgenticFallback", async () => {
+        const portfolioUserId = "ba9c27e8-f62d-452f-8a29-dc77fd092207";
+        const state = createInitialSessionState();
+        const res: any = await runAgenticPipeline(
+            "حلل المحفظه",
+            [],
+            state,
+            null,
+            [],
+            supabase,
+            [],
+            portfolioUserId,
+            testSessionId,
+            "msg-10"
+        );
+
+        console.log("Response 10 (Portfolio analysis):\n", res.response);
+        console.log("Publication Review 10:\n", res.publication_review);
+
+        // Must pass review and not fall back
+        expect(res.response_origin).toBe("llm");
+        expect(res.publication_review.final_passed).toBe(true);
+        expect(res.response).not.toContain("تعذر إكمال إجابة متحقَّق منها");
+        expect(res.response).toMatch(/(ACAMD|ACAP|ACGC)/i);
+    }, 90000);
 });

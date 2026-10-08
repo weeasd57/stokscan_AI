@@ -14,6 +14,7 @@ export type FactField =
     | "rsi"
     | "macd"
     | "macd_signal"
+    | "macd_hist"
     | "vol_ratio"
     | "volume"
     | "value"
@@ -71,6 +72,7 @@ const FIELD_UNITS: Record<FactField, FactUnit> = {
     rsi: "points",
     macd: "unitless",
     macd_signal: "unitless",
+    macd_hist: "unitless",
     vol_ratio: "ratio",
     volume: "shares",
     value: "egp",
@@ -127,9 +129,13 @@ const VALUE_KEYS: Array<{ key: string; field: FactField }> = [
     { key: "macd", field: "macd" },
     { key: "macd_signal", field: "macd_signal" },
     { key: "macd_signal_num", field: "macd_signal" },
+    { key: "macd_hist", field: "macd_hist" },
+    { key: "macd_histogram", field: "macd_hist" },
     { key: "vol_ratio", field: "vol_ratio" },
     { key: "vol_ratio_num", field: "vol_ratio" },
     { key: "volRatio", field: "vol_ratio" },
+    { key: "relative_volume", field: "vol_ratio" },
+    { key: "r_vol", field: "vol_ratio" },
     { key: "volume", field: "volume" },
     { key: "value", field: "value" },
     { key: "support", field: "support" },
@@ -140,8 +146,12 @@ const VALUE_KEYS: Array<{ key: string; field: FactField }> = [
     { key: "ema_200", field: "ema_200" },
     { key: "bb_upper", field: "bb_upper" },
     { key: "bb_lower", field: "bb_lower" },
+    { key: "bollinger_upper", field: "bb_upper" },
+    { key: "bollinger_lower", field: "bb_lower" },
     { key: "acc_score", field: "acc_score" },
     { key: "dist_score", field: "dist_score" },
+    { key: "accumulation_score", field: "acc_score" },
+    { key: "distribution_score", field: "dist_score" },
     { key: "consecutive_acc_days", field: "consecutive_acc_days" },
     { key: "consecutive_dist_days", field: "consecutive_dist_days" },
     { key: "king_ai_score", field: "king_ai_score" },

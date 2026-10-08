@@ -211,4 +211,35 @@ describe("Agentic tool correctness and failure boundaries", () => {
         expect(checkAgenticDraft("### سهم ADIB\n| البيان | القيمة |\n|---|---|\n| الهدف 1 | 50.00 |\n| الهدف 2 | 55.00 |\n| الدعم 1 | 44.00 |",e)).toEqual([]);
         expect(checkAgenticDraft("| الترتيب | السهم | السعر الحالي |\n|---|---|---|\n| 1 | ADIB | 9999.00 |",e)).toContain("table_value_not_grounded:ADIB:9999");
     });
+    test("portfolio table grounding handles negative values, loss magnitudes, Unicode minuses, and summary rows", () => {
+        const e = [
+            toAgenticEvidence("manage_portfolio", { operation: "view" }, {
+                status: "success",
+                positions: [
+                    { symbol: "ACAMD", quantity: 115, entry_price: 6.304348, current_price: 2.05, cost: 725, market_value: 235.75, profit_loss_val: -489.25, profit_loss_pct: -67.48, date: price.date },
+                    { symbol: "ACAP", quantity: 100, entry_price: 5.0, current_price: 8.21, cost: 500, market_value: 821.0, profit_loss_val: 321.0, profit_loss_pct: 64.20, date: price.date },
+                ],
+                summary: {
+                    positions_count: 2,
+                    total_invested: 1225,
+                    total_market_value: 1056.75,
+                    unrealized_pl_val: -168.25,
+                    unrealized_pl_pct: -13.73,
+                }
+            })
+        ];
+        // Test standard ASCII minus
+        const tableAscii = "| السهم | الكمية | سعر الشراء | السعر الحالي | الربح/الخسارة | النسبة |\n|---|---|---|---|---|---|\n| ACAMD | 115 | 6.30 | 2.05 | -489.25 | -67.48% |\n| ACAP | 100 | 5.00 | 8.21 | 321.00 | 64.20% |\n| الإجمالي | 2 | - | - | -168.25 | -13.73% |";
+        expect(checkAgenticDraft(tableAscii, e)).toEqual([]);
+
+        // Test Unicode minus (U+2212) and positive magnitude for loss
+        const tableUnicodeAndMagnitude = "| السهم | الكمية | سعر الشراء | السعر الحالي | الربح/الخسارة | النسبة |\n|---|---|---|---|---|---|\n| ACAMD | 115 | 6.30 | 2.05 | −489.25 | 67.48% |\n| ACAP | 100 | 5.00 | 8.21 | 321.00 | 64.20% |\n| المجموع | 2 | - | - | 168.25 | 13.73% |";
+        expect(checkAgenticDraft(tableUnicodeAndMagnitude, e)).toEqual([]);
+
+        // Test fabricated numbers in stock row and summary row are strictly rejected
+        const tableFabricated = "| السهم | الكمية | سعر الشراء | السعر الحالي | الربح/الخسارة | النسبة |\n|---|---|---|---|---|---|\n| ACAMD | 115 | 6.30 | 2.05 | -9999.00 | -67.48% |\n| الإجمالي | 2 | - | - | -8888.00 | -13.73% |";
+        const res = checkAgenticDraft(tableFabricated, e);
+        expect(res).toContain("table_value_not_grounded:ACAMD:-9999");
+        expect(res).toContain("table_value_not_grounded:PORTFOLIO:-8888");
+    });
 });
