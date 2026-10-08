@@ -30,4 +30,12 @@ These instructions apply to the entire repository, including AI assistants, revi
 - Coordinate delegated work so agents do not independently repeat the same remote query, live test or generation. Share compact findings rather than large logs.
 - Before an external call, determine the question it answers, the smallest scope and whether an existing result already answers it. Report measured savings separately from estimates; never promise a percentage without measurements.
 
+## AI Chat Architecture (Agentic Function Calling)
+
+- All user chat queries are routed through the pure LLM-driven Agentic architecture in `web/src/lib/ai/agentic-pipeline.ts` (delegated from `web/src/lib/ai/pipeline.ts`).
+- DeepSeek-V3 determines user intent and selects from the 9 available tools in parallel (`get_stock`, `get_stock_levels`, `manage_portfolio`, `get_market`, `get_recommendations`, `get_technical_scan`, `get_accumulation_stocks`, `get_news`, `get_comparison`).
+- Do NOT re-introduce brittle regex intent routers, rigid keyword blocklists, or mechanical symbol substitutions (e.g., swapping `ADRI` for `ADCI`) that break Egyptian dialect, Nile market stocks, or multi-turn queries.
+- Tool executions must always query Supabase directly with explicit column projections and strict `limit()` clauses.
+- Detailed architecture and historical reviews are in `docs/chatbot-current-architecture.md` and `docs/chatbot-agentic-architecture-2026-10-08.md`.
+
 The current resource review and prioritized implementation candidates are in `docs/resource-usage-review-2026-10-05.md`.

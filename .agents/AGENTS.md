@@ -40,3 +40,10 @@ All agents (Planners, Developers, QA Reviewers, Subagents, and AI tools) must st
 4. **Frontend & Polling Guard**:
    - Do not add rapid client-side network polling intervals (`setInterval < 30s`) in UI components.
    - Rely on Vercel Data Cache, SWR revalidation on focus/action, and event-driven updates.
+
+5. **Agentic AI Chat Architecture & Integrity**:
+   - All user chat queries are routed through the pure LLM-driven Agentic architecture in `web/src/lib/ai/agentic-pipeline.ts` (delegated from `web/src/lib/ai/pipeline.ts`).
+   - DeepSeek-V3 determines intent and selects tools in parallel (`get_stock`, `get_stock_levels`, `manage_portfolio`, `get_market`, `get_recommendations`, `get_technical_scan`, `get_accumulation_stocks`, `get_news`, `get_comparison`).
+   - NEVER re-introduce brittle regex intent routers, rigid keyword blocklists, or mechanical symbol substitutions (e.g. swapping `ADRI` for `ADCI`) that break Egyptian dialect, Nile market stocks, or multi-turn queries.
+   - All tool executions against Supabase must specify explicit column projections and strict `limit()` clauses.
+   - Reference documentation is maintained in `docs/chatbot-current-architecture.md` and `docs/chatbot-agentic-architecture-2026-10-08.md`.

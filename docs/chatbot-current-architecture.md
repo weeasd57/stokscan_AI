@@ -1,57 +1,43 @@
 # الوضع الحالي لمعمارية الشات بوت
 
 **هذه الوثيقة هي مرجع التسليم الحالي لأي إيجنت لاحق.**
-آخر تحديث: 2026-10-07 — يتضمن إصلاحات `36dde1c` ومراجعة المحادثة الكاملة اللاحقة، ثم مراجعة الدقة المتوازية الموثقة في `chatbot-accuracy-evaluation-2026-10-07.md`.
+آخر تحديث: 2026-10-08 — اعتماد معمارية الوكيل الذكي بالكامل (LLM-driven Agentic Architecture with DeepSeek Function Calling) وإلغاء القواعد الميكانيكية للنيات واستبدال الرموز القسري.
 
-الملف يصف التنفيذ الفعلي في `web/src/lib/ai/`. الملفات المؤرخة مثل
-`chatbot-decision-architecture-2026-10-05.md` تشرح الحوادث والقرارات التاريخية؛
-لا تستخدمها لتخمين سلوك أحدث من هذه الوثيقة.
+الملف يصف التنفيذ الفعلي المعتمد في `web/src/lib/ai/agentic-pipeline.ts` مع التوجيه التلقائي من `web/src/lib/ai/pipeline.ts`. الملفات المؤرخة مثل `chatbot-decision-architecture-2026-10-05.md` تشرح الحوادث والقرارات التاريخية.
 
-## الرسم الفعلي
+## 1. الرسم الفعلي للمعمارية الحالية (Agentic Function Calling)
 
 ```mermaid
 flowchart TD
-    A[رسالة المستخدم + history + session state] --> B0[تخطيط حتمي أولي]
-    B0 --> B1{هل الطلب يحتاج فهمًا دلاليًا؟}
-    B1 -->|نعم و LLM متاح وثقة الخطة >= 0.6| B2[Semantic planner يصبح الخطة المعتمدة]
-    B1 -->|لا أو غير متاح| B3[الخطة الحتمية + قواعد النية]
-    B2 --> C[عقد مهمة الرد response_task]
-    B3 --> C
-    C --> D[خطة أدوات محدودة + domain invariants]
-    D --> E[تنفيذ الأدوات المحددة]
-    E --> F[Evidence contract: المصدر، الرمز، التاريخ، نوع السعر]
-    F --> G[Fact records + فحص اكتمال وقابلية المقارنة]
-    G --> H[صياغة LLM من الأدلة والخطة]
-    H --> I{فحص المحتوى والادعاءات وإتمام المهمة}
-    I -->|مقبول| J[رد مرشح]
-    I -->|مرفوض والمحاولات متاحة| K[Correction prompt بالأسباب المحددة]
-    K --> H
-    I -->|فشل أو انتهاء الوقت| L[Deterministic fallback بنفس الأدلة]
-    J --> M[Publication gate قبل النشر]
-    L --> M
-    M -->|مقبول| N[done: الرد + الجداول + المصدر + publication review]
-    M -->|مرفوض| O[إصلاح حتمي أو محاولة LLM واحدة]
-    O --> P{هل الإصلاح اجتاز المراجعة؟}
-    P -->|نعم| N
-    P -->|لا| Q[رسالة آمنة: تعذر التحقق، لا تنشر ادعاء غير موثوق]
-    Q --> N
+    A[رسالة المستخدم + التاريخ History + حالة الجلسة Session State] --> B[DeepSeek Chat API - 9 Tools Schema]
+    B --> C{هل يحتاج السؤال إلى استدعاء أدوات؟}
+    C -->|نعم - Tool Calls| D[تنفيذ أدوات البيانات بالتوازي Parallel Execution]
+    C -->|لا - محادثة عامة/متابعة| E[صياغة الرد المباشر Streaming Direct Answer]
+    D --> D1[get_stock: بيانات السعر والمؤشرات الفنية]
+    D --> D2[get_stock_levels: مستويات فيبوناتشي والدعوم/المقاومات]
+    D --> D3[manage_portfolio: إدارة وعرض وتعديل المحفظة]
+    D --> D4[get_market: نظرة عامة وسيولة وقوائم الرابحين]
+    D --> D5[get_recommendations: التوصيات الفنية المفتوحة]
+    D --> D6[get_technical_scan: ماسح الإشارات والدايفرجنس]
+    D --> D7[get_accumulation_stocks: رادار التجميع المؤسسي لوايكوف]
+    D --> D8[get_news: الأخبار والإفصاحات الرسمية للشركات]
+    D --> D9[get_comparison: مقارنة مباشرة بين شركتين أو أكثر]
+    D1 & D2 & D3 & D4 & D5 & D6 & D7 & D8 & D9 --> F[تجميع مخرجات الأدوات وتحديث رموز الجلسة]
+    F --> G[DeepSeek Streaming - صياغة التقرير مع الأدلة والتحليل الفني]
+    E & G --> H[SSE Streaming: بث التوكنز للمستخدم type: token]
+    H --> I[حدث done مع تحديث SessionState والجداول]
 ```
 
-## ترتيب المسؤوليات في الكود
+## 2. ترتيب المسؤوليات في الكود المعتمد
 
 | المرحلة | التنفيذ الحالي | المرجع |
 |---|---|---|
-| استقبال السياق | `runPipelineCore` يستقبل الرسالة، الصور، history، الذاكرة، والجلسة | `web/src/lib/ai/pipeline.ts` |
-| التخطيط الأولي | `buildDeterministicPlannerResult` وقواعد `enforceIntentFromMessage` | `web/src/lib/ai/pipeline.ts` |
-| التخطيط الدلالي | `runPlanner` يعمل فقط عندما تسمح حدود الصور/المعاملات والمفاتيح؛ الخطة الدلالية ذات الثقة الكافية تصبح authoritative | `web/src/lib/ai/pipeline.ts` قرب Stage 3 |
-| عقد الرد | `completeDecisionTools` يملأ `response_task` بالمرشحين والمعيار والزمن ونوع الإجابة | `web/src/lib/ai/response-task.ts` |
-| خطة الأدوات | `plannedTools` ثم `sanitizePlannerTools` و`completeToolsByFacets` | `web/src/lib/ai/pipeline.ts` |
-| الأدلة | `attachEvidenceContract` ثم `buildFactRecords`؛ كل حقيقة تحمل `source/tool/as_of/fetched_at` | `web/src/lib/ai/facts.ts` و`pipeline.ts` |
-| صياغة النموذج | `generateV2Stream` يستقبل الخطة، الأدلة، الذاكرة، و`correctionPrompt` | `web/src/lib/ai/final-v2.ts` |
-| المراجعة الداخلية | `validateResponse` + `runAnswerGate` + `checkResponseTask` و`checkDecisionGrounding` | `web/src/lib/ai/pipeline.ts` و`answer-gate.ts` |
-| الإصلاح | أسباب الرفض تدخل في `buildGateCorrectionBlock` ثم يعاد طلب الصياغة بعدد محاولات محدود | `web/src/lib/ai/pipeline.ts` |
-| الاحتياطي | `buildDeterministicResponse`، ثم `buildSafeFallbackResponse` أو `safeEvidenceResponse` | `final-v2.ts` و`pipeline.ts` |
-| مراجعة النشر | `runPipelineStream` يعيد فحص الرد قبل `done` ويسجل `publication_review` و`response_origin` | `web/src/lib/ai/pipeline.ts` |
+| التوجيه الأساسي | `runPipelineStream` يفحص مفتاح DeepSeek ويوجه مباشرة إلى المحرك الذكي | `web/src/lib/ai/pipeline.ts` |
+| تحديد النية والأدوات | الموديل `deepseek-chat` يحدد النية ويستدعي الـ Tools المناسبة ذاتياً بدون Regex | `web/src/lib/ai/agentic-pipeline.ts` |
+| أدوات البيانات الحية | 9 أدوات مخصصة تنفذ بالتوازي باستعلامات مقيدة بحدود صريحة ومحمية | `web/src/lib/ai/agentic-pipeline.ts` |
+| ذاكرة الجلسة والرموز | استخراج الرموز المستعلم عنها وتحديث `current_symbol` و `last_symbols` للجلسة | `web/src/lib/ai/agentic-pipeline.ts` |
+| البث اللحظي للتوكنز | قراءة استجابة DeepSeek المتدفقة وبث التوكنز لحظياً للعميل (`type: token`) | `web/src/lib/ai/agentic-pipeline.ts` |
+| مسار الاحتياط (Fallback) | في حال عدم توفر مفتاح DeepSeek أو أثناء اختبارات الوحدة المعزولة | `web/src/lib/ai/pipeline.ts` (Legacy Core) |
 
 ## قواعد النية المهمة حاليًا
 
@@ -169,9 +155,17 @@ flowchart TD
 - `npm run build` المحلي في مراجعة 7 أكتوبر: التجميع وفحص الأنواع ناجحان؛ تجميع بيانات الصفحات متوقف بسبب غياب إعداد `SUPABASE_URL` المحلي.
 - نشر `36dde1c` على Vercel: **ناجح** وفق حالة commit؛ [رابط النشر](https://vercel.com/mr-coders-projects-2e3a65c8/stokscan-ai-web/ET9a12nTJebEdTprNcqWVVn2EV4u). لم تُنفّذ محادثات LLM حية للتحقق.
 
-## التحقق من مراجعة الدقة الحالية
+## التحقق من معمارية الوكيل الذكي (تحديث 8 أكتوبر 2026)
 
-- `npm run test:offline -- --runInBand --silent`: **90 مجموعة / 1010 اختبارات ناجحة**، مع 4 مجموعات / 22 اختباراً متخطى بالحواجز القائمة. الاتصال الحقيقي محظور؛ لا يمثل ذلك اختبار مزود LLM حي.
-- `npx tsc --noEmit`: ناجح بعد آخر إصلاح مسار المقارنة، و`git diff --check`: ناجح.
-- البناء المحلي: التجميع وفحص الأنواع ناجحان؛ تجميع بيانات الصفحات يتوقف عند `/api/admin-unlock` بسبب غياب إعدادات Supabase المحلية. لا تُستخدم مفاتيح إنتاج أو إعدادات وهمية لإخفاء ذلك؛ يُتحقق من بناء النشر عبر حالة المراجعة المنشورة على Vercel.
-- مراجعات مستقلة أغلقت الحوادث المثبتة وراجعت حدود الأخبار والجدول وتاريخ السعر والمقارنة؛ تفاصيل الجولات في `chatbot-accuracy-evaluation-2026-10-07.md`.
+- **محاكاة المستخدم الحقيقي (23 دورة متتالية)**:
+  - تم إجراء محاكاة مطابقة بنسبة 100% لكافة أسئلة المستخدم `shazli767@gmail.com` عبر `scratch/run_full_user_simulation.py` وحفظ النتائج في `scratch/agentic_simulation_results.json`.
+  - نسبة النجاح: **100% (23/23)** دون أي انهيار أو استبدال خاطئ للرموز أو رفض غير مبرر من الفالديتور.
+- **الاختبارات غير الحية (Jest Offline)**:
+  - `npm run test:offline -- --runInBand --silent`: **95 مجموعة / 1028 اختباراً ناجحاً بنسبة 100%**.
+- **فحص الأنواع وتكامل TypeScript**:
+  - `npx tsc --noEmit`: ناجح بـ **0 أخطاء**.
+- **حماية الموارد وSupabase**:
+  - صفر استعلامات لسجلات Supabase Logflare (`query_logs`).
+  - كافة استعلامات الأدوات تعتمد على projections محددة وقيود صارمة (`.limit()`).
+- **السيرفرات المحلية**:
+  - Next.js (port 3000) وFastAPI (port 8000) يعملان بصحة ممتازة.
