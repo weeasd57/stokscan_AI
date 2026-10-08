@@ -16,6 +16,7 @@ import { isEgxSessionOpen } from "./live-stock-updater";
 import { replacePortfolioFromImage, checkPortfolioImportCapacity } from "./portfolio-tools";
 import { isPro } from "./plan-gate";
 import { getDeepSeekApiKey } from "./server-secrets";
+import { runAgenticPipelineStream } from "./agentic-pipeline";
 import { createExecutionScope, awaitExecution, executionFetch, executionSupabase, getExecutionSignal, remainingExecutionMs, withExecutionTimeout } from "./execution";
 import { attachEvidenceContract } from "./evidence";
 import { buildFactRecords } from "./facts";
@@ -1977,6 +1978,14 @@ export async function* runPipelineStream(
     supabase: any, apiKeys: string[], userId: string, sessionId: string, messageId: string,
     requestedModel?: string, options: PipelineOptions = {},
 ): AsyncGenerator<{ type: string; data: any }> {
+    const deepseekKey = getDeepSeekApiKey();
+    if (deepseekKey && !options.mockPlannerResult && !options.mockToolsResults) {
+        yield* runAgenticPipelineStream(
+            userMessage, images, sessionState, sessionSummary, history,
+            supabase, apiKeys, userId, sessionId, messageId, requestedModel, options
+        );
+        return;
+    }
     const scope = createExecutionScope(options.timeoutMs ?? AI_CONFIG.limits.requestDeadlineMs, options.signal);
     const core = runPipelineCore(userMessage, images, sessionState, sessionSummary, history,
         executionSupabase(supabase), apiKeys, userId, sessionId, messageId, requestedModel, options);
