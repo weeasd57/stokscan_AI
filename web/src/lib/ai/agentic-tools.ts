@@ -36,10 +36,10 @@ export function cairoWeekBounds(now = new Date()) {
 
 export async function executeAgenticTool(toolName:string,args:Record<string,any>,supabase:any,userId:string):Promise<any> {
     try {
-        const enums:Record<string,string[]> = { operation:["view","add","update","remove","sell"], preset:["momentum_and_volume","top_gainers","top_losers","rsi_oversold","macd_cross","smart_money_flow"], status:["open","closed","all"], timeframe:["this_week","last_week","all"] };
+        const enums:Record<string,string[]> = { operation:["view","add","buy","purchase","update","remove","delete","sell"], preset:["momentum_and_volume","top_gainers","top_losers","rsi_oversold","macd_cross","smart_money_flow"], status:["open","closed","all"], timeframe:["this_week","last_week","all"] };
         if (args?.symbol != null && (typeof args.symbol !== "string" || !/^[A-Za-z0-9.]{2,12}$/.test(args.symbol.trim()))) throw new Error("رمز السهم غير صالح");
         if (!args || Array.isArray(args) || typeof args !== "object") throw new Error("مدخلات الأداة يجب أن تكون كائناً");
-        for (const [key,values] of Object.entries(enums)) if (args[key] != null && !values.includes(args[key])) throw new Error("قيمة مدخل الأداة غير مدعومة: "+key);
+        for (const [key,values] of Object.entries(enums)) if (args[key] != null && !values.includes(String(args[key]).toLowerCase())) throw new Error("قيمة مدخل الأداة غير مدعومة: "+key);
         if (args.symbols != null && (!Array.isArray(args.symbols) || args.symbols.length > 10 || args.symbols.some((s:any)=>typeof s !== "string" || !/^[A-Za-z0-9.]{2,12}$/.test(s.trim())))) throw new Error("الحد الأقصى 10 رموز موثقة لكل أداة");
         if (["get_stock","get_stock_levels","get_comparison"].includes(toolName) && !args.symbols?.length) throw new Error("رموز الأسهم مطلوبة");
         const normalized = {...args, ...(args.symbols ? {symbols:Array.from(new Set(args.symbols.map(normalizeSymbol)))} : {})};
@@ -191,7 +191,8 @@ async function executeRawTool(
 
         if (toolName === "manage_portfolio") {
             if (!userId) throw new Error("يلزم مستخدم مصادق عليه لإدارة المحفظة");
-            const operation = args.operation || "view";
+            const rawOp = String(args.operation || "view").toLowerCase();
+            const operation = ["buy", "purchase", "add"].includes(rawOp) ? "add" : rawOp;
             const symbol = args.symbol ? normalizeSymbol(args.symbol) : null;
             const { data: posRows } = await supabase.from("positions")
                 .select("id,symbol,quantity,entry_price,status,added_at,updated_at")
@@ -227,15 +228,25 @@ async function executeRawTool(
             const existing = positions.find((p: any) => p.symbol === symbol);
             let changed: any, eventType: string, payload: any;
             if (operation === "add" || operation === "update") {
-                const quantity = positive(args.quantity), price = positive(args.price);
+                const quantity = positive(args.quantity ?? args.shares ?? args.amount);
+                const price = positive(args.price ?? args.entry_price ?? args.buy_price ?? args.cost);
+                let stockName = symbol;
                 const { data: stock } = await supabase.from("stocks").select("symbol,name,name_ar").eq("symbol", symbol).limit(1).maybeSingle();
-                if (!stock) throw new Error("الرمز غير موثق في دليل الأسهم؛ لم يتم الحفظ");
+                if (stock) {
+                    stockName = stock.name_ar || stock.name || symbol;
+                } else {
+                    const { data: ind } = await supabase.from("stock_technical_indicators").select("symbol").eq("exchange", "EGX").eq("symbol", symbol).limit(1);
+                    if (!ind?.length) {
+                        const { data: prc } = await supabase.from("stock_prices").select("symbol").eq("exchange", "EGX").eq("symbol", symbol).limit(1);
+                        if (!prc?.length) throw new Error("الرمز غير موثق في دليل الأسهم؛ لم يتم الحفظ");
+                    }
+                }
                 if (operation === "update" && !existing) throw new Error("لا يوجد مركز مفتوح لتحديثه");
                 const write = { quantity, entry_price: price, updated_at: new Date().toISOString() };
                 const { data } = existing
                     ? await lockPosition(supabase.from("positions").update(write).eq("user_id", userId).eq("id", existing.id)
                         .eq("status", "open"), existing).select("id,symbol,quantity,entry_price").limit(1)
-                    : await supabase.from("positions").insert({ user_id: userId, symbol, name: stock.name_ar || stock.name || symbol,
+                    : await supabase.from("positions").insert({ user_id: userId, symbol, name: stockName,
                         ...write, status: "open", source: "chatbot" }).select("id,symbol,quantity,entry_price").limit(1);
                 changed = data?.[0]; eventType = existing ? "portfolio_update" : "portfolio_add";
                 payload = { symbol, quantity, entry_price: price };
@@ -257,11 +268,19 @@ async function executeRawTool(
                 payload = { symbol, quantity, sell_price: price, proceeds: quantity * price, entry_price: finite(existing.entry_price) };
             } else throw new Error("عملية المحفظة غير مدعومة");
             if (!changed) throw new Error("لم يتأكد تعديل أي مركز؛ قد يكون تغير بالتزامن. راجع المحفظة قبل إعادة الطلب");
+            let quote: any = null;
+            if (operation === "add" || operation === "update") {
+                const { data: ind } = await supabase.from("stock_technical_indicators")
+                    .select("close, date, rsi_14, change_pct").eq("exchange", "EGX").eq("symbol", symbol)
+                    .order("date", { ascending: false }).limit(1);
+                if (ind?.[0]) quote = ind[0];
+            }
             let auditRecorded = true;
             try { await supabase.from("position_events").insert({ user_id: userId, position_id: operation === "remove" ? null : changed.id,
                 event_type: eventType, payload, event_at: new Date().toISOString() }); }
             catch (error) { auditRecorded = false; console.error("[Agentic portfolio] audit write failed", error); }
             return { status: "success", ok: true, operation, persisted: true, symbol, ...payload,
+                close: quote?.close, current_price: quote?.close, date: quote?.date, change_pct: quote?.change_pct,
                 audit_recorded: auditRecorded, cash_updated: false,
                 message: operation === "sell" ? "تم تسجيل البيع في المراكز؛ لم يتم تعديل الرصيد النقدي."
                     : "تم التأكد من حفظ تعديل المركز.",
@@ -489,7 +508,7 @@ async function executeRawTool(
             for (const sym of symbols) {
                 const { data: indRows } = await supabase
                     .from("stock_technical_indicators")
-                    .select("symbol, close, change_pct, r_vol, rsi_14, macd, king_ai_score, egx_ai_score, date")
+                    .select("symbol, close, change_pct, r_vol, rsi_14, macd, macd_signal, macd_histogram, ema_50, ema_200, bb_upper, bb_lower, king_ai_score, egx_ai_score, date")
                     .eq("exchange", "EGX").eq("symbol", sym)
                     .order("date", { ascending: false })
                     .limit(1);
@@ -499,7 +518,7 @@ async function executeRawTool(
                     data.push({ symbol: sym, error: "Not found in active main market" });
                 }
             }
-            return { status: "success", comparison: data };
+            return { status: "success", comparison: data, comparisons: data };
         }
 
         return { status: "error", message: `Tool ${toolName} not recognized` };

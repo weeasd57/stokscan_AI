@@ -124,6 +124,7 @@ const VALUE_KEYS: Array<{ key: string; field: FactField }> = [
     { key: "market_value", field: "market_value" },
     { key: "profit_value", field: "profit_value" },
     { key: "quantity", field: "quantity" },
+    { key: "rsi", field: "rsi" },
     { key: "rsi_14", field: "rsi" },
     { key: "rsi_14_num", field: "rsi" },
     { key: "macd", field: "macd" },
@@ -154,7 +155,9 @@ const VALUE_KEYS: Array<{ key: string; field: FactField }> = [
     { key: "distribution_score", field: "dist_score" },
     { key: "consecutive_acc_days", field: "consecutive_acc_days" },
     { key: "consecutive_dist_days", field: "consecutive_dist_days" },
+    { key: "king_ai", field: "king_ai_score" },
     { key: "king_ai_score", field: "king_ai_score" },
+    { key: "egx_ai", field: "egx_ai_score" },
     { key: "egx_ai_score", field: "egx_ai_score" },
     { key: "premium_pct", field: "premium_pct" },
     { key: "quantity", field: "quantity" },
@@ -316,7 +319,7 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
         if (Array.isArray(data)) {
             for (const item of data) {
                 if (item?.symbol) {
-                    const itemDate = validatedObservationDate(item.signal_date) || validatedObservationDate(item.created_at) || validatedObservationDate(item.current_date) || validatedObservationDate(item.date) || meta.as_of;
+                    const itemDate = validatedObservationDate(item.signal_date) || validatedObservationDate(item.created_at) || validatedObservationDate(item.current_date) || validatedObservationDate(item.date) || validatedObservationDate(item.scan_date) || meta.as_of;
                     const itemMeta = {
                         ...meta,
                         as_of: itemDate,
@@ -343,8 +346,8 @@ export function buildFactRecords(toolResults: any[], fetchedAt = new Date().toIS
                 if (row?.symbol) ingestObject(normalizeSymbol(row.symbol), row, { ...meta, as_of: row.as_of ?? meta.as_of, source: row.source || meta.source });
             }
         }
-        if (Array.isArray(data.comparisons)) {
-            for (const row of data.comparisons) {
+        if (Array.isArray(data.comparisons) || Array.isArray(data.comparison)) {
+            for (const row of (data.comparisons || data.comparison)) {
                 if (row?.symbol) ingestObject(normalizeSymbol(row.symbol), row, { ...meta,
                     as_of: Object.prototype.hasOwnProperty.call(row, "as_of") ? validatedObservationDate(row.as_of) : meta.as_of,
                     source: row.source || meta.source });

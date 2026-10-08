@@ -102,7 +102,7 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[]): Async
         yield { type: "status", data: { status: "tools", message: "جلب الأدلة اللازمة للطلب..." } };
         toolCalls += calls.length;
         const writes = calls.filter(c => c.function.name === "manage_portfolio" && (() => {
-            try { return JSON.parse(c.function.arguments).operation !== "view"; } catch { return false; }
+            try { return String(JSON.parse(c.function.arguments).operation || "view").toLowerCase() !== "view"; } catch { return false; }
         })());
         let writeAuthorized = !writes.length;
         if (writes.length) {
@@ -119,7 +119,7 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[]): Async
                 args = JSON.parse(call.function.arguments);
                 // A request may repeat a write in a repair turn. Never execute the same write twice.
                 const fingerprint = call.function.name + JSON.stringify(Object.keys(args).sort().map(k => [k, args[k]]));
-                const isWrite = call.function.name === "manage_portfolio" && args.operation !== "view";
+                const isWrite = call.function.name === "manage_portfolio" && String(args.operation || "view").toLowerCase() !== "view";
                 if (isWrite && !writeAuthorized) throw new Error("ACCOUNT_WRITE_NOT_AUTHORIZED");
                 const activeCache = isWrite ? writeCache : cache;
                 if (activeCache.has(fingerprint)) output = activeCache.get(fingerprint);
@@ -128,7 +128,7 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[]): Async
                     if (isWrite) cache.clear();
                     activeCache.set(fingerprint, output);
                 }
-            } catch { output = { status: "error", persisted: false, message: "مدخلات الأداة غير صالحة؛ لم يتم تنفيذها" }; args ||= {}; }
+            } catch (err: any) { output = { status: "error", persisted: false, message: err?.message || "مدخلات الأداة غير صالحة؛ لم يتم تنفيذها" }; args ||= {}; }
             const record = toAgenticEvidence(call.function.name, args, output);
             return { record, message: { role: "tool", tool_call_id: call.id, content: JSON.stringify(record) } };
         };

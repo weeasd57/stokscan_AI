@@ -242,4 +242,36 @@ describe("Agentic tool correctness and failure boundaries", () => {
         expect(res).toContain("table_value_not_grounded:ACAMD:-9999");
         expect(res).toContain("table_value_not_grounded:PORTFOLIO:-8888");
     });
+    test("comparison table grounding works for both symbols", () => {
+        const e = [
+            toAgenticEvidence("get_comparison", { symbols: ["COMI", "EAST"] }, {
+                status: "success",
+                comparison: [
+                    { symbol: "COMI", close: 100, change_pct: 3, r_vol: 2, rsi_14: 65, date: "2026-10-07" },
+                    { symbol: "EAST", close: 22.53, change_pct: -3.07, r_vol: 0.8, rsi_14: 45, date: "2026-10-07" },
+                ]
+            })
+        ];
+        const table = "| وجه المقارنة | COMI | EAST |\n|---|---|---|\n| السعر الحالي | 100.00 | 22.53 |\n| نسبة التغير | 3.00% | -3.07% |\n| الحجم النسبي | 2.00 | 0.80 |";
+        expect(checkAgenticDraft(table, e)).toEqual([]);
+    });
+    test("accumulation table grounding works for acc_score, dist_score, and vol_ratio", () => {
+        const e = [
+            toAgenticEvidence("get_accumulation_stocks", {}, {
+                status: "success",
+                preset: "smart_money_flow",
+                date: "2026-10-07",
+                stocks: [
+                    { symbol: "SIPC", scan_date: "2026-10-07", acc_score: 70.5, dist_score: 12.3, vol_ratio: 1.4, wyckoff_phase: "Accumulation", signal: "ACCUMULATION" },
+                    { symbol: "DAPH", scan_date: "2026-10-07", acc_score: 65.0, dist_score: 5.18, vol_ratio: 3.07, wyckoff_phase: "Accumulation", signal: "ACCUMULATION" }
+                ],
+                accumulation_stocks: [
+                    { symbol: "SIPC", scan_date: "2026-10-07", acc_score: 70.5, dist_score: 12.3, vol_ratio: 1.4, wyckoff_phase: "Accumulation", signal: "ACCUMULATION" },
+                    { symbol: "DAPH", scan_date: "2026-10-07", acc_score: 65.0, dist_score: 5.18, vol_ratio: 3.07, wyckoff_phase: "Accumulation", signal: "ACCUMULATION" }
+                ]
+            })
+        ];
+        const table = "| السهم | نقاط التجميع | نقاط التصريف | الحجم النسبي |\n|---|---|---|---|\n| SIPC | 70.5 | 12.3 | 1.4 |\n| DAPH | 65.0 | 5.18 | 3.07 |";
+        expect(checkAgenticDraft(table, e)).toEqual([]);
+    });
 });
