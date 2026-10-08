@@ -117,6 +117,7 @@ export async function updateSessionSummary(
         return false;
     }
     const merged: SessionSummary = {
+        last_tool_evidence: update.last_tool_evidence ?? current?.last_tool_evidence,
         current_symbols: update.current_symbols || current?.current_symbols || [],
         last_image_symbols: update.last_image_symbols || current?.last_image_symbols || [],
         last_topic: update.last_topic !== undefined ? update.last_topic : (current?.last_topic || null),

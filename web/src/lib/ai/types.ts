@@ -42,6 +42,12 @@ export interface VisionContext {
 }
 
 export interface SessionSummary {
+    /** Bounded, authenticated read evidence; never proof of a new portfolio write. */
+    last_tool_evidence?: Array<{
+        tool: string; arguments: Record<string, any>; data: any; source: string; data_time: string | null;
+        symbols: string[]; availability: "available" | "missing" | "partial" | "error";
+        data_type: "historical"; captured_at: string;
+    }>;
     current_symbols: string[];
     last_image_symbols: string[];
     last_topic: string | null;

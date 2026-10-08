@@ -1,6 +1,7 @@
 import { executeAgenticTool, runAgenticPipelineStream, AGENTIC_TOOLS_SCHEMA } from "../agentic-pipeline";
 import { cairoWeekBounds } from "../agentic-tools";
-import { checkAgenticDraft, toAgenticEvidence } from "../agentic-publication";
+import { checkAgenticDraft, toAgenticEvidence, evidenceMemory } from "../agentic-publication";
+import { compactHistory } from "../agentic-runtime";
 jest.mock("../server-secrets", () => ({ getDeepSeekApiKey: () => "offline-fake-key" }));
 jest.mock("../vision", () => ({ analyzeImage: jest.fn(), reconcileVisionWithMarket: jest.fn() }));
 
@@ -119,9 +120,77 @@ describe("Agentic architecture integration: current production path", () => {
             {content:'{"authorized":true}'},{content:"تم تسجيل سهم COMI"},verdict()],{db:d,userMessage:"سجل COMI عدد 10 بسعر 100"});
         expect(d.queries.filter(q=>q.table === "positions" && q.ops.some(o=>o[0] === "insert"))).toHaveLength(1);expect(r.done.publication_review.final_passed).toBe(true);
     });
+    test("positive review explanations no longer reject a valid answer",async()=>{
+        const r=await run([{content:"قيد محدد للبيانات"},verdict(true,["الرد ينجز المهمة ضمن حدود البيانات"])]);
+        expect(r.done.publication_review.final_passed).toBe(true);expect(r.fetchMock).toHaveBeenCalledTimes(2);expect(r.done.response_origin).toBe("llm");
+    });
+    test("canonical issues still reject a contradictory passed=true verdict",async()=>{
+        const bad={content:JSON.stringify({passed:true,issues:["المطلوب لم ينفذ"],notes:[]})};
+        const r=await run([{content:"مسودة ناقصة"},bad,{content:"مسودة ناقصة"},bad]);expect(r.done.publication_review.final_passed).toBe(false);
+    });
+    test("spaces and promotional link cannot become a reviewed answer",async()=>{
+        const empty="    [قناة EGX Bots](https://t.me/egxbots)";
+        const r=await run([{content:JSON.stringify({kind:"analysis",answer:empty})},verdict(),{content:empty},verdict()]);
+        expect(r.done.publication_review.final_passed).toBe(false);expect(r.done.response_origin).toBe("safe_fallback");
+    });
+    test("brief LLM social answer needs one call, without an intent regex",async()=>{
+        const r=await run([{content:JSON.stringify({kind:"social",answer:"أهلاً، أقدر أساعدك في إيه؟"})}],{userMessage:"ازيك"});
+        expect(r.fetchMock).toHaveBeenCalledTimes(1);expect(r.done.publication_review.final_passed).toBe(true);expect(r.done.response).not.toContain('"answer"');
+    });
+    test("analysis envelope still requires review",async()=>{
+        const r=await run([{content:JSON.stringify({kind:"analysis",answer:"خلينا نحدد المطلوب"})},verdict()]);
+        expect(r.fetchMock).toHaveBeenCalledTimes(2);expect(r.done.response).toContain("خلينا نحدد");
+    });
+    test("repair fetches missing data instead of forcing another unsupported draft",async()=>{
+        const r=await run([{content:"لا أعرف بيانات ATQA"},verdict(false,["اجلب get_stock_levels للسهم ATQA"]),
+            {tool_calls:[call("get_stock_levels",{symbols:["ATQA"]})]},
+            {content:JSON.stringify({kind:"analysis",answer:"ATQA إغلاقه 100 جنيه والدعم 90 جنيه"})},verdict()],{db:stockDb(),userMessage:"وعتاقة"});
+        expect(r.done.publication_review.final_passed).toBe(true);expect(r.done.response_origin).toBe("llm");expect(r.done.usage.tool_calls).toBe(1);
+        expect(JSON.parse(r.fetchMock.mock.calls[2][1].body).tools).toEqual(AGENTIC_TOOLS_SCHEMA);
+    });
+    test("previous read evidence is visible in follow-up and checked numerically",async()=>{
+        const snapshot=evidenceMemory([toAgenticEvidence("get_stock_levels",{symbols:["COMI"]},{status:"success",levels:[{symbol:"COMI",...price,support:90,resistance:110}]})]);
+        const r=await run([{content:"COMI إغلاقه السابق 100 جنيه"},verdict()],{summary:{last_tool_evidence:snapshot},userMessage:"والأول؟"});
+        expect(JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[1].content).toContain('"close":100');
+        expect(r.done.publication_review.final_passed).toBe(true);expect(r.done.usage.tool_calls).toBe(0);
+    });
+    test("cached evidence cannot prove a new account write",()=>{
+        const snapshot=evidenceMemory([toAgenticEvidence("manage_portfolio",{operation:"add"},{status:"success",persisted:true,symbol:"COMI"})]);expect(snapshot).toEqual([]);
+    });
+    test("memory is bounded and expired observations are removed",()=>{
+        const now=new Date();const record=toAgenticEvidence("get_stock",{symbols:["COMI"]},{stocks:[{symbol:"COMI",close:100,name:"x".repeat(20000)}]});
+        expect(evidenceMemory([record],now)).toHaveLength(0);
+        expect(evidenceMemory([{...record,data:{stocks:[]},captured_at:new Date(now.getTime()-25*3600000).toISOString()}],now)).toHaveLength(0);
+    });
+    test("context keeps recent choices while bounding long repeated analysis",()=>{
+        const history=Array.from({length:16},(_,i)=>({role:i%2 ? "assistant" : "user",content:"تقرير ".repeat(1000)}));
+        history.push({role:"user",content:"الأول"});const compact=compactHistory(history);
+        expect(compact.at(-1)?.content).toBe("الأول");expect(compact.reduce((n,h)=>n+h.content.length,0)).toBeLessThanOrEqual(5000);
+    });
+    test("current evidence snapshot is saved with session ownership filters",async()=>{
+        const d=db(q=>({data:q.table === "stock_prices" ? [price] : q.table === "ai_chat_sessions" ? [{id:"063eb987-c6e1-4a24-b610-dbeacc58f6e8"}] : [],error:null}));
+        global.fetch=jest.fn().mockResolvedValueOnce(response({tool_calls:[call("get_stock_levels",{symbols:["COMI"]})]}))
+            .mockResolvedValueOnce(response({content:"COMI إغلاق 100 جنيه"})).mockResolvedValueOnce(response(verdict()));
+        const events:any[]=[];for await(const e of runAgenticPipelineStream("COMI",[],state,null,[],d.client,[],
+            "8010a163-6d2f-40df-834f-6ad9cbd1faa5","063eb987-c6e1-4a24-b610-dbeacc58f6e8","fixture"))events.push(e);
+        const write=d.queries.find(q=>q.table === "ai_chat_sessions")!;
+        expect(write.ops.find(o=>o[0] === "update")?.[1].summary_state.last_tool_evidence[0].data.levels[0].close).toBe(100);
+        expect(write.ops).toContainEqual(["eq","user_id","8010a163-6d2f-40df-834f-6ad9cbd1faa5"]);
+    });
 });
 
 describe("Agentic tool correctness and failure boundaries", () => {
+    test.each(AGENTIC_TOOLS_SCHEMA.map(t=>t.function.name))("all nine tools: %s reads healthy bounded fixtures",async tool=>{
+        const d=db(q=>({data:q.table === "stocks" ? [{id:1,symbol:"COMI",name:"Commercial Bank"}] : q.table === "stock_prices" ? [price]
+            : q.table === "market_cache" ? {payload:{egx30:[{close:100,date:"2026-10-07"},{close:101,date:price.date}],regime:"sideways"}}
+            : q.table === "stock_technical_indicators" ? [{symbol:"COMI",...price,change_pct:1,r_vol:2,rsi_14:55,macd:1,macd_signal:.5,macd_histogram:.5}]
+            : q.table === "stock_scans_summary" ? [{symbol:"COMI",scan_date:price.date,acc_score:70,dist_score:5,vol_ratio:2}]
+            : q.table === "scan_results" ? [{symbol:"COMI",entry_price:100,target_price:110,stop_loss:90,status:"open",created_at:price.date}]
+            : q.table === "news" ? [{stock_id:1,title:"خبر موثق",published_at:price.date}] : [],error:null}));
+        const r=await executeAgenticTool(tool,{symbols:["COMI"],operation:"view",preset:"top_gainers",status:"open",timeframe:"this_week"},d.client,"u");
+        expect(r.status).toBe("success");expect(d.queries.length).toBeGreaterThan(0);
+        for(const q of d.queries.filter(q=>q.ops.some(o=>o[0] === "select"))) expect(q.ops.some(o=>o[0] === "limit")).toBe(true);
+    });
     test.each([-10,0,Infinity,NaN])("rejects invalid quantity %s before write",async quantity=>{
         const d=db();const r=await executeAgenticTool("manage_portfolio",{operation:"add",symbol:"COMI",quantity,price:100},d.client,"u");
         expect(r.status).toBe("error");expect(d.queries.some(q=>q.ops.some(o=>o[0] === "insert"))).toBe(false);
@@ -254,6 +323,25 @@ describe("Agentic tool correctness and failure boundaries", () => {
         ];
         const table = "| وجه المقارنة | COMI | EAST |\n|---|---|---|\n| السعر الحالي | 100.00 | 22.53 |\n| نسبة التغير | 3.00% | -3.07% |\n| الحجم النسبي | 2.00 | 0.80 |";
         expect(checkAgenticDraft(table, e)).toEqual([]);
+    });
+    test("comparison columns cannot borrow another stock's price or metric",()=>{
+        const e=[toAgenticEvidence("get_comparison",{symbols:["COMI","EAST"]},{comparison:[{symbol:"COMI",close:108,rsi_14:65,date:price.date},{symbol:"EAST",close:22.53,rsi_14:45,date:price.date}]})];
+        expect(checkAgenticDraft("| وجه المقارنة | COMI | EAST |\n|---|---|---|\n| السعر الحالي | 22.53 | 108 |",e).length).toBeGreaterThan(0);
+        expect(checkAgenticDraft("| وجه المقارنة | COMI | EAST |\n|---|---|---|\n| RSI | 108 | 22.53 |",e).length).toBeGreaterThan(0);
+    });
+    test("admin production regression: price 124.65 is below EMA200 126.93",()=>{
+        const e=[toAgenticEvidence("get_comparison",{symbols:["COMI"]},{comparison:[{symbol:"COMI",close:124.65,ema_50:133.15,ema_200:126.93,date:price.date}]})];
+        expect(checkAgenticDraft("COMI: السعر 124.65 تحت EMA50 لكنه فوق EMA200.",e)).toContain("price_average_relation_contradiction:COMI:ema_200");
+        expect(checkAgenticDraft("COMI: السعر تحت EMA50 وتحت EMA200.",e)).toEqual([]);
+        expect(checkAgenticDraft("COMI: لو أغلق فوق EMA200 يمكن متابعة التحسن.",e)).toEqual([]);
+    });
+    test("period constants and small integers are not exemptions for invented price cells",()=>{
+        const e=[toAgenticEvidence("get_stock",{symbols:["COMI"]},{stocks:[{symbol:"COMI",close:108,date:price.date}]})];
+        for(const n of [14,20,50,100,200,5]) expect(checkAgenticDraft(`| السهم | الإغلاق |\n|---|---|\n| COMI | ${n} |`,e).length).toBeGreaterThan(0);
+    });
+    test("vertical table retains ownership through blank lines and prose",()=>{
+        const e=[toAgenticEvidence("get_stock",{symbols:["COMI","EAST"]},{stocks:[{symbol:"COMI",close:108,date:price.date},{symbol:"EAST",close:22.53,date:price.date}]})];
+        expect(checkAgenticDraft("## COMI\n\nالبيانات اليومية:\n\n| البند | القيمة |\n|---|---|\n| الإغلاق | 22.53 |",e).length).toBeGreaterThan(0);
     });
     test("accumulation table grounding works for acc_score, dist_score, and vol_ratio", () => {
         const e = [

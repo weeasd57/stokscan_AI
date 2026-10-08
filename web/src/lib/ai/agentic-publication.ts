@@ -11,6 +11,36 @@ export interface AgenticEvidence {
     symbols: string[];
     availability: "available" | "missing" | "partial" | "error";
     data_type: "historical";
+    captured_at?: string;
+}
+
+const memoryTools = new Set(["get_stock", "get_stock_levels", "get_market", "get_technical_scan", "get_accumulation_stocks", "get_comparison", "get_news", "get_recommendations"]);
+/** Remove duplicate aliases/payload text, without removing source, dates, identity or unknown values. */
+export function compactEvidence(record: AgenticEvidence): AgenticEvidence {
+    const data = { ...record.data };
+    if (data.comparison) delete data.comparisons;
+    if (data.stocks) delete data.accumulation_stocks;
+    return { ...record, data };
+}
+
+export function evidenceMemory(records: AgenticEvidence[], now = new Date()): Array<AgenticEvidence & { captured_at: string }> {
+    const dedup = new Map<string, AgenticEvidence & { captured_at: string }>();
+    for (const record of records) {
+        if (!record || typeof record.source !== "string" || !record.data || typeof record.arguments !== "object") continue;
+        if (!memoryTools.has(record.tool) || record.availability === "error" || !record.source.startsWith("supabase:")) continue;
+        const captured = record.captured_at || now.toISOString();
+        if (!Number.isFinite(Date.parse(captured)) || now.getTime() - Date.parse(captured) > 24 * 3600_000 || Date.parse(captured) > now.getTime() + 60_000) continue;
+        dedup.set(record.tool + JSON.stringify(record.arguments), { ...compactEvidence(record), captured_at: captured });
+    }
+    const result: Array<AgenticEvidence & { captured_at: string }> = [];
+    let bytes = 0;
+    for (const record of [...dedup.values()].reverse()) {
+        const size = JSON.stringify(record).length;
+        if (bytes + size > 8000) continue;
+        result.unshift(record); bytes += size;
+        if (result.length === 6) break;
+    }
+    return result;
 }
 
 export function evidenceRows(data: any): any[] {
@@ -98,13 +128,50 @@ function cleanCellText(text: string): string {
         .replace(/\b(?:RSI|EMA|SMA|BB|MACD|ATR|STOCH)\b/gi, " ");
 }
 
+/** Metric labels describe generated evidence, never user intent routing. */
+function tableMetricFields(label: string): FactRecord["field"][] | undefined {
+    const text = label.replace(/[*_]/g, "");
+    if (/EMA\s*50/i.test(text) && /EMA\s*200/i.test(text)) return ["ema_50","ema_200"];
+    const labels: Array<[RegExp, FactRecord["field"][]]> = [
+        [/RSI|القوة النسبية/i,["rsi"]], [/هيست|hist/i,["macd_hist"]], [/MACD.*(?:signal|إشار|اشار)|(?:signal|إشار|اشار).*MACD/i,["macd_signal"]], [/MACD/i,["macd","macd_signal","macd_hist"]],
+        [/EMA\s*50/i,["ema_50"]], [/EMA\s*200/i,["ema_200"]], [/حجم.*نسبي|الحجم النسبي|r_vol|vol_ratio/i,["vol_ratio"]],
+        [/KING/i,["king_ai_score"]], [/EGX.*AI/i,["egx_ai_score"]], [/تجميع/i,["acc_score"]], [/تصريف/i,["dist_score"]],
+        [/سعر.*(?:شراء|دخول)|الدخول/i,["entry_price"]], [/وقف/i,["stop_loss"]], [/هدف|مستهدف/i,["target_price"]], [/دعم/i,["support"]], [/مقاوم/i,["resistance"]],
+        [/تكلف/i,["cost_basis"]], [/قيمة.*سوق|القيمة السوقية/i,["market_value"]], [/ربح|خسار|عائد|النسبة/i,["profit_pct","profit_value"]],
+        [/تغير|التغيّر/i,["change_pct"]], [/كمية|الكمية|عدد|مراكز/i,["quantity"]], [/إغلاق|اغلاق|السعر|سعر|price|close/i,["price","close"]],
+    ];
+    return labels.find(([pattern]) => pattern.test(text))?.[1];
+}
+
 /** This validates output evidence/protocol only. It never routes user intent. */
 export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): string[] {
     const reasons: string[] = [];
     if (!reply.trim()) reasons.push("empty_response");
+    const substantive = reply.replace(/\[[^\]]*\]\(https?:\/\/[^)]*\)/g, "").replace(/https?:\/\/\S+/g, "")
+        .replace(/✅ تحليل EGX Bots[^\n]*/g, "").replace(/📢[^\n]*/g, "");
+    if (!/[\p{L}]{2}/u.test(substantive)) reasons.push("response_has_no_substantive_answer");
     if (/DSML|<\/?tool_call|<\/?function_call/i.test(reply)) reasons.push("internal_tool_protocol_in_response");
     const facts = agenticFacts(evidence);
     reasons.push(...checkAttribution(reply, facts));
+    // Compare claimed above/below relations to the actual quote, not merely whether both numbers exist.
+    let owner: string | null = null;
+    const rows = evidence.flatMap(e => evidenceRows(e.data));
+    const known = [...new Set(rows.map(r=>r.symbol).filter(Boolean))];
+    for (const raw of reply.split("\n")) {
+        const line = raw.replace(/[*_`]/g, "");
+        const named = known.filter(s=>new RegExp(`\\b${s}\\b`).test(line));
+        if (named.length === 1) owner=named[0];
+        if (named.length > 1 || !owner || /(?:إذا|اذا|لو|عند اختراق|هدف|مستهدف|وقف)/.test(line)) continue;
+        const row = [...rows].reverse().find(r=>r.symbol === owner && r.close != null);
+        if (!row) continue;
+        for (const relation of line.matchAll(/(فوق|أعلى من|اعلى من|تحت|أسفل|اسفل|above|below)\s*(?:الـ\s*)?EMA\s*(50|200)/gi)) {
+            if (/(?:ليس|مش|لا|غير)\s*$/.test(line.slice(Math.max(0,relation.index!-12),relation.index))) continue;
+            const close=Number(row.close), average=Number(row[`ema_${relation[2]}`]);
+            if (!Number.isFinite(close) || !Number.isFinite(average)) continue;
+            const above=/فوق|أعلى|اعلى|above/i.test(relation[1]);
+            if ((above && close <= average) || (!above && close >= average)) reasons.push(`price_average_relation_contradiction:${owner}:ema_${relation[2]}`);
+        }
+    }
     // Check numbers in markdown rows against the named stock, including rows with no currency unit.
     const allSymbols = [...new Set(evidence.flatMap(e => e.symbols))];
     const portfolioFacts = facts.filter(f => f.symbol === "PORTFOLIO" || !f.symbol);
@@ -114,13 +181,10 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
     let tableHadStockRow = false;
     let tableColSymbols: Array<string | null> = [];
     let isComparisonTable = false;
+    let headers: string[] = [];
 
     const matchesFact = (val: number, targetFacts: FactRecord[]): boolean => {
-        // Standard indicator parameter periods (RSI-14, MA-20, MA-50, MA-100, MA-200) are standard metric parameters, not prices
-        if (val === 14 || val === 20 || val === 50 || val === 100 || val === 200) {
-            return true;
-        }
-        const candidateFacts = [...targetFacts, ...portfolioFacts.filter(f => f.field === "quantity")];
+        const candidateFacts = targetFacts;
         return candidateFacts.some(f => {
             const tol = Math.max(0.02, Math.abs(f.value) * 0.005);
             if (Math.abs(val - f.value) <= tol) return true;
@@ -145,9 +209,7 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
             tableHadStockRow = false;
             tableColSymbols = [];
             isComparisonTable = false;
-            if (!line.startsWith("#") && allSymbols.length > 1) {
-                currentSymbol = null;
-            }
+            // Blank lines and explanatory prose do not erase the stock section.
             rankColIdx = -1;
             continue;
         }
@@ -158,16 +220,20 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
             tableHadStockRow = false;
             tableColSymbols = [];
             isComparisonTable = false;
+            headers = [];
         }
 
         if (/^\|[\s\-:|]+\|$/.test(line)) continue;
 
         const cells = line.split("|").slice(1, -1).map(c => c.trim());
 
-        if (cells.some(c => /ترتيب|مركز|أولوية|تصنيف|أفضلية|^#$|^م$|^ت$|رقم|rank|tier|category/i.test(c))) {
+        if (isNewTable && cells.some(c => /ترتيب|مركز|أولوية|تصنيف|أفضلية|^#$|^م$|^ت$|رقم|rank|tier|category/i.test(c))) {
+            headers = cells;
             rankColIdx = cells.findIndex(c => /ترتيب|مركز|أولوية|تصنيف|أفضلية|^#$|^م$|^ت$|رقم|rank|tier|category/i.test(c));
             continue;
         }
+
+        if (isNewTable) headers = cells;
 
         // Detect comparison table where multiple columns are stock symbols (e.g. | وجه المقارنة | COMI | EAST |)
         if (isNewTable || tableColSymbols.length === 0) {
@@ -185,10 +251,10 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
                 if (!colSymbol) continue;
                 const cell = cells[colIdx];
                 if (!/\d/.test(cell)) continue;
-                if (/^(?:[#№]?\s*\d{1,2}\.?|\(?\s*\d{1,2}\s*\)?|\*\*\d{1,2}\*\*|🥇|🥈|🥉|1️⃣|2️⃣|3️⃣|4️⃣|5️⃣|6️⃣|7️⃣|8️⃣|9️⃣|🔟)$/.test(cell.replace(/[*_#]/g, "").trim())) continue;
                 const clean = cleanCellText(cell);
                 const matches = [...clean.matchAll(/[-+]?\d+(?:\.\d+)?/g)];
-                const targetFacts = facts.filter(f => f.symbol === colSymbol || (f.symbol && allSymbols.includes(f.symbol)));
+                const fields = tableMetricFields(cells[0]);
+                const targetFacts = facts.filter(f => f.symbol === colSymbol && (!fields || fields.includes(f.field)));
                 for (const match of matches) {
                     const n = Number(match[0]);
                     if (!matchesFact(n, targetFacts)) {
@@ -221,27 +287,22 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
         }
 
         if (!symbol) continue;
+        for (const date of line.match(/\b\d{4}-\d{2}-\d{2}\b/g) || []) {
+            const dates = evidence.flatMap(e => evidenceRows(e.data)).filter(r => r.symbol === symbol)
+                .flatMap(r => [r.date, r.current_date, r.scan_date, r.signal_date]);
+            if (!dates.some(d => String(d || "").slice(0,10) === date)) reasons.push(`table_date_not_grounded:${symbol}:${date}`);
+        }
 
-        const filteredCells = cells.filter((cell, idx) => {
-            if (idx === rankColIdx) return false;
-            if (/^(?:[#№]?\s*\d{1,2}\.?|\(?\s*\d{1,2}\s*\)?|\*\*\d{1,2}\*\*|🥇|🥈|🥉|1️⃣|2️⃣|3️⃣|4️⃣|5️⃣|6️⃣|7️⃣|8️⃣|9️⃣|🔟)$/.test(cell.replace(/[*_#]/g, "").trim())) return false;
-            return true;
-        });
-
-        const clean = cleanCellText(filteredCells.join(" | "));
-        const matches = [...clean.matchAll(/[-+]?\d+(?:\.\d+)?/g)];
-        if (!matches.length) continue;
-
-        const targetFacts = symbol === "PORTFOLIO"
-            ? (portfolioFacts.length ? portfolioFacts : facts)
-            : lineSymbols.length > 1
-                ? facts.filter(f => f.symbol && lineSymbols.includes(f.symbol))
-                : facts.filter(f => f.symbol === symbol);
-
-        for (const match of matches) {
-            const n = Number(match[0]);
-            if (!matchesFact(n, targetFacts)) {
-                reasons.push(`table_value_not_grounded:${symbol}:${n}`);
+        for (let idx = 0; idx < cells.length; idx++) {
+            if (idx === rankColIdx || cells[idx].includes(symbol)) continue;
+            const fields = tableMetricFields(headers[idx]) || (currentSymbol ? tableMetricFields(cells[0]) : undefined);
+            const relevant = symbol === "PORTFOLIO" ? portfolioFacts : facts.filter(f => f.symbol === symbol);
+            const targetFacts = fields ? relevant.filter(f => fields.includes(f.field)) : relevant;
+            const clean = cleanCellText(cells[idx]);
+            for (const match of clean.matchAll(/[-+]?\d+(?:\.\d+)?/g)) {
+                const n = Number(match[0]);
+                if (!matchesFact(n, targetFacts) || (match[0].startsWith("+") && targetFacts.some(f => f.value < 0 && Math.abs(n + f.value) < 0.02)))
+                    reasons.push(`table_value_not_grounded:${symbol}:${n}`);
             }
         }
     }
