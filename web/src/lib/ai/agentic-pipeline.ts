@@ -194,7 +194,7 @@ export const AGENTIC_SYSTEM_PROMPT = `أنت "EGX Bots AI" — المحلل ال
 1. **أنت صانع القرار الكامل في تحديد النية واستدعاء الأدوات**:
    - لا تعتمد على قوالب جامدة أو نصوص معلبة.
    - إذا كان سؤال المستخدم يحتاج إلى بيانات سوقية، مؤشرات فنية، أسعار، محفظة، توصيات، أو مسح فني: استدعِ الأداة المناسبة فوراً (Tool Calling) مع المدخلات الصحيحة.
-   - ⚠️ **قاعدة حاسمة**: إذا أرسل المستخدم اسم سهم أو رمزه فقط (مثل "ابو قير" أو "Ajwa" أو "COMI")، **يجب دائماً وبلا استثناء استدعاء أداة get_stock و get_stock_levels فوراً** لجلب بيانات السهم وسعره ومستوياته، ويُمنع تماماً ترك جداول فارغة أو أرقام نائبة بدون استدعاء الأداة.
+   - ⚠️ **قاعدة حاسمة**: إذا أرسل المستخدم اسم سهم أو رمزه فقط (مثل "ابو قير" أو "Ajwa" أو "COMI" أو "Ineg" أو "AMES")، حتى لو جاء في سياق متابعة بعد مسح عام، **يجب دائماً وبلا استثناء استدعاء أداة get_stock و get_stock_levels فوراً** لجلب بيانات السهم وسعره ومستوياته وتحليله تفصيلياً، ويُمنع تماماً إعادة تشغيل مسح تجميع أو مسح سوق عام أو تكرار القوائم السابقة.
    - إذا ذكر المستخدم مركزاً استثمارياً اشتراه (مثل "Ames بسعر 45.05 عدد 1115")، استدعِ أداة manage_portfolio لتسجيله في محفظته فوراً.
    - إذا طلب تحليل محفظته ("حلل محفظتي")، استدعِ أداة manage_portfolio لاسترجاع مراكزه وتحليلها بالكامل.
    - إذا سأل عن أسهم أو مقارنات أو سيولة أو أفضل أسهم، استدعِ الأدوات المناسبة ثم لخص النتائج بذكاء بشري راقٍ.
@@ -396,37 +396,94 @@ export async function executeAgenticTool(
                     return { status: "error", message: "Symbol, quantity, and price are required." };
                 }
 
+                const cleanSymbol = String(symbol).toUpperCase().replace(/\.CA$/i, "").trim();
+                const numQty = Number(quantity);
+                const numPrice = Number(price);
+
+                if (isNaN(numQty) || isNaN(numPrice)) {
+                    return { status: "error", message: "Quantity and price must be valid numbers." };
+                }
+
+                const { data: stockRow } = await supabase
+                    .from("stocks")
+                    .select("name, name_ar")
+                    .eq("symbol", cleanSymbol)
+                    .maybeSingle();
+
+                const stockName = stockRow?.name_ar || stockRow?.name || cleanSymbol;
+
                 const { data: existing } = await supabase
                     .from("positions")
                     .select("id")
                     .eq("user_id", userId)
-                    .eq("symbol", symbol)
+                    .eq("symbol", cleanSymbol)
                     .eq("status", "open");
 
                 if (existing && existing.length > 0) {
-                    await supabase
+                    const { error: updateErr } = await supabase
                         .from("positions")
-                        .update({ quantity, entry_price: price })
+                        .update({
+                            quantity: numQty,
+                            entry_price: numPrice,
+                            updated_at: new Date().toISOString()
+                        })
                         .eq("id", existing[0].id);
+
+                    if (updateErr) {
+                        console.error("[manage_portfolio] update failed:", updateErr);
+                        return { status: "error", message: `فشل تحديث المركز في قاعدة البيانات: ${updateErr.message}` };
+                    }
                 } else {
-                    await supabase
+                    const { error: insertErr } = await supabase
                         .from("positions")
                         .insert({
                             user_id: userId,
-                            symbol,
-                            quantity,
-                            entry_price: price,
-                            status: "open"
+                            symbol: cleanSymbol,
+                            name: stockName,
+                            quantity: numQty,
+                            entry_price: numPrice,
+                            status: "open",
+                            source: "chatbot"
                         });
+
+                    if (insertErr) {
+                        console.error("[manage_portfolio] insert failed:", insertErr);
+                        return { status: "error", message: `فشل تسجيل المركز في قاعدة البيانات: ${insertErr.message}` };
+                    }
                 }
 
                 return {
                     status: "success",
                     operation: existing?.length ? "updated" : "added",
-                    symbol,
-                    quantity,
-                    price,
-                    message: `تم تسجيل سهم ${symbol} في المحفظة بعدد ${quantity} بسعر ${price} ج.م بنجاح.`
+                    symbol: cleanSymbol,
+                    quantity: numQty,
+                    price: numPrice,
+                    message: `تم تسجيل سهم ${cleanSymbol} في المحفظة بعدد ${numQty} بسعر ${numPrice} ج.م بنجاح.`
+                };
+            }
+
+            if (operation === "remove" || operation === "delete") {
+                if (!symbol) {
+                    return { status: "error", message: "Symbol is required to remove position." };
+                }
+                const cleanSymbol = String(symbol).toUpperCase().replace(/\.CA$/i, "").trim();
+                const { error: delErr } = await supabase
+                    .from("positions")
+                    .delete()
+                    .eq("user_id", userId)
+                    .eq("symbol", cleanSymbol)
+                    .eq("status", "open");
+
+                if (delErr) {
+                    console.error("[manage_portfolio] delete failed:", delErr);
+                    return { status: "error", message: `فشل حذف المركز: ${delErr.message}` };
+                }
+
+                return {
+                    status: "success",
+                    operation: "removed",
+                    symbol: cleanSymbol,
+                    message: `تم حذف سهم ${cleanSymbol} من المحفظة بنجاح.`
                 };
             }
         }

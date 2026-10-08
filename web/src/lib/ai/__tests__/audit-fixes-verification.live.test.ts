@@ -6,11 +6,15 @@ const describeLive = process.env.RUN_LIVE_CHAT_TESTS === "1" ? describe : descri
 
 describeLive("Audit Fixes Verification - Live Tests", () => {
     let supabase: any;
-    const testUserId = "test-audit-user-" + Date.now();
+    let testUserId = "a8613760-918d-477f-a4dd-c2d0213f1730";
     const testSessionId = "test-audit-session-" + Date.now();
 
-    beforeAll(() => {
+    beforeAll(async () => {
         supabase = getSupabaseServiceClient();
+        const { data: profile } = await supabase.from("profiles").select("id").limit(1).maybeSingle();
+        if (profile?.id) {
+            testUserId = profile.id;
+        }
     });
 
     const createInitialSessionState = (): SessionState => ({
@@ -139,5 +143,67 @@ describeLive("Audit Fixes Verification - Live Tests", () => {
         expect(res.response).toMatch(/(AFMC|AMES|ATQA)/);
         // Telegram footer
         expect(res.response).toContain("https://t.me/egxbots");
+    }, 60000);
+
+    test("6. 'manage_portfolio' should successfully save position with source 'chatbot' into Supabase positions table", async () => {
+        const state = createInitialSessionState();
+        const testSymbol = "INEG";
+        const res = await runAgenticPipeline(
+            "سجل سهم INEG في محفظتي بسعر 0.731 وعدد 72503",
+            [],
+            state,
+            null,
+            [],
+            supabase,
+            [],
+            testUserId,
+            testSessionId,
+            "msg-6"
+        );
+
+        console.log("Response 6 (Portfolio Registration):\n", res.response);
+
+        expect(res.response).toMatch(/(تم تسجيل|محفظتك|INEG)/i);
+
+        // Verify it was ACTUALLY inserted into positions table in Supabase!
+        const { data: posRows, error: posErr } = await supabase
+            .from("positions")
+            .select("symbol, quantity, entry_price, status, source")
+            .eq("user_id", testUserId)
+            .eq("symbol", testSymbol)
+            .eq("status", "open");
+
+        expect(posErr).toBeNull();
+        expect(posRows).toBeDefined();
+        expect(posRows.length).toBeGreaterThan(0);
+        expect(posRows[0].symbol).toBe("INEG");
+        expect(posRows[0].quantity).toBe(72503);
+        expect(posRows[0].entry_price).toBe(0.731);
+        expect(posRows[0].source).toBe("chatbot");
+
+        // Cleanup
+        await supabase.from("positions").delete().eq("user_id", testUserId).eq("symbol", testSymbol);
+    }, 60000);
+
+    test("7. Single symbol 'Ineg' should invoke get_stock and not repeat accumulation scans", async () => {
+        const state = createInitialSessionState();
+        const res = await runAgenticPipeline(
+            "Ineg",
+            [],
+            state,
+            null,
+            [],
+            supabase,
+            [],
+            testUserId,
+            testSessionId,
+            "msg-7"
+        );
+
+        console.log("Response 7 (Single symbol Ineg):\n", res.response);
+
+        expect(res.response).toMatch(/(INEG|المجموعة المتكاملة|بورصة النيل)/i);
+        // Must NOT output the general accumulation header
+        expect(res.response).not.toContain("أقوى أسهم تجميع السيولة والأحجام");
     }, 60000);
 });
