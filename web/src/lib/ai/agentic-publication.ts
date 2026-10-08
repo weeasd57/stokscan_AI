@@ -67,35 +67,53 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
     // Check numbers in markdown rows against the named stock, including rows with no currency unit.
     const allSymbols = [...new Set(evidence.flatMap(e => e.symbols))];
     let currentSymbol: string | null = allSymbols.length === 1 ? allSymbols[0] : null;
+    let rankColIdx: number = -1;
 
-    for (const line of reply.split("\n")) {
-        const trimmed = line.trim();
+    for (const rawLine of reply.split("\n")) {
+        const line = rawLine.trim();
         const lineSymbol = allSymbols.find(s => new RegExp(`\\b${s}\\b`, "i").test(line));
         if (lineSymbol) {
             currentSymbol = lineSymbol;
         }
 
-        if (!trimmed.startsWith("|")) {
-            if (!trimmed.startsWith("#") && allSymbols.length > 1) {
+        if (!line.startsWith("|")) {
+            if (!line.startsWith("#") && allSymbols.length > 1) {
                 currentSymbol = null;
             }
+            rankColIdx = -1;
             continue;
         }
 
-        if (/^\|[\s\-:|]+\|$/.test(trimmed)) continue;
+        if (/^\|[\s\-:|]+\|$/.test(line)) continue;
 
-        const clean = line
-            .replace(/\d{4}-\d{2}-\d{2}/g, "")
-            .replace(/(?<=\d),(?=\d{3}(?:\D|$))/g, "")
-            .replace(/\b(?:RSI|EMA|SMA|BB)[ _-]?(?:14|20|50|100|200)\b/gi, "")
-            .replace(/متوسط\s*(?:14|20|50|100|200)\b/gi, "")
-            .replace(/^\|\s*\d+\s*\|/, "|");
+        const cells = line.split("|").slice(1, -1).map(c => c.trim());
 
-        const matches = [...clean.matchAll(/[-+]?\d+(?:\.\d+)?/g)];
-        if (!matches.length) continue;
+        if (cells.some(c => /ترتيب|مركز|أولوية|تصنيف|أفضلية|^#$|^م$|^ت$|رقم|rank|tier|category/i.test(c))) {
+            rankColIdx = cells.findIndex(c => /ترتيب|مركز|أولوية|تصنيف|أفضلية|^#$|^م$|^ت$|رقم|rank|tier|category/i.test(c));
+            continue;
+        }
+
+        if (!cells.some(c => /\d/.test(c))) continue;
 
         const symbol = lineSymbol || currentSymbol;
         if (!symbol) continue;
+
+        const filteredCells = cells.filter((cell, idx) => {
+            if (idx === rankColIdx) return false;
+            if (/^(?:[#№]?\s*\d{1,2}\.?|🥇|🥈|🥉|1️⃣|2️⃣|3️⃣|4️⃣|5️⃣|6️⃣|7️⃣|8️⃣|9️⃣|🔟)$/.test(cell)) return false;
+            return true;
+        });
+
+        const clean = filteredCells.join(" | ")
+            .replace(/\d{4}[-/]\d{2}[-/]\d{2}/g, "")
+            .replace(/(?<=\d),(?=\d{3}(?:\D|$))/g, "")
+            .replace(/\b(?:RSI|EMA|SMA|BB)[ _-]?(?:\(\s*\d+(?:[\s,]+\d+)*\s*\)|\d+)\b/gi, "")
+            .replace(/\bMACD\s*\(\s*\d+[\s,]+\d+[\s,]+\d+\s*\)/gi, "")
+            .replace(/(?:متوسط|موفينج)\s*(?:14|20|50|100|200)\b/gi, "")
+            .replace(/(?:الهدف|مستهدف|المستهدف|دعم|الدعم|مقاومة|المقاومة|المركز|ترتيب|الترتيب|مستوى|المستوى|فئة|الفئة)\s*[1-9]\b/gi, "");
+
+        const matches = [...clean.matchAll(/[-+]?\d+(?:\.\d+)?/g)];
+        if (!matches.length) continue;
 
         const stockFacts = facts.filter(f => f.symbol === symbol);
         for (const match of matches) {

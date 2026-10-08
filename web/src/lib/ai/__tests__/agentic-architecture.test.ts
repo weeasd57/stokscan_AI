@@ -202,4 +202,13 @@ describe("Agentic tool correctness and failure boundaries", () => {
         expect(checkAgenticDraft("### سهم COMI\n| البيان | القيمة |\n|---|---|\n| الدعم | 90 |\n| المقاومة | 9999 |",[e])).toContain("table_value_not_grounded:COMI:9999");
         expect(checkAgenticDraft("### سهم COMI\n| البيان | القيمة |\n|---|---|\n| الدعم | 90 |\n| المقاومة | 110 |",[e])).toEqual([]);
     });
+    test("ranking tables and ordinal indicator labels do not false-positive",()=>{
+        const e=[
+            toAgenticEvidence("get_stock",{symbols:["ADIB","TMGH"]},{status:"success",stocks:[{symbol:"ADIB",close:47.8,support:44,resistance:50,date:price.date},{symbol:"TMGH",close:87.89,support:80,resistance:92,date:price.date}]}),
+            toAgenticEvidence("get_stock_levels",{symbols:["ADIB","TMGH"]},{status:"success",levels:[{symbol:"ADIB",close:47.8,support:44,resistance:50,take_profit_1:50,take_profit_2:55,date:price.date},{symbol:"TMGH",close:87.89,support:80,resistance:92,take_profit_1:92,take_profit_2:100,date:price.date}]}),
+        ];
+        expect(checkAgenticDraft("| الترتيب | السهم | السعر الحالي |\n|---|---|---|\n| 1 | ADIB | 47.80 |\n| 2 | TMGH | 87.89 |",e)).toEqual([]);
+        expect(checkAgenticDraft("### سهم ADIB\n| البيان | القيمة |\n|---|---|\n| الهدف 1 | 50.00 |\n| الهدف 2 | 55.00 |\n| الدعم 1 | 44.00 |",e)).toEqual([]);
+        expect(checkAgenticDraft("| الترتيب | السهم | السعر الحالي |\n|---|---|---|\n| 1 | ADIB | 9999.00 |",e)).toContain("table_value_not_grounded:ADIB:9999");
+    });
 });

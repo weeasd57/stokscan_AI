@@ -74,7 +74,6 @@ async function executeRawTool(
                 const { data: indRows } = await supabase
                     .from("stock_technical_indicators")
                     .select("date, close, change_pct, volume, r_vol, rsi_14, macd, macd_signal, macd_histogram, bb_upper, bb_lower, ema_50, ema_200, king_ai_score, egx_ai_score")
-                    .eq("exchange", "EGX")
                     .eq("exchange", "EGX").eq("symbol", sym)
                     .order("date", { ascending: false })
                     .limit(1);
@@ -82,7 +81,7 @@ async function executeRawTool(
                 const { data: wyckoffRows } = await supabase
                     .from("stock_scans_summary")
                     .select("scan_date, acc_score, dist_score, wyckoff_phase, vol_ratio, signal")
-                    .eq("exchange", "EGX").eq("symbol", sym)
+                    .eq("symbol", sym)
                     .order("scan_date", { ascending: false })
                     .limit(1);
 
@@ -135,7 +134,6 @@ async function executeRawTool(
                 const { data: pRows } = await supabase
                     .from("stock_prices")
                     .select("high, low, close, date")
-                    .eq("exchange", "EGX")
                     .eq("exchange", "EGX").eq("symbol", sym)
                     .order("date", { ascending: false })
                     .limit(60);
