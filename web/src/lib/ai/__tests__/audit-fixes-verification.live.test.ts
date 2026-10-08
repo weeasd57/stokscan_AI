@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { getSupabaseServiceClient } from "@/lib/supabase/route-data";
 import { runAgenticPipeline } from "../agentic-pipeline";
 import { SessionState } from "../types";
@@ -10,6 +12,23 @@ describeLive("Audit Fixes Verification - Live Tests", () => {
     const testSessionId = "test-audit-session-" + Date.now();
 
     beforeAll(async () => {
+        try {
+            const envPath = path.resolve(process.cwd(), ".env.local");
+            if (fs.existsSync(envPath)) {
+                const envContent = fs.readFileSync(envPath, "utf8");
+                for (const line of envContent.split("\n")) {
+                    const trimmed = line.trim();
+                    if (!trimmed || trimmed.startsWith("#")) continue;
+                    const eqIdx = trimmed.indexOf("=");
+                    if (eqIdx !== -1) {
+                        const key = trimmed.slice(0, eqIdx).trim();
+                        const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, "");
+                        if (!process.env[key]) process.env[key] = val;
+                    }
+                }
+            }
+        } catch {}
+
         supabase = getSupabaseServiceClient();
         const { data: profile } = await supabase.from("profiles").select("id").limit(1).maybeSingle();
         if (profile?.id) {
@@ -205,5 +224,54 @@ describeLive("Audit Fixes Verification - Live Tests", () => {
         expect(res.response).toMatch(/(INEG|المجموعة المتكاملة|بورصة النيل)/i);
         // Must NOT output the general accumulation header
         expect(res.response).not.toContain("أقوى أسهم تجميع السيولة والأحجام");
+    }, 60000);
+
+    test("8. Image uploaded with 9 stocks should extract tickers and provide comparative evaluation in Turn 1", async () => {
+        const state = createInitialSessionState();
+        const imageUrl = "https://gfcmaxbtscmizsakarvc.supabase.co/storage/v1/object/public/chat-images/1e450c74-1fc3-4525-9ff8-57c60e3a316c/986b05c9-21ad-48f9-9cff-4f8b263cc2d3/2d38bd28-13cb-4620-820a-2181b89fa6e1.jpg";
+        const res = await runAgenticPipeline(
+            "ايه رايك فى الاسهم دي وايه الى ممكن استبعدو منهم وايه الى ادخل فيه",
+            [imageUrl],
+            state,
+            null,
+            [],
+            supabase,
+            [],
+            testUserId,
+            testSessionId,
+            "msg-8"
+        );
+
+        console.log("Response 8 (Vision analysis):\n", res.response.slice(0, 300));
+
+        // Must recognize the stocks from the image without asking "which stocks"
+        expect(res.response).toMatch(/(ADIB|TYCN|BTFH|TMGH|CIEB)/i);
+        expect(res.response).not.toContain("محتاج أعرف الأسهم اللي بتتكلم عنها");
+    }, 90000);
+
+    test("9. Follow-up 'الخمسه الأولى ممكن تعملى طلب الشراء take profits' should provide complete levels without dashes", async () => {
+        const state = createInitialSessionState();
+        const history = [
+            { role: "user", content: "ايه رايك فى الاسهم دي" },
+            { role: "assistant", content: "الترتيب المقترح: 1. ADIB 2. TYCN 3. BTFH 4. TMGH 5. CIEB" }
+        ];
+        const res = await runAgenticPipeline(
+            "الخمسه الأولى ممكن تعملى طلب الشراء take profits",
+            [],
+            state,
+            null,
+            history,
+            supabase,
+            [],
+            testUserId,
+            testSessionId,
+            "msg-9"
+        );
+
+        console.log("Response 9 (Follow-up levels):\n", res.response.slice(0, 300));
+
+        // Must not leave missing dashes in the table
+        expect(res.response).toMatch(/(ADIB|TYCN|BTFH)/i);
+        expect(res.response).not.toContain("— | — | —");
     }, 60000);
 });

@@ -1,7 +1,8 @@
-import { SessionState, SessionSummary } from "./types";
+import { SessionState, SessionSummary, VisionContext } from "./types";
 import { ExcelTable } from "./excel-tables";
 import { getDeepSeekApiKey } from "./server-secrets";
 import { AI_CONFIG } from "./config";
+import { analyzeImage, reconcileVisionWithMarket } from "./vision";
 
 export interface PipelineOptions {
     signal?: AbortSignal;
@@ -44,14 +45,14 @@ export const AGENTIC_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "get_stock_levels",
-            "description": "جلب مستويات الدعم والمقاومة ووقف الخسارة والمستهدفات الفنية لسهم معين.",
+            "description": "جلب مستويات الدعم والمقاومة ومناطق الدخول المقترحة ووقف الخسارة (Stop Loss) والمستهدفات الفنية وجني الأرباح (Take Profit) لسهم معين أو قائمة أسهم.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "symbols": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "أكواد الأسهم"
+                        "description": "قائمة بأكواد الأسهم مثل ['TYCN', 'BTFH', 'GRCA', 'ACTF', 'CIEB']"
                     }
                 },
                 "required": ["symbols"]
@@ -194,7 +195,15 @@ export const AGENTIC_SYSTEM_PROMPT = `أنت "EGX Bots AI" — المحلل ال
 1. **أنت صانع القرار الكامل في تحديد النية واستدعاء الأدوات**:
    - لا تعتمد على قوالب جامدة أو نصوص معلبة.
    - إذا كان سؤال المستخدم يحتاج إلى بيانات سوقية، مؤشرات فنية، أسعار، محفظة، توصيات، أو مسح فني: استدعِ الأداة المناسبة فوراً (Tool Calling) مع المدخلات الصحيحة.
-   - ⚠️ **قاعدة حاسمة**: إذا أرسل المستخدم اسم سهم أو رمزه فقط (مثل "ابو قير" أو "Ajwa" أو "COMI" أو "Ineg" أو "AMES")، حتى لو جاء في سياق متابعة بعد مسح عام، **يجب دائماً وبلا استثناء استدعاء أداة get_stock و get_stock_levels فوراً** لجلب بيانات السهم وسعره ومستوياته وتحليله تفصيلياً، ويُمنع تماماً إعادة تشغيل مسح تجميع أو مسح سوق عام أو تكرار القوائم السابقة.
+   - ⚠️ **قاعدة حاسمة للرمز المنفرد**: إذا أرسل المستخدم اسم سهم أو رمزه فقط (مثل "ابو قير" أو "Ajwa" أو "COMI" أو "Ineg" أو "AMES")، حتى لو جاء في سياق متابعة بعد مسح عام، **يجب دائماً وبلا استثناء استدعاء أداة get_stock و get_stock_levels فوراً** لجلب بيانات السهم وسعره ومستوياته وتحليله تفصيلياً، ويُمنع تماماً إعادة تشغيل مسح تجميع أو مسح سوق عام أو تكرار القوائم السابقة.
+   - 📷 **قاعدة الصور المرفقة (Vision Grounding)**:
+     إذا أرفق المستخدم صورة، فسيتم تزويدك بالبيانات والرموز المستخرجة منها في بداية الرسالة.
+     إذا سأل المستخدم عن الأسهم المكتشفة في الصورة (مثل "ايه رايك فى الاسهم دي وايه الى ممكن استبعدو منهم وايه الى ادخل فيه"):
+     **يجب فوراً وبلا استثناء استدعاء أداة get_stock مع قائمة الرموز المستخرجة كاملة** لتحليلها ومقارنتها وتقديم التصنيف الفني الشامل والواضح للمستخدم مباشرة في الرد الأول دون سؤاله عن رموزها!
+   - 🎯 **قاعدة أسئلة المتابعة ونقاط الدخول ووقف الخسارة (Follow-up & Levels)**:
+     إذا طلب المستخدم نقاط الدخول، أو وقف الخسارة (Stop Loss)، أو المستهدفات وجني الأرباح (Take Profit)، أو طلب خطة شراء/تنفيذ لأسهم نوقشت سابقاً (مثل "الخمسة الأولى"، "الأسهم دي"، "رتبهم لي بالدخول والوقف والتيك بروفت"، "قولي أعمل الاستوب لوز والتيك بروفت عند كام"):
+     **يجب عليك فوراً استخراج رموز هذه الأسهم من سياق المحادثة والرسائل السابقة واستدعاء أداة get_stock_levels (و get_stock)** لكل هذه الأسهم لجلب المستويات الرسمية الدقيقة لها جميعاً.
+     يُمنع تماماً أن تطلب من المستخدم إعادة إرسال رموز الأسهم، ويُمنع ترك أي سهم فارغاً أو بشرطة "—" في الجدول، ويُمنع اختلاق أرقام من عندك بدون استدعاء الأداة.
    - إذا ذكر المستخدم مركزاً استثمارياً اشتراه (مثل "Ames بسعر 45.05 عدد 1115")، استدعِ أداة manage_portfolio لتسجيله في محفظته فوراً.
    - إذا طلب تحليل محفظته ("حلل محفظتي")، استدعِ أداة manage_portfolio لاسترجاع مراكزه وتحليلها بالكامل.
    - إذا سأل عن أسهم أو مقارنات أو سيولة أو أفضل أسهم، استدعِ الأدوات المناسبة ثم لخص النتائج بذكاء بشري راقٍ.
@@ -202,10 +211,10 @@ export const AGENTIC_SYSTEM_PROMPT = `أنت "EGX Bots AI" — المحلل ال
 
 2. **الفهم الذكي للسياق والأسهم والأسواق**:
    - افهم أسماء الشركات باللغة العربية والعامية (مثلاً: "طاقة" -> TAQA، "المصرية للاتصالات" -> ETEL، "أبو قير" -> ABUK، "أجواء" -> AJWA، "توسيع" في سياق الجلسة السابقة تشير إلى سهم TWSA).
-   - انتبه: البورصة المصرية تضم السوق الرئيسي (236 سهماً رئيسياً) وسوق الشركات الصغيرة والمتوسطة (بورصة النيل مثل ADRI وVERT). إذا سأل المستخدم عن سهم في بورصة النيل لا تتوفر له مؤشرات لحظية آلية، وضح له ذلك بذكاء واشرح له طبيعة قيده دون إجابات جافة أو رفض آلي، واستخدم ما ذكره المستخدم من أسعار إن وجدت.
+   - انتبه: البورصة المصرية تضم السوق الرئيسي (236 سهماً رئيسياً) وسوق الشركات الصغيرة والمتوسطة (بورصة النيل مثل ADRI وVERT و HBCO). إذا كان السهم غير مسجل في المؤشرات اللحظية للسوق الرئيسي، وضح ذلك للمستخدم بذكاء واشرح له طبيعة قيده دون إجابات جافة أو رفض آلي، واستخدم ما ذكره المستخدم من أسعار إن وجدت.
 
 3. **الأمان والدقة الفنية الصارمة (Grounding & Precision)**:
-   - ⛔ **ممنوع اختراع أرقام أو مستويات**: لا تبتكر نقاط دخول أو مستويات تأكيد أو اختراق (مثل "دخول 12-12.30" أو "استقرار فوق 50-52") من عندك أبداً. التزم حصراً بالمستويات الواردة في نتائج الأدوات (الدعم والمقاومة، وقف الخسارة، سعر الدخول، المستهدف). إذا لم تكن هناك نقطة دخول مسجلة، وضّح أن السهم في منطقة مراقبة حيادية بين الدعم والمقاومة.
+   - ⛔ **ممنوع اختراع أرقام أو مستويات**: لا تبتكر نقاط دخول أو مستويات تأكيد أو اختراق من عندك أبداً. التزم حصراً بالمستويات الواردة في نتائج أداة get_stock_levels (الدعم والمقاومة، وقف الخسارة، سعر الدخول، المستهدفات).
    - 📊 **الحجم النسبي (r_vol) ليس سيولة مطلقة**: معامل الحجم النسبي يصف نشاط التداول مقارنة بمتوسط الـ 20 جلسة للسهم نفسه فقط. إذا كانت قيمة r_vol أقل من 1.0، فالسهم يتداول بأحجام **أقل من متوسطه المعتاد**، ولا يجوز إطلاقاً وصفه بأنه "سيولة مرتفعة" أو "تجميع مؤسسي ضخم" حتى لو كانت نسبته أعلى بقليل من سهم آخر.
    - 🎯 **التوصيات المغلقة**: عند استعراض توصية مغلقة (حالتها loss أو win)، التزم بالنتيجة المحققة الفعلية المسجلة وتاريخ الخروج وسعر وقف الخسارة أو الهدف، ولا تحسب النتيجة من سعر إغلاق السهم الحالي بعد إغلاق التوصية. وإذا لم تكن هناك توصيات للفترة المطلوبة، اذكر ذلك صراحة مع ذكر تاريخ أحدث توصية متوفرة في المنصة بدقة.
    - ✍️ **اكتمال الرد**: لا تترك جداول مبتورة أو نقاطاً غير مكتملة تحتوي على "..." بل اعرض النتائج كاملة ومفيدة. وإذا طلبت توضيحاً، اجعل اقتراحاتك في صلب أسهم وتداولات البورصة المصرية.
@@ -303,19 +312,50 @@ export async function executeAgenticTool(
                     .order("date", { ascending: false })
                     .limit(60);
                 if (pRows && pRows.length > 0) {
-                    const lows = pRows.map((r: any) => r.low).filter((v: any) => v != null);
-                    const highs = pRows.map((r: any) => r.high).filter((v: any) => v != null);
-                    const support = lows.length > 0 ? Math.min(...lows.slice(0, 20)) : null;
-                    const resistance = highs.length > 0 ? Math.max(...highs.slice(0, 20)) : null;
+                    const close = Number(pRows[0].close);
+                    const recentRows = pRows.slice(0, 20);
+                    const recentLows = recentRows.map((r: any) => Number(r.low ?? r.close)).filter((v: number) => Number.isFinite(v) && v > 0);
+                    const recentHighs = recentRows.map((r: any) => Number(r.high ?? r.close)).filter((v: number) => Number.isFinite(v) && v > 0);
+                    const allHighs = pRows.map((r: any) => Number(r.high ?? r.close)).filter((v: number) => Number.isFinite(v) && v > 0);
+
+                    const support = recentLows.length > 0 ? Number(Math.min(...recentLows).toFixed(2)) : null;
+                    const resistance = recentHighs.length > 0 ? Number(Math.max(...recentHighs).toFixed(2)) : null;
+                    const longTermResistance = allHighs.length > 0 ? Number(Math.max(...allHighs).toFixed(2)) : resistance;
+                    const stopLoss = support != null ? Number((support * 0.98).toFixed(2)) : null;
+                    const target1 = resistance;
+                    const target2 = (longTermResistance != null && resistance != null && longTermResistance > resistance)
+                        ? longTermResistance
+                        : (resistance != null ? Number((resistance * 1.05).toFixed(2)) : null);
+
+                    const entryZone = support != null
+                        ? `${support} – ${Number((support * 1.02).toFixed(2))}`
+                        : "غير محدد";
+
+                    let tradingZone = "منطقة حيادية للمراقبة (بين الدعم والمقاومة)";
+                    if (support != null && close < support) {
+                        tradingZone = "تحت مستوى الدعم (كسر دعم فني)";
+                    } else if (resistance != null && close > resistance) {
+                        tradingZone = "فوق مستوى المقاومة (اختراق فني)";
+                    } else if (support != null && close <= support * 1.025) {
+                        tradingZone = "عند منطقة الدعم تماماً (منطقة شراء وتجميع محتملة)";
+                    } else if (resistance != null && close >= resistance * 0.975) {
+                        tradingZone = "عند منطقة المقاومة تماماً (منطقة جني أرباح ومقاومة بيعية)";
+                    }
+
                     levels.push({
                         symbol: sym,
-                        close: pRows[0].close,
+                        close,
                         support,
                         resistance,
+                        entry_zone: entryZone,
+                        stop_loss: stopLoss,
+                        take_profit_1: target1,
+                        take_profit_2: target2,
+                        trading_zone: tradingZone,
                         date: pRows[0].date
                     });
                 } else {
-                    levels.push({ symbol: sym, error: "No price history available" });
+                    levels.push({ symbol: sym, error: "No price history available or Nile stock" });
                 }
             }
             return { status: "success", levels };
@@ -778,12 +818,54 @@ export async function* runAgenticPipelineStream(
         return;
     }
 
+    let augmentedUserMessage = userMessage;
+    let extractedVision: VisionContext | null = null;
+
+    if (images && images.length > 0) {
+        yield { type: "status", data: { status: "vision", message: "تحليل وقراءة محتوى الصورة المرفقة..." } };
+        try {
+            let vision: VisionContext | null = null;
+            if (options.mockVisionResult) {
+                vision = options.mockVisionResult;
+            } else {
+                const visionRes = await analyzeImage(images[0], userMessage, apiKeys, messageId);
+                vision = visionRes.vision;
+            }
+
+            if (vision) {
+                await reconcileVisionWithMarket(vision, supabase);
+                extractedVision = vision;
+                yield { type: "vision_result", data: vision };
+
+                const detectedTickers = Array.from(new Set(vision.symbols.map(s => s.symbol).filter(Boolean)));
+                const tickersStr = detectedTickers.join(", ");
+                const symbolsDetail = vision.symbols.map(s => {
+                    const pricePart = s.visible_values?.price != null ? `سعر=${s.visible_values.price}` : "";
+                    const qtyPart = s.visible_values?.quantity != null ? `كمية=${s.visible_values.quantity}` : "";
+                    const changePart = s.visible_values?.change_pct != null ? `تغير=${s.visible_values.change_pct}%` : "";
+                    const details = [pricePart, qtyPart, changePart].filter(Boolean).join("، ");
+                    return `- ${s.symbol}${s.name ? ` (${s.name})` : ""}${details ? `: ${details}` : ""}`;
+                }).join("\n");
+
+                augmentedUserMessage = `[بيانات تم استخراجها والتحقق منها آلياً من الصورة المرفقة (نوعها: ${vision.image_type})]:
+الأسهم والرموز المكتشفة: ${tickersStr}
+تفاصيل العناصر المقروءة:
+${symbolsDetail}
+ملخص محتوى الصورة: ${vision.user_relevant_summary || "لا يوجد"}
+
+نص استفسار المستخدم: ${userMessage}`;
+            }
+        } catch (vErr) {
+            console.error("[Agentic Pipeline] Vision error:", vErr);
+        }
+    }
+
     // Build dialogue messages
     const trimmedHistory = (history || []).slice(-16);
     const messages: any[] = [
         { role: "system", content: AGENTIC_SYSTEM_PROMPT },
         ...trimmedHistory.map(h => ({ role: h.role, content: h.content })),
-        { role: "user", content: userMessage }
+        { role: "user", content: augmentedUserMessage }
     ];
 
     // First call: let LLM decide on tool calls
@@ -970,7 +1052,8 @@ export async function* runAgenticPipelineStream(
                 reasons: [],
                 repaired: false,
                 final_passed: true
-            }
+            },
+            vision: extractedVision
         }
     };
 }
