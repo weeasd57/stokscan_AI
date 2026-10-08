@@ -350,16 +350,7 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         .replace(/\|\s*السهم\s*\|\s*السعر اللحظي[\s\S]*?(?=\n\s*[^|\n]|$)/gi, "")
         .trim();
 
-    // 🛡️ Post-processing safety: detect and remove tables with ALL empty/dash values
-    // (indicates LLM generated a table but had no real data)
-    const dashTableRegex = /^\|.+\|[\s\-]*\-[\s\-]*\|[\s\-]*\-[\s\-]*\|[\s\-]*\-[\s\-]*\|[\s\-]*\-[\s\-]*\|[\s\-]*\-[\s\-]*\|.+\|$/gm;
-    if (dashTableRegex.test(cleanReply)) {
-      cleanReply = cleanReply
-        .replace(/^\|.+\|[\s\S]*?(?=\n\n|$)/m, "")
-        .replace(/\|[\s\-\|:]+\|/g, "")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
-    }
+
 
     // 🚨 CRITICAL: Remove any leaked system prompt text from LLM output
     // The LLM sometimes regurgitates the system prompt verbatim
@@ -471,8 +462,8 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         if (trimmed.includes("سهم NULL") || trimmed.includes("(NULL)") || trimmed.includes("سهم null")) {
             continue;
         }
-        // Table markup divider lines (e.g. |---|---|) should be preserved
-        if (/^\|[\s\-\|]+\|$/.test(trimmed)) {
+        // Table markup divider lines (e.g. |---|---|) and table rows should be preserved
+        if (trimmed.startsWith("|") && (trimmed.endsWith("|") || (trimmed.match(/\|/g) || []).length >= 2)) {
             cleanLines.push(line);
             continue;
         }

@@ -155,9 +155,60 @@ function parseRawPipeLine(line: string): RawPipeStock[] | null {
     return items.length > 0 ? items : null;
 }
 
-function parseContentBlocks(content: string): ContentBlock[] {
-    const blocks: ContentBlock[] = [];
+function normalizeTableText(content: string): string {
+    if (!content.includes("|")) return content;
     const lines = content.split("\n");
+    const newLines: string[] = [];
+    const ignoredHeaders = new Set([
+        "RSI", "MACD", "EMA", "SMA", "EGX", "AI", "KING", "VOL",
+        "P/E", "ROE", "ROA", "EPS", "PB", "DY", "TICKER", "STOCK", "EGP"
+    ]);
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        // Detect collapsed multi-row single-line tables (where row boundaries were stripped or missing)
+        if (trimmed.startsWith("|") && (trimmed.match(/\|/g) || []).length >= 10) {
+            // First repair cells where two values got merged with 2+ spaces, e.g. "EGX AI  **ACAMD**" or "0.463  **ACAP**"
+            const repairedLine = line.replace(/([^\n|]+?)\s{2,}(\*{0,2}[A-Z0-9]{2,10}\*{0,2})(?=\s*\|)/g, "$1 | $2");
+            const pipeCount = (repairedLine.match(/\|/g) || []).length;
+
+            if (pipeCount >= 15) {
+                const cells = repairedLine.split("|").map(c => c.trim()).filter(Boolean);
+                
+                // Find where the first stock ticker or second-row identifier starts
+                const firstRowIdx = cells.findIndex((cell, idx) => {
+                    if (idx === 0) return false;
+                    const clean = cell.replace(/\*/g, "").toUpperCase();
+                    return /^[A-Z0-9]{2,6}$/.test(clean) && !ignoredHeaders.has(clean);
+                });
+
+                if (firstRowIdx >= 3 && cells.length >= firstRowIdx * 2) {
+                    const colCount = firstRowIdx;
+                    const headers = cells.slice(0, colCount);
+                    newLines.push("| " + headers.join(" | ") + " |");
+                    newLines.push("| " + headers.map(() => "---").join(" | ") + " |");
+                    for (let i = colCount; i < cells.length; i += colCount) {
+                        const row = cells.slice(i, i + colCount);
+                        if (row.length > 0) {
+                            newLines.push("| " + row.join(" | ") + " |");
+                        }
+                    }
+                    continue;
+                }
+            }
+            newLines.push(repairedLine);
+        } else {
+            newLines.push(line);
+        }
+    }
+
+    return newLines.join("\n");
+}
+
+function parseContentBlocks(content: string): ContentBlock[] {
+    const normalizedContent = normalizeTableText(content);
+    const blocks: ContentBlock[] = [];
+    const lines = normalizedContent.split("\n");
     let currentTextLines: string[] = [];
     let currentTableLines: string[] = [];
     let currentCodeBlockLines: string[] = [];
@@ -182,12 +233,17 @@ function parseContentBlocks(content: string): ContentBlock[] {
                     .split("|")
                     .slice(1, -1)
                     .map(cell => cell.trim());
-                const rows = contentLines.slice(1).map(line =>
-                    line
+                const rows = contentLines.slice(1).map(line => {
+                    const cells = line
                         .split("|")
                         .slice(1, -1)
-                        .map(cell => cell.trim())
-                );
+                        .map(cell => cell.trim());
+                    // Pad with "-" if row has fewer cells than headers
+                    while (cells.length < headers.length) {
+                        cells.push("-");
+                    }
+                    return cells;
+                });
                 if (headers.length > 0 && rows.length > 0) {
                     blocks.push({ type: "table", headers, rows });
                 } else {
@@ -241,15 +297,34 @@ function parseContentBlocks(content: string): ContentBlock[] {
             continue;
         }
 
-        const isTableLine = trimmed.startsWith("|") && trimmed.endsWith("|");
+        // Table line detection: starts with "|" and has at least two pipes
+        const isTableLine = trimmed.startsWith("|") && (trimmed.endsWith("|") || (trimmed.match(/\|/g) || []).length >= 2);
 
         if (isTableLine) {
             if (!inTable) {
                 flushText();
                 inTable = true;
             }
-            currentTableLines.push(line);
+            const normalizedRow = trimmed.endsWith("|") ? trimmed : `${trimmed} |`;
+            currentTableLines.push(normalizedRow);
         } else {
+            // Check if this is an empty line between table rows
+            if (inTable && trimmed === "") {
+                let nextIsTable = false;
+                for (let k = i + 1; k < lines.length; k++) {
+                    const nextTrim = lines[k].trim();
+                    if (nextTrim === "") continue;
+                    if (nextTrim.startsWith("|") && (nextTrim.endsWith("|") || (nextTrim.match(/\|/g) || []).length >= 2)) {
+                        nextIsTable = true;
+                    }
+                    break;
+                }
+                if (nextIsTable) {
+                    // Do not flush table on blank line between rows
+                    continue;
+                }
+            }
+
             if (inTable) {
                 flushTable();
                 inTable = false;
@@ -323,45 +398,119 @@ function parseContentBlocks(content: string): ContentBlock[] {
     return finalBlocks;
 }
 
+function renderTableCell(cellText: string) {
+    const raw = String(cellText ?? "").trim();
+    if (!raw || raw === "-" || raw === "—" || raw === "N/A") {
+        return <span className="text-zinc-400 dark:text-zinc-500 font-mono">—</span>;
+    }
+
+    const clean = raw.replace(/\*\*/g, "").trim();
+
+    // Check for negative return/loss
+    const isNegative = /^[-−–]\s*\d/.test(clean) || /\(\s*[-−–]\s*\d/.test(clean) || clean.includes("🔴") || clean.includes("خسارة");
+    if (isNegative) {
+        return (
+            <span className="inline-flex items-center font-mono font-bold text-[11px] sm:text-xs text-rose-600 dark:text-rose-400 bg-rose-500/10 dark:bg-rose-500/15 px-1.5 py-0.5 rounded dir-ltr tabular-nums">
+                {clean}
+            </span>
+        );
+    }
+
+    // Check for positive return/gain
+    const isPositive = /^\+\s*\d/.test(clean) || /\(\s*\+\s*\d/.test(clean) || clean.includes("🟢") || clean.includes("ربح");
+    if (isPositive) {
+        return (
+            <span className="inline-flex items-center font-mono font-bold text-[11px] sm:text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 dark:bg-emerald-500/15 px-1.5 py-0.5 rounded dir-ltr tabular-nums">
+                {clean}
+            </span>
+        );
+    }
+
+    // Numbers / Percentages / Decimals / Currency
+    const isPureNumber = /^[\d,]+(?:\.\d+)?(?:\s*(?:ج\.م|EGP|جنيه|%|٪))?$/.test(clean);
+    if (isPureNumber) {
+        return (
+            <span className="font-mono text-[11px] sm:text-xs tabular-nums text-zinc-900 dark:text-zinc-100 font-semibold dir-ltr">
+                {clean}
+            </span>
+        );
+    }
+
+    // Check for stock ticker
+    const isTicker = /^[A-Za-z]{2,6}$|^[A-Za-z]+[0-9]+[A-Za-z]*$/.test(clean) && !/^(RSI|MACD|EMA|SMA|EGX|AI|KING|VOL|EGP|BUY|SELL|HOLD)$/i.test(clean);
+    if (isTicker) {
+        return (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-md font-mono font-black text-[11px] sm:text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-950 dark:text-zinc-50 border border-zinc-200 dark:border-zinc-700 shadow-sm">
+                {clean.toUpperCase()}
+            </span>
+        );
+    }
+
+    // General text (check if was bold)
+    const wasBold = raw.startsWith("**") && raw.endsWith("**");
+    return (
+        <span className={`text-[11px] sm:text-xs text-zinc-800 dark:text-zinc-200 ${wasBold ? "font-bold" : "font-medium"}`}>
+            {clean}
+        </span>
+    );
+}
+
 function ExportableTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
     const [copied, setCopied] = useState(false);
     return (
-        <div className="my-4 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden bg-white dark:bg-zinc-900/90 shadow-md max-w-full">
-            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 min-w-0">
-                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
-                    <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    جدول تحليلي جاهز للتصدير
-                </span>
+        <div className="my-3.5 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden bg-white dark:bg-zinc-950 shadow-md max-w-full">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 bg-gradient-to-r from-zinc-50 to-zinc-100 dark:from-zinc-900/90 dark:to-zinc-900/60 border-b border-zinc-200 dark:border-zinc-800 min-w-0">
+                <div className="flex items-center gap-2">
+                    <div className="p-1 rounded-md bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+                        <FileSpreadsheet className="w-4 h-4" />
+                    </div>
+                    <span className="text-xs font-black text-zinc-900 dark:text-zinc-100">
+                        جدول البيانات والتحليل
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 font-bold">
+                        {rows.length} {rows.length === 1 ? "صف" : rows.length === 2 ? "صفين" : rows.length <= 10 ? "صفوف" : "صف"}
+                    </span>
+                </div>
                 <button
                     onClick={() => {
                         exportTableToExcel(headers, rows);
                         setCopied(true);
                         setTimeout(() => setCopied(false), 2000);
                     }}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-all shadow-md active:scale-95"
+                    className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-all shadow-sm active:scale-95 cursor-pointer"
+                    title="تصدير الجدول كملف Excel / CSV"
                 >
                     {copied ? <Check className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
-                    {copied ? "تم التحميل!" : "تصدير لإكسيل (Excel)"}
+                    <span>{copied ? "تم التحميل!" : "تصدير لإكسيل (Excel)"}</span>
                 </button>
             </div>
 
-            <div className="w-full max-w-full overflow-x-auto my-2 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm scrollbar-thin">
-                <table className="w-full text-[11px] sm:text-xs text-right border-collapse">
+            <div className="w-full max-w-full overflow-x-auto scrollbar-thin">
+                <table className="w-full text-right border-collapse text-xs">
                     <thead>
-                        <tr className="bg-zinc-100 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-200 border-b border-zinc-200 dark:border-zinc-700">
+                        <tr className="bg-zinc-100/90 dark:bg-zinc-900/90 text-zinc-900 dark:text-zinc-200 border-b border-zinc-200 dark:border-zinc-800">
                             {headers.map((h, i) => (
-                                <th key={i} className="px-2 py-1.5 sm:px-3 sm:py-2 text-[11px] sm:text-xs whitespace-nowrap font-bold border-l border-zinc-200 dark:border-zinc-700/50 last:border-l-0">
-                                    {h}
+                                <th
+                                    key={i}
+                                    className="px-3 py-2.5 text-[11px] sm:text-xs font-extrabold whitespace-nowrap text-zinc-700 dark:text-zinc-300 border-l border-zinc-200/80 dark:border-zinc-800/80 last:border-l-0"
+                                >
+                                    {h.replace(/\*\*/g, "").trim()}
                                 </th>
                             ))}
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-zinc-200/70 dark:divide-zinc-800/70">
                         {rows.map((row, rIdx) => (
-                            <tr key={rIdx} className="border-b border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors">
+                            <tr
+                                key={rIdx}
+                                className="even:bg-zinc-50/60 dark:even:bg-zinc-900/30 hover:bg-amber-500/5 dark:hover:bg-amber-500/10 transition-colors"
+                            >
                                 {row.map((cell, cIdx) => (
-                                    <td key={cIdx} className="px-2 py-1.5 sm:px-3 sm:py-2 text-[11px] sm:text-xs whitespace-nowrap border-l border-zinc-200 dark:border-zinc-800/50 last:border-l-0 text-zinc-800 dark:text-zinc-300 font-mono">
-                                        {cell}
+                                    <td
+                                        key={cIdx}
+                                        className="px-3 py-2 text-[11px] sm:text-xs whitespace-nowrap border-l border-zinc-200/60 dark:border-zinc-800/60 last:border-l-0"
+                                    >
+                                        {renderTableCell(cell)}
                                     </td>
                                 ))}
                             </tr>
