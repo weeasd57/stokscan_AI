@@ -212,6 +212,9 @@ def _minutes(value):
 
 
 def _due_phase(now):
+    from api.egx_trading_calendar import is_egx_session
+    if not is_egx_session(now):
+        return None
     if not _scheduler_state.get("enabled") or now.weekday() not in _scheduler_state["active_days"]:
         return None
     current = now.hour * 60 + now.minute
@@ -385,11 +388,12 @@ def _record_run(job_id: str, status: str):
 
 
 def _compute_next_run() -> str:
+    from api.egx_trading_calendar import is_egx_session
     now = _now_cairo()
     candidates = []
     for offset in range(8):
         day = now + timedelta(days=offset)
-        if day.weekday() not in _scheduler_state["active_days"]:
+        if day.weekday() not in _scheduler_state["active_days"] or not is_egx_session(day):
             continue
         for value in (_scheduler_state["midday_run_time"], _scheduler_state["run_time"]):
             minutes = _minutes(value)

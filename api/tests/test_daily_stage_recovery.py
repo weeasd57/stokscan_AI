@@ -5,6 +5,77 @@ import pytest
 from api.daily_stage_recovery import plan_recovery, retry_failed_daily_stages, ORDER, MIDDAY
 
 
+@pytest.mark.parametrize('stored', [json.dumps([]), []])
+def test_append_step_matches_jsonb_value_not_serialized_array(stored):
+    from api.daily_stage_recovery import append_step
+    from types import SimpleNamespace
+    row = {'id': 'cas-test', 'steps': stored}
+
+    class Query:
+        def __init__(self):
+            self.filters = {}
+            self.payload = None
+        def update(self, payload): self.payload = payload; return self
+        def eq(self, key, value): self.filters[key] = value; return self
+        def execute(self):
+            # PostgREST parses the filter as JSONB: strings and arrays differ.
+            assert json.loads(self.filters['steps']) == row['steps']
+            row.update(self.payload)
+            return SimpleNamespace(data=[dict(row)])
+
+    class Client:
+        def table(self, name): return Query()
+
+    job = dict(row)
+    result = append_step(Client(), job, {'step': 'sync_prices', 'status': 'started'})
+    assert result[0]['recovery_attempt'] == 1
+    assert json.loads(row['steps']) == result
+
+
+@pytest.mark.parametrize('lease_status,error,attempt,expected_calls', [
+    ('audit_failed', None, False, 1),
+    ('failed', 'Stale recovery checkpoint', False, 1),
+    ('failed', 'Provider failed', False, 0),
+    ('failed', 'Stale recovery checkpoint', True, 0),
+])
+def test_only_unexecuted_audit_leases_can_be_repaired(monkeypatch, lease_status, error, attempt, expected_calls):
+    import api.daily_stage_recovery as recovery
+    from types import SimpleNamespace
+    steps = [{'step': 'sync_prices', 'status': 'success'},
+             {'step': 'calculate_indicators', 'status': 'success'},
+             {'step': 'short_swings_daily', 'status': 'failed'}]
+    if attempt:
+        steps[-1]['recovery_attempt'] = 1
+    job = {'id': 'lease-test', 'status': 'failed', 'steps': json.dumps(steps)}
+    class Query:
+        def select(self, *args): return self
+        def eq(self, *args): return self
+        def gte(self, *args): return self
+        def lt(self, *args): return self
+        def order(self, *args, **kwargs): return self
+        def limit(self, *args): return self
+        def execute(self): return SimpleNamespace(data=[job])
+    monkeypatch.setattr('api.stock_ai._init_supabase', lambda: None)
+    monkeypatch.setattr('api.stock_ai.supabase', SimpleNamespace(table=lambda _: Query()))
+    monkeypatch.setattr('api.daily_job_scheduler._due_phase', lambda _: 'midday')
+    monkeypatch.setattr(recovery, '_FINISHED', set())
+    monkeypatch.setattr(recovery, 'read_checkpoint', lambda *args: {'payload': {'status': lease_status, 'error': error}})
+    monkeypatch.setattr(recovery, 'replace_checkpoint', lambda *args: {'payload': {}})
+    def append(client, row, step):
+        current = json.loads(row['steps'])
+        current.append({**step, 'recovery_attempt': 1})
+        row['steps'] = json.dumps(current)
+        return current
+    monkeypatch.setattr(recovery, 'append_step', append)
+    calls = []
+    def execute(*args):
+        calls.append(args[0])
+        return {'success': False, 'details': 'Bounded test failure'}
+    monkeypatch.setattr(recovery, 'execute_stage', execute)
+    recovery.retry_failed_daily_stages(datetime(2026, 10, 7, 12, 20, tzinfo=timezone.utc))
+    assert len(calls) == expected_calls
+
+
 def test_plan_recovery_midday_never_includes_recommendations():
     # Sync prices failure cascades to indicators, ML, heatmap, gate, and swings,
     # but MUST NOT include any recommendation stages in midday.

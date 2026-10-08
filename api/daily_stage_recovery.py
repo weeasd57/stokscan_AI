@@ -113,22 +113,26 @@ def execute_stage(name, phase, job_id, previous):
 
 def append_step(client, job, step):
     # Verify writes instead of reporting a recovery that was never recorded.
-    previous = job.get('steps') or '[]'
+    previous = job.get('steps')
+    if previous is None:
+        previous = '[]'
     steps = json.loads(previous) if isinstance(previous, str) else list(previous)
     steps.append({**step, 'sequence': len(steps)+1, 'timestamp': utc_now().isoformat(), 'recovery_attempt': 1})
     encoded = json.dumps(steps)
     health = summarise_daily_steps(steps)
     updated = (client.table('daily_job_runs').update({'steps': encoded, 'error': health['error']})
-               .eq('id', job['id']).eq('steps', previous).execute())
+               .eq('id', job['id']).eq('steps', json.dumps(previous)).execute())
     if not updated.data:
         current = client.table('daily_job_runs').select('steps').eq('id', job['id']).single().execute()
-        current_steps_raw = (current.data or {}).get('steps') or '[]'
+        current_steps_raw = (current.data or {}).get('steps')
+        if current_steps_raw is None:
+            current_steps_raw = '[]'
         steps = json.loads(current_steps_raw) if isinstance(current_steps_raw, str) else list(current_steps_raw)
         steps.append({**step, 'sequence': len(steps)+1, 'timestamp': utc_now().isoformat(), 'recovery_attempt': 1})
         encoded = json.dumps(steps)
         health = summarise_daily_steps(steps)
         updated = (client.table('daily_job_runs').update({'steps': encoded, 'error': health['error']})
-                   .eq('id', job['id']).eq('steps', current_steps_raw).execute())
+                   .eq('id', job['id']).eq('steps', json.dumps(current_steps_raw)).execute())
         if not updated.data:
             raise RuntimeError('Daily recovery audit write lost to a concurrent update')
     job['steps'] = encoded
@@ -174,15 +178,33 @@ def retry_failed_daily_stages(now):
         existing = read_checkpoint(client, key)
         if existing:
             existing_payload = existing.get('payload') or {}
-            if existing_payload.get('status') == 'running':
-                comp = parse_timestamp(existing.get('computed_at'))
-                if comp and (utc_now() - comp) > timedelta(minutes=15):
-                    replace_checkpoint(client, key, {**existing_payload, 'status': 'failed', 'error': 'Stale recovery checkpoint'}, existing)
-            continue
-        claim = replace_checkpoint(client, key, {'status': 'running', 'stage': name, 'phase': phase, 'attempts': 1}, None)
+            # Older workers claimed a lease then failed before recording the
+            # started step (JSONB/string CAS bug). No operation was executed:
+            # repair that lease without spending the user's one actual retry.
+            repair_audit = existing_payload.get('status') == 'audit_failed' or (
+                existing_payload.get('status') == 'failed'
+                and existing_payload.get('error') == 'Stale recovery checkpoint')
+            if repair_audit and not latest.get(name, {}).get('recovery_attempt'):
+                claim = replace_checkpoint(client, key,
+                    {'status':'running','stage':name,'phase':phase,'attempts':1,'audit_repaired':True}, existing)
+                if not claim:
+                    continue
+            else:
+                if existing_payload.get('status') == 'running':
+                    comp = parse_timestamp(existing.get('computed_at'))
+                    if comp and (utc_now() - comp) > timedelta(minutes=15):
+                        replace_checkpoint(client, key, {**existing_payload, 'status': 'failed', 'error': 'Stale recovery checkpoint'}, existing)
+                continue
+        else:
+            claim = replace_checkpoint(client, key, {'status': 'running', 'stage': name, 'phase': phase, 'attempts': 1}, None)
         if not claim:
             continue
-        append_step(client, job, {'step': name, 'status': 'started', 'details': 'Independent one-time stage recovery'})
+        try:
+            append_step(client, job, {'step': name, 'status': 'started', 'details': 'Independent one-time stage recovery'})
+        except Exception:
+            replace_checkpoint(client, key, {'status':'audit_failed','stage':name,'phase':phase,
+                                           'attempts':0,'execution_started':False}, claim)
+            raise
         # Market-data consumers must not run over a still-incomplete price sync or indicator calculation.
         if name in REQUIRES_PRICES and latest.get('sync_prices', {}).get('status') != 'success':
             result = {'success': False, 'details': 'Price sync incomplete; dependent recovery withheld', 'count': 0}
