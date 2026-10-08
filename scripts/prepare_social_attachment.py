@@ -29,9 +29,11 @@ def validate_url(url, session_date):
     return urlunsplit(parsed)
 
 
-def prepare_attachment(url, session_date, opener=None, *, platform='facebook'):
+def prepare_attachment(url, session_date, opener=None, *, platform='facebook', media_format='image'):
     if platform not in ('facebook', 'tiktok'):
         raise ValueError('Unsupported platform')
+    if media_format not in ('image', 'reel'):
+        raise ValueError('Unsupported media format')
     url = validate_url(url, session_date)
     with (opener or urllib.request.urlopen)(url, timeout=25) as response:
         if response.headers.get('Content-Type', '').split(';')[0] != 'image/png':
@@ -45,6 +47,16 @@ def prepare_attachment(url, session_date, opener=None, *, platform='facebook'):
         if image.format != 'PNG' or image.size != (1200, 1200):
             raise ValueError('Unexpected report dimensions')
         image.verify()
+    if media_format == 'reel':
+        if __package__:
+            from scripts.prepare_social_reel import prepare_reel
+        else:
+            from prepare_social_reel import prepare_reel
+        folder = Path(tempfile.mkdtemp(prefix='egxbots-social-'))
+        original = folder / 'report.png'
+        original.write_bytes(data)
+        result = prepare_reel(original)
+        return {**result, 'session_date': session_date, 'platform': platform}
     if platform == 'tiktok':
         with Image.open(io.BytesIO(data)) as image:
             rgba = image.convert('RGBA')
@@ -76,8 +88,9 @@ def main():
     parser.add_argument('--url', required=True)
     parser.add_argument('--date', required=True)
     parser.add_argument('--platform', choices=('facebook', 'tiktok'), default='facebook')
+    parser.add_argument('--format', choices=('image', 'reel'), default='reel')
     args = parser.parse_args()
-    print(json.dumps(prepare_attachment(args.url, args.date, platform=args.platform)))
+    print(json.dumps(prepare_attachment(args.url, args.date, platform=args.platform, media_format=args.format)))
 
 
 if __name__ == '__main__':

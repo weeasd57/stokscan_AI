@@ -1,5 +1,41 @@
 # Daily branded social reports
 
+## Approved logo intro and video attachments (2026-10-08)
+
+The publication attachment is now a vertical MP4 reel on both networks, not a
+photo. The existing HF daily report generation and immutable PNG evidence remain
+unchanged. No additional HF run, LLM, paid generation or publication is required.
+The original user-supplied 5-second, 1080x1920 logo animation is bundled at
+`api/assets/social/logo-intro-vertical.mp4`. Preserve its original audio. Follow it
+with 18 seconds showing the complete saved report image, uncropped, on the dark
+vertical canvas. No invented facts, new narration or added licensed music.
+
+Install `imageio-ffmpeg==0.6.0` on the publishing desktop once (or use installed
+FFmpeg). Prepare the selected verified report with:
+
+```powershell
+python -m scripts.prepare_social_attachment --date YYYY-MM-DD --url PUBLIC_IMAGE_URL --platform tiktok --format reel
+```
+
+The returned absolute `path` is a real 23-second H.264/AAC MP4, 1080x1920, 30 fps.
+Reuse that exact file for Facebook: rendering is content-hash cached across both
+platforms, with bounded CPU/timeout. Do not attach both the PNG and MP4, and do
+not render per visitor or all four report types. Prepare and validate the file
+before acquiring the existing atomic publication claims. Missing intro/FFmpeg or
+render failure must stop publication and notify the user, not silently publish a
+photo or the logo alone. `--format image` remains available for explicit legacy
+photo diagnostics, not the scheduled publishing path.
+
+Use `scripts.social_publish_plan` as before; it emits `media_format: reel` and
+Facebook `facebookData: {type: REEL, title: SAVED_TITLE}`. TikTok receives the same
+MP4 with the existing caption/title checks. Pass its absolute path in `mediaFiles`
+once per network; never duplicate it in `info.media`. Verify returned hosted media
+is `video/mp4`, exactly one attachment, and Facebook type is `REEL`. Keep all
+existing reservation/quota, eligible-session, timing and reconciliation rules.
+Do not replace or resend already scheduled/published photo posts automatically.
+These video instructions supersede the photo attachment/MIME instructions below;
+the rest of the validation and audit policy is unchanged.
+
 HF generates four verified LLM report types after the daily data job. It renders
 immutable 1200x1200 PNGs using bundled Cairo font and the real site logo, uploads
 each once to the public `social-reports` bucket, and saves the caption, title,

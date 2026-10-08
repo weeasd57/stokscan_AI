@@ -94,8 +94,11 @@ def build_plan(session_date, reports, jobs, now=None):
                 'autoPublish': True, 'draft': False, 'saveExternalMediaFiles': True}
         if platform == 'tiktok':
             info['tiktokData'] = {'title': report['social_title']}
+        else:
+            info['facebookData'] = {'type': 'REEL', 'title': report['social_title']}
         posts.append({'platform': platform, 'date': at.isoformat(), 'info': info,
                       'image_url': report['image_url'],
+                      'media_format': 'reel',
                       'caption_check': validate_caption(text, platform, report['social_title'] if platform == 'tiktok' else '')})
     return {'session_date': session_date, 'kind': report['kind'], 'job_run_id': report['job_run_id'],
             'reservation': {'p_session_date': session_date, 'p_kind': report['kind'],

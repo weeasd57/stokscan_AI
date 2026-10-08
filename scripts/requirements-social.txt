@@ -1,0 +1,2 @@
+# Desktop reel renderer only; no extra dependency for HF's report generation.
+imageio-ffmpeg==0.6.0

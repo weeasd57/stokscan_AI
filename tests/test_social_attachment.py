@@ -63,3 +63,17 @@ def test_tiktok_attachment_is_real_jpeg_with_supported_dimensions(mode):
 def test_unknown_platform_is_rejected_before_download():
     with pytest.raises(ValueError, match='Unsupported platform'):
         prepare_attachment(URL, '2026-10-04', platform='unknown')
+
+
+def test_reel_uses_verified_original_and_returns_video(monkeypatch, tmp_path):
+    buffer = io.BytesIO()
+    Image.new('RGB', (1200, 1200)).save(buffer, format='PNG')
+    original = buffer.getvalue()
+    calls = []
+    def render(path):
+        calls.append(Path(path).read_bytes())
+        return {'path': str(tmp_path/'reel.mp4'), 'mime': 'video/mp4', 'format': 'reel'}
+    monkeypatch.setattr('scripts.prepare_social_reel.prepare_reel', render)
+    result = prepare_attachment(URL, '2026-10-04', platform='tiktok', media_format='reel',
+                                opener=lambda *a, **k: response(original))
+    assert calls == [original] and result['mime'] == 'video/mp4'
