@@ -68,7 +68,7 @@ function claimsAccumulation(reply: string): boolean {
  * figures, percent fields for percentages). Numbers found only under another
  * stock's facts are misattributions.
  */
-function checkAttribution(reply: string, facts: FactRecord[]): string[] {
+export function checkAttribution(reply: string, facts: FactRecord[]): string[] {
     const reasons: string[] = [];
     const bySymbol = new Map<string, FactRecord[]>();
     for (const record of facts) {

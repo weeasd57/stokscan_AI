@@ -28,6 +28,7 @@ import { explicitBollingerPreset } from "./scan-request";
 import { completeDecisionTools, ResponseTask } from "./response-task";
 
 export interface PipelineResult {
+    usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; provider_calls: number; tool_calls: number; model: string };
     response_origin?: "llm" | "deterministic" | "fallback";
     response_task?: ResponseTask | null;
     publication_review?: { passed: boolean; repaired: boolean; final_passed: boolean; reasons: string[] };
@@ -4108,6 +4109,7 @@ export async function runPipeline(
         else if (event.type === "tools_data") result.tools = event.data;
         else if (event.type === "done") {
             result.response = event.data.response;
+            result.usage = event.data.usage;
             result.publication_review = event.data.publication_review;
             result.response_origin = event.data.response_origin;
             result.response_task = event.data.response_task ?? null;

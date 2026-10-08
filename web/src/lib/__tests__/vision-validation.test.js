@@ -49,7 +49,7 @@ describe('vision market reconciliation', () => {
     const supabase = {
       from: () => ({
         select: () => ({
-          in: () => ({ order: async () => ({ data: [{ symbol: 'EDFM', close: 417.45, date: '2026-09-10' }, { symbol: 'MOSC', close: 315, date: '2026-09-10' }] }) }),
+          in: () => ({ eq: () => ({ order: () => ({ limit: async () => ({ data: [{ symbol: 'EDFM', close: 417.45, date: '2026-09-10' }, { symbol: 'MOSC', close: 315, date: '2026-09-10' }] }) }) }) }),
         }),
       }),
     };

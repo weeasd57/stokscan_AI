@@ -306,7 +306,9 @@ export async function reconcileVisionWithMarket(vision: VisionContext, supabase:
             .from("stock_technical_indicators")
             .select("symbol, close, date")
             .in("symbol", symbols)
-            .order("date", { ascending: false });
+            .eq("exchange", "EGX")
+            .order("date", { ascending: false })
+            .limit(100);
         const closeBySymbol = new Map<string, number>();
         for (const row of data || []) {
             const sym = String(row.symbol || "").toUpperCase();

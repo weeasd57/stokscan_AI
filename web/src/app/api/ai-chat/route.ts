@@ -745,6 +745,7 @@ export async function POST(req: NextRequest) {
                                          ...extractProvenanceFromToolResults(toolsResults, streamTables),
                                          correlation_id: correlationId,
                                          publication_review: event.data?.publication_review || null,
+                                         usage: event.data?.usage || null,
                                          response_origin: event.data?.response_origin || null,
                                          response_task: event.data?.response_task || null,
                                          vision_error: event.data?.vision_error || null,
@@ -941,7 +942,10 @@ export async function POST(req: NextRequest) {
         // Save messages to DB
         try {
             if (activeSessionId) {
-                const provenance = extractProvenanceFromToolResults(pipelineResult?.tools?.results || [], pipelineResult?.tables || []);
+                const provenance = extractProvenanceFromToolResults(pipelineResult?.tools?.results || [], pipelineResult?.tables || []) || {};
+                provenance.usage = pipelineResult.usage || null;
+                provenance.publication_review = pipelineResult.publication_review || null;
+                provenance.response_origin = pipelineResult.response_origin || null;
                 await insertChatMessages(supabase, [
                     {
                         session_id: activeSessionId,
