@@ -50,6 +50,7 @@ export interface ShortSwingTrade {
   name_en?: string;
   sector?: string;
   entry_date: string;
+  signal_date?: string;
   exit_date?: string;
   entry_price?: number | null;
   current_price?: number | null;
@@ -58,6 +59,7 @@ export interface ShortSwingTrade {
   price_date?: string | null;
   ema10_trend?: number | null;
   trailing_stop?: number | null;
+  stop_loss?: number | null;
   is_breakeven_protected?: boolean;
   max_gain_pct?: number;
   trigger_type?: string;
@@ -142,7 +144,12 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [filterPreset, setFilterPreset] = useState<"this_month" | "last_month" | "30days" | "all">("this_month");
   const [calendarViewType, setCalendarViewType] = useState<"grid" | "list">("grid");
-  const [selectedDayTrades, setSelectedDayTrades] = useState<{ date: string; trades: ShortSwingTrade[] } | null>(null);
+  const [selectedDayTrades, setSelectedDayTrades] = useState<{
+    date: string;
+    trades: ShortSwingTrade[];
+    activeTrades?: ShortSwingTrade[];
+  } | null>(null);
+  const [dayModalFilter, setDayModalFilter] = useState<"all" | "active" | "closed">("all");
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -175,7 +182,13 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
     setFilterPreset("this_month");
     const todayStr = formatYMD(today);
     const dayTrades = tradesByDate.get(todayStr) || [];
-    setSelectedDayTrades({ date: todayStr, trades: dayTrades });
+    const dayActive = activeTradesByDate.get(todayStr) || [];
+    setSelectedDayTrades({
+      date: todayStr,
+      trades: dayTrades,
+      activeTrades: dayActive.length > 0 ? dayActive : activeTrades,
+    });
+    setDayModalFilter(dayActive.length > 0 && dayTrades.length === 0 ? "active" : "all");
   };
 
   // Active trades state
@@ -272,6 +285,39 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
     });
     return map;
   }, [closedTrades]);
+
+  // Group active trades by entry_date (or signal_date if entry_date is not set yet)
+  const activeTradesByDate = useMemo(() => {
+    const map = new Map<string, ShortSwingTrade[]>();
+    activeTrades.forEach((t) => {
+      const d = t.entry_date || t.signal_date;
+      if (!d) return;
+      const arr = map.get(d) || [];
+      arr.push(t);
+      map.set(d, arr);
+    });
+    return map;
+  }, [activeTrades]);
+
+  // Active trades in current viewed month / preset trades
+  const viewedActiveTrades = useMemo(() => {
+    if (filterPreset === "all") {
+      return activeTrades;
+    }
+    if (filterPreset === "30days") {
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      const cutoffStr = formatYMD(thirtyDaysAgo);
+      return activeTrades.filter((t) => {
+        const d = t.entry_date || t.signal_date || "";
+        return d >= cutoffStr;
+      });
+    }
+    return activeTrades.filter((t) => {
+      const d = t.entry_date || t.signal_date || "";
+      return d.startsWith(currentMonthStr);
+    });
+  }, [activeTrades, currentMonthStr, filterPreset]);
 
   // Current viewed month / preset trades
   const viewedTrades = useMemo(() => {
@@ -819,7 +865,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                       : "text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white"
                   }`}
                 >
-                  كامل عام 2026 (511 صفقة)
+                  كامل عام 2026 ({closedTrades.length} صفقة مغلقة)
                 </button>
               </div>
 
@@ -853,13 +899,18 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
 
           {/* ── 2. Month Navigation Bar (Identical to RecommendationCalendar) ── */}
           <div className="flex items-center justify-between border-b-2 border-black dark:border-white pb-3 sm:pb-4">
-            <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
               <h3 className="text-base sm:text-lg md:text-xl font-black text-black dark:text-white">
                 {currentMonthName} {year}
               </h3>
               <span className="text-[10px] sm:text-xs font-bold text-black dark:text-white bg-zinc-100 dark:bg-zinc-800 px-2 sm:px-2.5 py-0.5 sm:py-1 border border-black dark:border-white">
                 {monthStats.total} {isAr ? "صفقة مغلقة في الشهر" : "monthly closed trades"}
               </span>
+              {viewedActiveTrades.length > 0 && (
+                <span className="text-[10px] sm:text-xs font-black text-black bg-[#FFE600] px-2 sm:px-2.5 py-0.5 sm:py-1 border border-black shadow-[1px_1px_0px_#000]">
+                  ⚡ {viewedActiveTrades.length} {isAr ? "قيد التداول" : "active"}
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-1.5 sm:gap-2">
@@ -890,36 +941,74 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-zinc-100 dark:bg-zinc-900 border-2 border-black dark:border-zinc-700 p-3 sm:p-4">
             <div>
               <span className="text-[10px] font-bold text-zinc-500 uppercase block">صفقات الشهر</span>
-              <span className="text-xl font-black font-mono text-black dark:text-white">{monthStats.total} صفقة</span>
-            </div>
-            <div>
-              <span className="text-[10px] font-bold text-zinc-500 uppercase block">نسبة النجاح للشهر</span>
-              <div className="flex items-center gap-1.5" dir="ltr">
-                <span className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400">
-                  {safeNum(monthStats.winRate).toFixed(1)}%
-                </span>
-                <span className="text-xs font-bold text-zinc-500 font-sans">
-                  ({monthStats.wins} رابحة)
-                </span>
-              </div>
-            </div>
-            <div>
-              <span className="text-[10px] font-bold text-zinc-500 uppercase block">صافي العائد الإجمالي</span>
-              <span
-                dir="ltr"
-                className={`text-xl font-black font-mono block ${
-                  safeNum(monthStats.netReturn) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-                }`}
-              >
-                {safeNum(monthStats.netReturn) >= 0 ? "+" : ""}{safeNum(monthStats.netReturn).toFixed(1)}%
+              <span className="text-xl font-black font-mono text-black dark:text-white">
+                {monthStats.total > 0
+                  ? `${monthStats.total} مغلقة`
+                  : viewedActiveTrades.length > 0
+                  ? `0 مغلقة • ${viewedActiveTrades.length} جارية`
+                  : "0 صفقة"}
               </span>
             </div>
             <div>
-              <span className="text-[10px] font-bold text-zinc-500 uppercase block">أفضل صفقة في الشهر</span>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase block">
+                {monthStats.total > 0 ? "نسبة النجاح للشهر" : "حالة الصفقات"}
+              </span>
+              {monthStats.total > 0 ? (
+                <div className="flex items-center gap-1.5" dir="ltr">
+                  <span className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400">
+                    {safeNum(monthStats.winRate).toFixed(1)}%
+                  </span>
+                  <span className="text-xs font-bold text-zinc-500 font-sans">
+                    ({monthStats.wins} رابحة)
+                  </span>
+                </div>
+              ) : viewedActiveTrades.length > 0 ? (
+                <span className="text-sm sm:text-base font-black text-amber-600 dark:text-amber-400">
+                  قيد التداول ⚡ ({viewedActiveTrades.length})
+                </span>
+              ) : (
+                <span className="text-xl font-black font-mono text-zinc-400">0.0%</span>
+              )}
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase block">
+                {monthStats.total > 0 ? "صافي العائد المحقق" : "العائد اللحظي الجاري"}
+              </span>
+              {monthStats.total > 0 ? (
+                <span
+                  dir="ltr"
+                  className={`text-xl font-black font-mono block ${
+                    safeNum(monthStats.netReturn) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                  }`}
+                >
+                  {safeNum(monthStats.netReturn) >= 0 ? "+" : ""}{safeNum(monthStats.netReturn).toFixed(1)}%
+                </span>
+              ) : viewedActiveTrades.length > 0 ? (
+                <span
+                  dir="ltr"
+                  className={`text-xl font-black font-mono block ${
+                    safeNum(viewedActiveTrades[0].return_pct) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                  }`}
+                >
+                  {formatShortSwingReturn(viewedActiveTrades[0].return_pct)}
+                </span>
+              ) : (
+                <span className="text-xl font-black font-mono text-zinc-400">0.0%</span>
+              )}
+            </div>
+            <div>
+              <span className="text-[10px] font-bold text-zinc-500 uppercase block">
+                {monthStats.bestTrade ? "أفضل صفقة في الشهر" : viewedActiveTrades.length > 0 ? "الصفقة النشطة" : "أفضل صفقة"}
+              </span>
               <span className="text-base sm:text-lg font-black font-mono text-indigo-600 dark:text-indigo-400 truncate block">
                 {monthStats.bestTrade ? (
                   <span dir="ltr">
                     {monthStats.bestTrade.symbol} (+{safeNum(monthStats.bestTrade.return_pct).toFixed(1)}%)
+                  </span>
+                ) : viewedActiveTrades.length > 0 ? (
+                  <span>
+                    {viewedActiveTrades[0].symbol}
+                    {viewedActiveTrades[0].name_ar ? ` (${viewedActiveTrades[0].name_ar})` : ""}
                   </span>
                 ) : (
                   "—"
@@ -946,7 +1035,9 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
                 {calendarDays.map((cell, idx) => {
                   const dayTrades = tradesByDate.get(cell.dateStr) || [];
-                  const hasTrades = cell.isCurrentMonth && dayTrades.length > 0;
+                  const dayActive = activeTradesByDate.get(cell.dateStr) || [];
+                  const hasClosed = cell.isCurrentMonth && dayTrades.length > 0;
+                  const hasActive = cell.isCurrentMonth && dayActive.length > 0;
                   const wins = dayTrades.filter((t) => t.return_pct != null && t.return_pct > 0).length;
                   const losses = dayTrades.filter((t) => t.return_pct != null && t.return_pct <= 0).length;
                   const netDailyPct = dayTrades.reduce((acc, t) => acc + (t.return_pct || 0), 0);
@@ -959,7 +1050,12 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                     <div
                       key={`${cell.dateStr}-${idx}`}
                       onClick={() => {
-                        setSelectedDayTrades({ date: cell.dateStr, trades: dayTrades });
+                        setSelectedDayTrades({
+                          date: cell.dateStr,
+                          trades: dayTrades,
+                          activeTrades: dayActive.length > 0 ? dayActive : (isToday ? activeTrades : [])
+                        });
+                        setDayModalFilter(dayActive.length > 0 && dayTrades.length === 0 ? "active" : "all");
                       }}
                       className={`min-h-[75px] sm:min-h-[100px] p-2 border-2 flex flex-col justify-between transition-all select-none relative cursor-pointer ${
                         isToday
@@ -974,10 +1070,12 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                           ? "border-zinc-200 dark:border-zinc-800/60 bg-zinc-100/30 dark:bg-zinc-900/20 text-zinc-400 dark:text-zinc-600 opacity-30"
                           : cell.isWeekend
                           ? "border-zinc-300 dark:border-zinc-800 bg-zinc-100/70 dark:bg-zinc-900/40 text-zinc-400"
-                          : hasTrades
+                          : hasClosed
                           ? netDailyPct >= 0
                             ? "border-black dark:border-white bg-emerald-50/70 dark:bg-emerald-950/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 shadow-[2px_2px_0px_#000] dark:shadow-[2px_2px_0px_#fff] hover:-translate-x-0.5 hover:-translate-y-0.5"
                             : "border-black dark:border-white bg-rose-50/70 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-900/30 shadow-[2px_2px_0px_#000] dark:shadow-[2px_2px_0px_#fff] hover:-translate-x-0.5 hover:-translate-y-0.5"
+                          : hasActive
+                          ? "border-amber-400 dark:border-amber-400 bg-amber-50/80 dark:bg-amber-950/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 shadow-[2px_2px_0px_#f59e0b] hover:-translate-x-0.5 hover:-translate-y-0.5"
                           : "border-zinc-200 dark:border-zinc-800 bg-white/40 dark:bg-zinc-950/40 text-zinc-400"
                       }`}
                     >
@@ -989,7 +1087,7 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                               isToday
                                 ? "bg-amber-400 text-black border border-black shadow-[1px_1px_0px_#000]"
                                 : cell.isCurrentMonth
-                                ? hasTrades
+                                ? (hasClosed || hasActive)
                                   ? "text-black dark:text-white"
                                   : "text-zinc-500"
                                 : "text-zinc-400"
@@ -1004,15 +1102,22 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                           )}
                         </div>
 
-                        {hasTrades && (
-                          <span className="px-1.5 py-0.2 border border-black bg-black text-[#FFE600] text-[9px] font-black">
-                            {dayTrades.length} صفقات
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1">
+                          {hasClosed && (
+                            <span className="px-1.5 py-0.2 border border-black bg-black text-[#FFE600] text-[9px] font-black">
+                              {dayTrades.length} صفقات
+                            </span>
+                          )}
+                          {hasActive && (
+                            <span className="px-1.5 py-0.2 border border-black bg-amber-400 text-black text-[9px] font-black shadow-[1px_1px_0px_#000]">
+                              ⚡ {dayActive.length} نشطة
+                            </span>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Middle: Win/Loss & Return */}
-                      {hasTrades ? (
+                      {/* Middle: Win/Loss & Return or Active Trade */}
+                      {hasClosed ? (
                         <div className="space-y-1 my-1">
                           <div className="flex items-center justify-between text-[10px] font-black">
                             <span className="text-emerald-600 dark:text-emerald-400">{wins} رابحة</span>
@@ -1030,21 +1135,40 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                             {safeNum(netDailyPct) >= 0 ? "+" : ""}{safeNum(netDailyPct).toFixed(1)}%
                           </div>
                         </div>
+                      ) : hasActive ? (
+                        <div className="space-y-1 my-1">
+                          <div className="text-[10px] font-black text-amber-600 dark:text-amber-400 text-center">
+                            دخول صفقة ⚡
+                          </div>
+                          <div
+                            dir="ltr"
+                            className="text-xs font-black font-mono text-center px-1 py-0.5 border border-black bg-amber-200 dark:bg-amber-900 text-amber-950 dark:text-amber-100 truncate"
+                          >
+                            {dayActive.map((t) => t.symbol).join(", ")}
+                          </div>
+                        </div>
                       ) : (
                         <div className="text-[10px] text-zinc-300 dark:text-zinc-700 font-bold text-center">
                           {!cell.isCurrentMonth ? "" : cell.isWeekend ? "عطلة" : "لا إغلاقات"}
                         </div>
                       )}
 
-                      {/* Bottom: Big Runner highlight */}
-                      {isBigRunnerDay && (
+                      {/* Bottom: Big Runner highlight or Active return */}
+                      {isBigRunnerDay ? (
                         <div
                           dir="ltr"
                           className="text-[9px] font-black bg-amber-400 text-black px-1 py-0.5 border border-black text-center truncate"
                         >
                           🔥 {maxGainTrade.symbol} +{safeNum(maxGainTrade?.return_pct).toFixed(0)}%
                         </div>
-                      )}
+                      ) : hasActive ? (
+                        <div
+                          dir="ltr"
+                          className="text-[9px] font-black bg-amber-300 text-black px-1 py-0.5 border border-black text-center truncate"
+                        >
+                          {formatShortSwingReturn(dayActive[0].return_pct)}
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -1053,12 +1177,80 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
           ) : (
             /* ── 5. AGENDA / LIST VIEW (When List icon is clicked) ── */
             <div className="space-y-3">
-              {viewedTrades.length === 0 ? (
+              {viewedTrades.length === 0 && viewedActiveTrades.length === 0 ? (
                 <div className="p-6 text-center text-xs font-bold text-zinc-500 border-2 border-black">
-                  لا توجد صفقات مغلقة في هذه الفترة المحددة.
+                  لا توجد صفقات في هذه الفترة المحددة.
                 </div>
               ) : (
-                <div className="divide-y-2 divide-black border-2 border-black">
+                <div className="space-y-4">
+                  {/* Active trades section in List View */}
+                  {viewedActiveTrades.length > 0 && (
+                    <div className="border-2 border-black bg-amber-50 dark:bg-amber-950/30 p-3 space-y-2">
+                      <div className="flex items-center justify-between text-xs font-black text-amber-700 dark:text-amber-300">
+                        <span className="flex items-center gap-1.5">
+                          <Zap className="w-4 h-4 text-amber-500" />
+                          صفقات قيد التداول حالياً ({viewedActiveTrades.length})
+                        </span>
+                        <span className="text-[10px] font-bold text-zinc-500">
+                          إشارات مفتوحة
+                        </span>
+                      </div>
+                      <div className="divide-y-2 divide-black border-2 border-black bg-white dark:bg-zinc-950">
+                        {viewedActiveTrades.map((t, idx) => (
+                          <div
+                            key={`active-agenda-${t.symbol}-${idx}`}
+                            className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                          >
+                            <div className="flex items-center gap-3">
+                              {t.is_locked ? (
+                                <div className="w-8 h-8 border-2 border-black bg-amber-400 flex items-center justify-center font-black">
+                                  <Lock className="w-4 h-4 text-black" />
+                                </div>
+                              ) : (
+                                <StockLogo symbol={t.symbol} size="sm" />
+                              )}
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-black text-sm text-black dark:text-white font-mono">
+                                    {t.symbol}
+                                  </span>
+                                  <span className="px-1.5 py-0.2 border border-black bg-[#FFE600] text-black text-[9px] font-black uppercase">
+                                    قيد التداول ⚡
+                                  </span>
+                                </div>
+                                <span className="text-[11px] font-bold text-zinc-500 block">
+                                  {t.name_ar || t.sector} • دخول في {t.entry_date}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-4">
+                              <div className="text-right text-xs font-mono">
+                                <span className="text-zinc-500 block text-[10px]">سعر الدخول / اللحظي</span>
+                                <span>
+                                  {t.is_locked ? "🔒" : `${t.entry_price != null ? safeNum(t.entry_price).toFixed(2) : "—"} → ${t.current_price != null ? safeNum(t.current_price).toFixed(2) : "—"} ج.م`}
+                                </span>
+                              </div>
+
+                              <div dir="ltr">
+                                <span
+                                  className={`inline-block px-2.5 py-1 border-2 border-black font-mono font-black text-xs ${
+                                    safeNum(t.return_pct) >= 0 ? "bg-emerald-400 text-black" : "bg-rose-400 text-black"
+                                  }`}
+                                >
+                                  {formatShortSwingReturn(t.return_pct)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Closed trades in List View */}
+                  {viewedTrades.length > 0 && (
+                    <div className="divide-y-2 divide-black border-2 border-black">
                   {viewedTrades.map((t, idx) => {
                     const isWin = safeNum(t.return_pct) > 0;
                     return (
@@ -1103,12 +1295,14 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
                       </div>
                     );
                   })}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )}
 
       {/* ── 7. VIEW 2: ACTIVE TRADES (الصفقات النشطة المفتوحة) ── */}
       {viewMode === "active" && (
@@ -1829,11 +2023,21 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
           >
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b-2 border-black dark:border-white pb-3">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <CalendarIcon className="w-5 h-5 text-amber-500" />
                 <h3 className="text-lg font-black text-black dark:text-white">
-                  صفقات يوم {selectedDayTrades.date} ({selectedDayTrades.trades.length} صفقات مغلقة)
+                  صفقات يوم {selectedDayTrades.date}
                 </h3>
+                <div className="flex items-center gap-1.5 mr-2">
+                  <span className="px-2 py-0.5 border border-black bg-zinc-100 dark:bg-zinc-800 text-[10px] font-bold">
+                    {selectedDayTrades.trades.length} مغلقة
+                  </span>
+                  {(selectedDayTrades.activeTrades?.length || 0) > 0 && (
+                    <span className="px-2 py-0.5 border border-black bg-[#FFE600] text-black text-[10px] font-black">
+                      ⚡ {selectedDayTrades.activeTrades!.length} قيد التداول
+                    </span>
+                  )}
+                </div>
               </div>
 
               <button
@@ -1844,90 +2048,199 @@ export default function ShortSwingsTab({ isPro = false, onSelectStock }: ShortSw
               </button>
             </div>
 
+            {/* Filter tabs if both exist */}
+            {selectedDayTrades.trades.length > 0 && (selectedDayTrades.activeTrades?.length || 0) > 0 && (
+              <div className="flex items-center gap-1.5 border-2 border-black bg-zinc-100 dark:bg-zinc-900 p-0.5 text-xs font-bold">
+                <button
+                  onClick={() => setDayModalFilter("all")}
+                  className={`px-3 py-1 transition-all ${
+                    dayModalFilter === "all" ? "bg-[#FFE600] text-black font-black border border-black" : "text-zinc-500"
+                  }`}
+                >
+                  الكل ({selectedDayTrades.trades.length + (selectedDayTrades.activeTrades?.length || 0)})
+                </button>
+                <button
+                  onClick={() => setDayModalFilter("active")}
+                  className={`px-3 py-1 transition-all ${
+                    dayModalFilter === "active" ? "bg-amber-400 text-black font-black border border-black" : "text-zinc-500"
+                  }`}
+                >
+                  قيد التداول ({selectedDayTrades.activeTrades?.length || 0})
+                </button>
+                <button
+                  onClick={() => setDayModalFilter("closed")}
+                  className={`px-3 py-1 transition-all ${
+                    dayModalFilter === "closed" ? "bg-black text-[#FFE600] font-black border border-black" : "text-zinc-500"
+                  }`}
+                >
+                  المغلقة ({selectedDayTrades.trades.length})
+                </button>
+              </div>
+            )}
+
             {/* List of trades for this day */}
             <div className="space-y-3">
-              {selectedDayTrades.trades.length === 0 ? (
+              {selectedDayTrades.trades.length === 0 && (!selectedDayTrades.activeTrades || selectedDayTrades.activeTrades.length === 0) ? (
                 <div className="p-8 text-center border-2 border-dashed border-black dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 space-y-2">
                   <Clock className="w-8 h-8 mx-auto text-zinc-400" />
                   <p className="font-black text-sm text-black dark:text-white">
-                    لا توجد صفقات قصيرة مغلقة في هذا اليوم ({selectedDayTrades.date})
+                    لا توجد صفقات قصيرة في هذا اليوم ({selectedDayTrades.date})
                   </p>
                   <p className="text-xs text-zinc-500 font-bold">
-                    الصفقات المفتوحة التي لم تُغلق بعد يمكن متابعتها في تبويب "الصفقات النشطة ⚡".
+                    لم تُسجل إشارات دخول أو إغلاقات صفقات في هذه الجلسة.
                   </p>
                 </div>
               ) : (
-                selectedDayTrades.trades.map((t, i) => {
-                const isWin = t.return_pct != null && t.return_pct > 0;
-                return (
-                  <div
-                    key={`${t.symbol}-${i}`}
-                    className="border-2 border-black dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 p-4 space-y-2 shadow-[2px_2px_0px_#000]"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        {t.is_locked ? (
-                          <div className="w-8 h-8 border-2 border-black bg-amber-400 flex items-center justify-center font-black">
-                            <Lock className="w-4 h-4 text-black" />
-                          </div>
-                        ) : (
-                          <StockLogo symbol={t.symbol} size="sm" />
-                        )}
+                <>
+                  {/* Active Trades */}
+                  {dayModalFilter !== "closed" && (selectedDayTrades.activeTrades || []).map((t, i) => (
+                    <div
+                      key={`day-active-${t.symbol}-${i}`}
+                      className="border-2 border-black dark:border-zinc-700 bg-amber-50/70 dark:bg-amber-950/20 p-4 space-y-2 shadow-[2px_2px_0px_#000]"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          {t.is_locked ? (
+                            <div className="w-8 h-8 border-2 border-black bg-amber-400 flex items-center justify-center font-black">
+                              <Lock className="w-4 h-4 text-black" />
+                            </div>
+                          ) : (
+                            <StockLogo symbol={t.symbol} size="sm" />
+                          )}
 
-                        <div>
-                          <span className="font-black text-sm text-black dark:text-white font-mono">
-                            {t.symbol}
-                          </span>
-                          <span className="text-[11px] font-bold text-zinc-500 block">
-                            {t.name_ar || t.sector}
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-black text-sm text-black dark:text-white font-mono">
+                                {t.symbol}
+                              </span>
+                              <span className="px-1.5 py-0.2 border border-black bg-[#FFE600] text-black text-[9px] font-black uppercase">
+                                قيد التداول ⚡
+                              </span>
+                              {t.is_breakeven_protected && (
+                                <span className="px-1.5 py-0.2 border border-black bg-emerald-400 text-black text-[9px] font-black uppercase">
+                                  مؤمّنة BE
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] font-bold text-zinc-500 block">
+                              {t.name_ar || t.sector} • دخول في {t.entry_date}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-left">
+                          <span
+                            className={`inline-block px-2.5 py-1 border-2 border-black font-mono font-black text-sm ${
+                              safeNum(t.return_pct) >= 0 ? "bg-emerald-400 text-black" : "bg-rose-400 text-black"
+                            }`}
+                          >
+                            {formatShortSwingReturn(t.return_pct)}
                           </span>
                         </div>
                       </div>
 
-                      <div className="text-left">
-                        <span
-                          className={`inline-block px-2.5 py-1 border-2 border-black font-mono font-black text-sm ${
-                            isWin ? "bg-emerald-400 text-black" : "bg-rose-400 text-black"
-                          }`}
-                        >
-                          {formatShortSwingReturn(t.return_pct)}
-                        </span>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-bold pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                        <div>
+                          <span className="text-zinc-500 text-[10px] block">سعر الدخول</span>
+                          <span className="font-mono text-black dark:text-white">
+                            {t.is_locked ? "🔒 مشفر" : `${t.entry_price != null ? safeNum(t.entry_price).toFixed(2) : "—"} ج.م`}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-zinc-500 text-[10px] block">السعر الحالي</span>
+                          <span className="font-mono text-black dark:text-white">
+                            {t.is_locked ? "🔒 مشفر" : `${t.current_price != null ? safeNum(t.current_price).toFixed(2) : "—"} ج.م`}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-zinc-500 text-[10px] block">وقف الخسارة</span>
+                          <span className="font-mono text-rose-600 dark:text-rose-400">
+                            {t.is_locked ? "🔒 مشفر" : `${t.stop_loss != null ? safeNum(t.stop_loss).toFixed(2) : "—"} ج.م`}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-zinc-500 text-[10px] block">الوقف المتحرك</span>
+                          <span className="font-mono text-indigo-600 dark:text-indigo-400">
+                            {t.is_locked ? "🔒 مشفر" : `${t.trailing_stop != null ? safeNum(t.trailing_stop).toFixed(2) : "تتبع EMA10"}`}
+                          </span>
+                        </div>
                       </div>
                     </div>
+                  ))}
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-bold pt-2 border-t border-zinc-200 dark:border-zinc-800">
-                      <div>
-                        <span className="text-zinc-500 text-[10px] block">سعر الدخول</span>
-                        <span className="font-mono text-black dark:text-white">
-                          {t.is_locked ? "🔒 مشفر" : `${t.entry_price != null ? safeNum(t.entry_price).toFixed(2) : "—"} ج.م`}
-                        </span>
+                  {/* Closed Trades */}
+                  {dayModalFilter !== "active" && selectedDayTrades.trades.map((t, i) => {
+                    const isWin = t.return_pct != null && t.return_pct > 0;
+                    return (
+                      <div
+                        key={`${t.symbol}-${i}`}
+                        className="border-2 border-black dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 p-4 space-y-2 shadow-[2px_2px_0px_#000]"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            {t.is_locked ? (
+                              <div className="w-8 h-8 border-2 border-black bg-amber-400 flex items-center justify-center font-black">
+                                <Lock className="w-4 h-4 text-black" />
+                              </div>
+                            ) : (
+                              <StockLogo symbol={t.symbol} size="sm" />
+                            )}
+
+                            <div>
+                              <span className="font-black text-sm text-black dark:text-white font-mono">
+                                {t.symbol}
+                              </span>
+                              <span className="text-[11px] font-bold text-zinc-500 block">
+                                {t.name_ar || t.sector}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="text-left">
+                            <span
+                              className={`inline-block px-2.5 py-1 border-2 border-black font-mono font-black text-sm ${
+                                isWin ? "bg-emerald-400 text-black" : "bg-rose-400 text-black"
+                              }`}
+                            >
+                              {formatShortSwingReturn(t.return_pct)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-bold pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                          <div>
+                            <span className="text-zinc-500 text-[10px] block">سعر الدخول</span>
+                            <span className="font-mono text-black dark:text-white">
+                              {t.is_locked ? "🔒 مشفر" : `${t.entry_price != null ? safeNum(t.entry_price).toFixed(2) : "—"} ج.م`}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-zinc-500 text-[10px] block">سعر الخروج</span>
+                            <span className="font-mono text-black dark:text-white">
+                              {t.is_locked ? "🔒 مشفر" : `${t.exit_price != null ? safeNum(t.exit_price).toFixed(2) : "—"} ج.م`}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-zinc-500 text-[10px] block">مدة الصفقة</span>
+                            <span className="font-mono text-black dark:text-white">{t.sessions} جلسات</span>
+                          </div>
+                          <div>
+                            <span className="text-zinc-500 text-[10px] block">سبب الخروج</span>
+                            <span className="text-black dark:text-white text-[11px]">
+                              {t.reason === "ema10_break"
+                                ? "كسر EMA10"
+                                : t.reason === "stop_be"
+                                ? "تأمين أرباح"
+                                : "وقف خسارة"}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-zinc-500 text-[10px] block">سعر الخروج</span>
-                        <span className="font-mono text-black dark:text-white">
-                          {t.is_locked ? "🔒 مشفر" : `${t.exit_price != null ? safeNum(t.exit_price).toFixed(2) : "—"} ج.م`}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-zinc-500 text-[10px] block">مدة الصفقة</span>
-                        <span className="font-mono text-black dark:text-white">{t.sessions} جلسات</span>
-                      </div>
-                      <div>
-                        <span className="text-zinc-500 text-[10px] block">سبب الخروج</span>
-                        <span className="text-black dark:text-white text-[11px]">
-                          {t.reason === "ema10_break"
-                            ? "كسر EMA10"
-                            : t.reason === "stop_be"
-                            ? "تأمين أرباح"
-                            : "وقف خسارة"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
 
             <div className="flex justify-end pt-2">
               <button
