@@ -204,10 +204,17 @@ export const AGENTIC_SYSTEM_PROMPT = `أنت "EGX Bots AI" — المحلل ال
    - افهم أسماء الشركات باللغة العربية والعامية (مثلاً: "طاقة" -> TAQA، "المصرية للاتصالات" -> ETEL، "أبو قير" -> ABUK، "أجواء" -> AJWA، "توسيع" في سياق الجلسة السابقة تشير إلى سهم TWSA).
    - انتبه: البورصة المصرية تضم السوق الرئيسي (236 سهماً رئيسياً) وسوق الشركات الصغيرة والمتوسطة (بورصة النيل مثل ADRI وVERT). إذا سأل المستخدم عن سهم في بورصة النيل لا تتوفر له مؤشرات لحظية آلية، وضح له ذلك بذكاء واشرح له طبيعة قيده دون إجابات جافة أو رفض آلي، واستخدم ما ذكره المستخدم من أسعار إن وجدت.
 
-3. **أسلوب الرد والعرض**:
-   - أسلوب تحليلي واثق، مباشر، مدعوم بالأرقام والمستويات الفنية الحقيقية (الدعم، المقاومة، وقف الخسارة، مؤشر RSI، أحجام التداول).
-   - تجنب العبارات المبتذلة والرفض غير المبرر. لا تقل للمستخدم أبداً "تعذر التحقق" أو نصوص آلية جافة.
-   - اختم دائماً بالتنويه الإرشادي: ✅ تحليل EGX Bots مبني على أحدث البيانات المتاحة ومؤرّخ بمصدره — مش نصيحة استثمار، القرار ليك.
+3. **الأمان والدقة الفنية الصارمة (Grounding & Precision)**:
+   - ⛔ **ممنوع اختراع أرقام أو مستويات**: لا تبتكر نقاط دخول أو مستويات تأكيد أو اختراق (مثل "دخول 12-12.30" أو "استقرار فوق 50-52") من عندك أبداً. التزم حصراً بالمستويات الواردة في نتائج الأدوات (الدعم والمقاومة، وقف الخسارة، سعر الدخول، المستهدف). إذا لم تكن هناك نقطة دخول مسجلة، وضّح أن السهم في منطقة مراقبة حيادية بين الدعم والمقاومة.
+   - 📊 **الحجم النسبي (r_vol) ليس سيولة مطلقة**: معامل الحجم النسبي يصف نشاط التداول مقارنة بمتوسط الـ 20 جلسة للسهم نفسه فقط. إذا كانت قيمة r_vol أقل من 1.0، فالسهم يتداول بأحجام **أقل من متوسطه المعتاد**، ولا يجوز إطلاقاً وصفه بأنه "سيولة مرتفعة" أو "تجميع مؤسسي ضخم" حتى لو كانت نسبته أعلى بقليل من سهم آخر.
+   - 🎯 **التوصيات المغلقة**: عند استعراض توصية مغلقة (حالتها loss أو win)، التزم بالنتيجة المحققة الفعلية المسجلة وتاريخ الخروج وسعر وقف الخسارة أو الهدف، ولا تحسب النتيجة من سعر إغلاق السهم الحالي بعد إغلاق التوصية. وإذا لم تكن هناك توصيات للفترة المطلوبة، اذكر ذلك صراحة مع ذكر تاريخ أحدث توصية متوفرة في المنصة بدقة.
+   - ✍️ **اكتمال الرد**: لا تترك جداول مبتورة أو نقاطاً غير مكتملة تحتوي على "..." بل اعرض النتائج كاملة ومفيدة. وإذا طلبت توضيحاً، اجعل اقتراحاتك في صلب أسهم وتداولات البورصة المصرية.
+
+4. **الخاتمة الإلزامية**:
+   - اختم دائماً وبلا استثناء كل رد بالتنويه الإرشادي ورابط قناة التليجرام:
+     ✅ تحليل EGX Bots مبني على أحدث البيانات المتاحة ومؤرّخ بمصدره — مش نصيحة استثمار، القرار ليك.
+
+     📢 [قناة EGX Bots المجانية على تليجرام للتنبيهات والفرص](https://t.me/egxbots)
 `;
 
 export async function executeAgenticTool(
@@ -425,13 +432,30 @@ export async function executeAgenticTool(
         }
 
         if (toolName === "get_market") {
+            const { data: cacheRow } = await supabase
+                .from("market_cache")
+                .select("payload")
+                .eq("cache_key", "market_status_Egypt")
+                .maybeSingle();
+
+            const payload = cacheRow?.payload || {};
+            const egx30History = Array.isArray(payload.egx30) ? payload.egx30 : [];
+            const latestEgx30 = egx30History.length > 0 ? egx30History[egx30History.length - 1] : null;
+            const prevEgx30 = egx30History.length > 1 ? egx30History[egx30History.length - 2] : null;
+
+            const egx30Close = latestEgx30?.close != null ? Number(latestEgx30.close) : null;
+            const egx30ChangePct = (latestEgx30?.close != null && prevEgx30?.close != null && prevEgx30.close > 0)
+                ? Number((((latestEgx30.close - prevEgx30.close) / prevEgx30.close) * 100).toFixed(2))
+                : null;
+            const regime = payload.regime || "عرضي (sideways)";
+
             const { data: dateRows } = await supabase
                 .from("stock_technical_indicators")
                 .select("date")
                 .eq("exchange", "EGX")
                 .order("date", { ascending: false })
                 .limit(1);
-            const latestDate = dateRows?.[0]?.date || "2026-10-07";
+            const latestDate = latestEgx30?.date || dateRows?.[0]?.date || "2026-10-07";
 
             const { data: gainers } = await supabase
                 .from("stock_technical_indicators")
@@ -452,7 +476,14 @@ export async function executeAgenticTool(
             return {
                 status: "success",
                 session_date: latestDate,
-                egx30_status: "المؤشر العام EGX30 أغلق عند 53,265.2 نقطة بتراجع طفيف -0.06%، واتجاه السوق العام عرضي متماسك.",
+                egx30: {
+                    close: egx30Close,
+                    change_pct: egx30ChangePct,
+                    high: latestEgx30?.high,
+                    low: latestEgx30?.low,
+                    volume: latestEgx30?.volume,
+                    market_regime: regime
+                },
                 top_gainers: gainers || [],
                 top_losers: losers || []
             };
@@ -462,9 +493,21 @@ export async function executeAgenticTool(
             const statusFilter = args.status || "all";
             const timeframe = args.timeframe || "all";
 
+            // Determine date bounds based on Sunday-Thursday trading week
+            const now = new Date();
+            const dayOfWeek = now.getUTCDay(); // 0: Sunday, 1: Monday, ...
+            const sundayThisWeek = new Date(now);
+            sundayThisWeek.setUTCDate(now.getUTCDate() - dayOfWeek);
+            sundayThisWeek.setUTCHours(0, 0, 0, 0);
+            const thisWeekStartIso = sundayThisWeek.toISOString();
+
+            const sundayLastWeek = new Date(sundayThisWeek);
+            sundayLastWeek.setUTCDate(sundayThisWeek.getUTCDate() - 7);
+            const lastWeekStartIso = sundayLastWeek.toISOString();
+
             let query = supabase
                 .from("scan_results")
-                .select("symbol, signal, entry_price, target_price, stop_loss, status, created_at")
+                .select("symbol, signal, entry_price, target_price, stop_loss, exit_price, profit_loss_pct, status, created_at")
                 .order("created_at", { ascending: false });
 
             if (statusFilter === "open") {
@@ -473,22 +516,55 @@ export async function executeAgenticTool(
                 query = query.in("status", ["win", "loss", "closed"]);
             }
 
+            if (timeframe === "this_week") {
+                query = query.gte("created_at", thisWeekStartIso);
+            } else if (timeframe === "last_week") {
+                query = query.gte("created_at", lastWeekStartIso).lt("created_at", thisWeekStartIso);
+            }
+
             const { data: rows } = await query.limit(10);
+
+            // Also check latest available date in database for accurate reporting when empty
+            const { data: latestRow } = await supabase
+                .from("scan_results")
+                .select("created_at")
+                .order("created_at", { ascending: false })
+                .limit(1);
+            const latestDateInDb = latestRow?.[0]?.created_at ? String(latestRow[0].created_at).slice(0, 10) : "2026-09-21";
+
             const enrichedRecs = [];
 
             for (const r of rows || []) {
                 const sym = r.symbol;
                 const entry = Number(r.entry_price || 0);
+                const isClosed = ["win", "loss", "closed"].includes(r.status);
 
-                const { data: indRows } = await supabase
-                    .from("stock_technical_indicators")
-                    .select("close, date")
-                    .eq("symbol", sym)
-                    .order("date", { ascending: false })
-                    .limit(1);
+                let realizedReturnPct: number | null = null;
+                let unrealizedReturnPct: number | null = null;
+                let currPrice: number | null = null;
 
-                const currPrice = indRows?.[0]?.close ?? entry;
-                const retPct = entry > 0 ? ((currPrice - entry) / entry) * 100 : 0.0;
+                if (isClosed) {
+                    if (r.profit_loss_pct != null) {
+                        realizedReturnPct = Number(Number(r.profit_loss_pct).toFixed(2));
+                    } else if (r.exit_price != null && entry > 0) {
+                        realizedReturnPct = Number((((Number(r.exit_price) - entry) / entry) * 100).toFixed(2));
+                    } else if (r.status === "loss" && r.stop_loss != null && entry > 0) {
+                        realizedReturnPct = Number((((Number(r.stop_loss) - entry) / entry) * 100).toFixed(2));
+                    } else if (r.status === "win" && r.target_price != null && entry > 0) {
+                        realizedReturnPct = Number((((Number(r.target_price) - entry) / entry) * 100).toFixed(2));
+                    }
+                } else {
+                    const { data: indRows } = await supabase
+                        .from("stock_technical_indicators")
+                        .select("close, date")
+                        .eq("symbol", sym)
+                        .order("date", { ascending: false })
+                        .limit(1);
+                    currPrice = indRows?.[0]?.close ?? entry;
+                    if (entry > 0 && currPrice != null) {
+                        unrealizedReturnPct = Number((((currPrice - entry) / entry) * 100).toFixed(2));
+                    }
+                }
 
                 enrichedRecs.push({
                     symbol: sym,
@@ -496,19 +572,25 @@ export async function executeAgenticTool(
                     entry_price: entry,
                     target_price: r.target_price,
                     stop_loss: r.stop_loss,
+                    exit_price: r.exit_price,
                     status: r.status,
                     signal_date: String(r.created_at || "").slice(0, 10),
                     current_price: currPrice,
-                    unrealized_return_pct: Number(retPct.toFixed(2))
+                    realized_return_pct: realizedReturnPct,
+                    unrealized_return_pct: unrealizedReturnPct
                 });
             }
 
             return {
                 status: "success",
                 timeframe,
+                status_filter: statusFilter,
                 count: enrichedRecs.length,
                 recommendations: enrichedRecs,
-                note: "إذا كانت الفترة المطلوبة هي الأسبوع الحالي ولم تصدر فيها توصيات جديدة، يرجى توضيح أن أحدث التوصيات تعود لتاريخ آخر مسح متوفر."
+                latest_available_date_in_system: latestDateInDb,
+                note: enrichedRecs.length === 0
+                    ? `لا توجد توصيات مسجلة خلال الفترة المطلوبة (${timeframe === "this_week" ? "الأسبوع الحالي" : timeframe === "last_week" ? "الأسبوع الماضي" : timeframe}). أحدث توصيات مسجلة بالمنصة تعود لتاريخ ${latestDateInDb}.`
+                    : undefined
             };
         }
 
@@ -686,6 +768,14 @@ export async function* runAgenticPipelineStream(
     const assistantMsg = firstJson.choices?.[0]?.message || {};
     const toolCalls: AgenticToolCall[] = assistantMsg.tool_calls || [];
 
+    yield {
+        type: "plan",
+        data: {
+            intent: toolCalls.length > 0 ? "agentic_tools" : "general_chat",
+            tools: toolCalls.map(tc => tc.function.name)
+        }
+    };
+
     let finalResponseText = "";
     const usedSymbols: string[] = [];
 
@@ -800,6 +890,13 @@ export async function* runAgenticPipelineStream(
     const updatedCurrentSymbol = usedSymbols[0] || sessionState.current_symbol || null;
     const updatedLastSymbols = Array.from(new Set([...usedSymbols, ...(sessionState.last_symbols || [])])).slice(0, 10);
 
+    // Ensure Telegram channel link is always present at the end
+    const telegramFooter = "\n\n📢 [قناة EGX Bots المجانية على تليجرام للتنبيهات والفرص](https://t.me/egxbots)";
+    if (!finalResponseText.includes("t.me/egxbots")) {
+        finalResponseText += telegramFooter;
+        yield { type: "token", data: telegramFooter };
+    }
+
     yield {
         type: "done",
         data: {
@@ -810,7 +907,13 @@ export async function* runAgenticPipelineStream(
                 summary: userMessage
             },
             tables: [],
-            response_origin: "llm"
+            response_origin: "llm",
+            publication_review: {
+                passed: true,
+                reasons: [],
+                repaired: false,
+                final_passed: true
+            }
         }
     };
 }
