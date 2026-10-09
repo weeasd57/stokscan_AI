@@ -9,7 +9,13 @@ import {
   act,
 } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import StrategyWorkspace from "./StrategyWorkspace";
+jest.mock("html-to-image", () => ({
+  toPng: jest.fn(async () => "data:image/png;base64,test"),
+}));
+import StrategyWorkspace, {
+  buildChartAnalysisPrompt,
+  panelGridSpan,
+} from "./StrategyWorkspace";
 import {
   createWorkspace,
   parseWorkspace,
@@ -52,24 +58,22 @@ const candles = Array.from({ length: 180 }, (_, i) => ({
 }));
 beforeEach(() => {
   localStorage.clear();
-  global.fetch = jest
-    .fn()
-    .mockImplementation(async (url: string) => ({
-      ok: true,
-      json: async () =>
-        String(url).includes("/symbols/search")
-          ? {
-              results: [
-                {
-                  symbol: "ADRI",
-                  name: "Arab Development",
-                  exchange: "EGX",
-                  country: "Egypt",
-                },
-              ],
-            }
-          : { candles },
-    }));
+  global.fetch = jest.fn().mockImplementation(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      String(url).includes("/symbols/search")
+        ? {
+            results: [
+              {
+                symbol: "ADRI",
+                name: "Arab Development",
+                exchange: "EGX",
+                country: "Egypt",
+              },
+            ],
+          }
+        : { candles },
+  }));
 });
 afterEach(cleanup);
 const renderWorkspace = () =>
@@ -393,4 +397,141 @@ test("deleting one strategy retains the other AI strategy's exact parameters", a
       ),
     ).toEqual(exact.overlays),
   );
+});
+
+test.each([3, 5, 7])(
+  "odd layout %i fills both rows and survives saved-state validation",
+  async (count) => {
+    renderWorkspace();
+    fireEvent.click(screen.getByRole("button", { name: String(count) }));
+    await waitFor(() =>
+      expect(screen.getAllByTestId("chart")).toHaveLength(count),
+    );
+    const firstRow = Math.ceil(count / 2);
+    for (const indices of [
+      Array.from({ length: firstRow }, (_, i) => i),
+      Array.from({ length: count - firstRow }, (_, i) => i + firstRow),
+    ]) {
+      expect(
+        indices.reduce(
+          (sum, i) => sum + Number(panelGridSpan(count, i).split("-").pop()),
+          0,
+        ),
+      ).toBe(12);
+    }
+    const state = setWorkspaceLayout(
+      createWorkspace("COMI", "EGX"),
+      count as 3 | 5 | 7,
+    );
+    expect(parseWorkspace(state)?.layout).toBe(count);
+  },
+);
+test("analysis prompt tracks symbol, strategies, indicator parameters and visibility", () => {
+  const panel = createWorkspace("COMI", "EGX").panels[0];
+  const before = buildChartAnalysisPrompt(
+    panel,
+    [
+      {
+        id: "ema",
+        type: "EMA",
+        params: { period: 50 },
+        color: "red",
+        visible: true,
+      },
+    ],
+    true,
+  );
+  expect(before).toContain("COMI");
+  expect(before).toContain("period=50");
+  const after = buildChartAnalysisPrompt(
+    {
+      ...panel,
+      symbol: "AFMC",
+      strategyIds: ["trend_macd", "smc"],
+      hiddenStrategyIds: ["smc"],
+      period: 60,
+    },
+    [
+      {
+        id: "ema",
+        type: "EMA",
+        params: { period: 200 },
+        color: "red",
+        visible: false,
+      },
+      {
+        id: "rsi",
+        type: "RSI",
+        params: { period: 7 },
+        color: "blue",
+        visible: true,
+      },
+    ],
+    true,
+  );
+  expect(after).toContain("AFMC");
+  expect(after).toContain("MACD");
+  expect(after).toContain("RSI (period=7)");
+  expect(after).toContain("60");
+  expect(after).not.toMatch(/COMI|SMC|EMA/);
+});
+test("AI button dispatches its panel's prompt and chart context", async () => {
+  renderWorkspace();
+  await screen.findByTestId("chart");
+  const prompts: string[] = [];
+  const listener = (event: Event) =>
+    prompts.push((event as CustomEvent).detail);
+  window.addEventListener("open-chat-with-message", listener);
+  fireEvent.click(screen.getByRole("button", { name: "AI analysis" }));
+  window.removeEventListener("open-chat-with-message", listener);
+  expect(screen.getByRole("button", { name: "AI analysis" })).toHaveTextContent(
+    "AI",
+  );
+  expect(prompts).toHaveLength(1);
+  expect(prompts[0]).toContain("COMI in chart panel-1");
+});
+test("changing the stock clears the previous stock's trade levels", async () => {
+  const saved = createWorkspace("COMI", "EGX");
+  saved.panels[0].tradeSettings = {
+    entry: 100,
+    stop: 90,
+    target: 120,
+    capital: 50000,
+    riskPct: 1,
+  };
+  localStorage.setItem(
+    "stokscan:strategy-workspace:v1:guest",
+    JSON.stringify(saved),
+  );
+  renderWorkspace();
+  await screen.findByTestId("chart");
+  expect(screen.getByText(/Shares:.*Risk:/)).toBeInTheDocument();
+  const symbol = screen.getByRole("combobox", { name: "Chart 1 stock search" });
+  fireEvent.change(symbol, { target: { value: "ADRI" } });
+  await screen.findByRole("option", { name: /ADRI Arab Development/ });
+  fireEvent.submit(symbol.closest("form")!);
+  await waitFor(() =>
+    expect(screen.getByTestId("chart")).toHaveAttribute("data-symbol", "ADRI"),
+  );
+  expect(screen.queryByText(/Shares:.*Risk:/)).not.toBeInTheDocument();
+});
+test("image export names the captured panel's stock even if another panel is active", async () => {
+  const saved = createWorkspace("COMI", "EGX");
+  saved.layout = 2;
+  saved.panels[1].symbol = "ADRI";
+  localStorage.setItem(
+    "stokscan:strategy-workspace:v1:guest",
+    JSON.stringify(saved),
+  );
+  renderWorkspace();
+  await waitFor(() => expect(screen.getAllByTestId("chart")).toHaveLength(2));
+  const downloads: string[] = [];
+  const anchorClick = jest
+    .spyOn(HTMLAnchorElement.prototype, "click")
+    .mockImplementation(function (this: HTMLAnchorElement) {
+      downloads.push(this.download);
+    });
+  fireEvent.click(screen.getAllByRole("button", { name: "Save image" })[1]);
+  await waitFor(() => expect(downloads).toEqual(["ADRI-chart.png"]));
+  anchorClick.mockRestore();
 });

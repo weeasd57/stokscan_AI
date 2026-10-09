@@ -39,6 +39,40 @@ interface Props {
   focusRequestId?: number;
   onToolDrawComplete: () => void;
 }
+export function panelGridSpan(count: number, index: number): string {
+  if (count === 1) return "";
+  const firstRow = count <= 2 ? count : Math.ceil(count / 2);
+  const rowSize = index < firstRow ? firstRow : count - firstRow;
+  return (
+    {
+      1: "md:col-span-12",
+      2: "md:col-span-6",
+      3: "md:col-span-4",
+      4: "md:col-span-3",
+    } as Record<number, string>
+  )[rowSize];
+}
+
+export function buildChartAnalysisPrompt(
+  panel: LabPanel,
+  indicators: import("@/components/TradingViewChart").ActiveIndicator[],
+  ar: boolean,
+): string {
+  const strategies = panel.strategyIds
+    .filter((id) => !panel.hiddenStrategyIds?.includes(id))
+    .map((id) => STRATEGIES.find((strategy) => strategy.id === id)?.name || id);
+  const visibleIndicators = indicators
+    .filter((indicator) => indicator.visible)
+    .map(
+      (indicator) =>
+        `${indicator.type} (${Object.entries(indicator.params)
+          .map(([key, value]) => `${key}=${value}`)
+          .join(", ")})`,
+    );
+  return ar
+    ? `حلل سهم ${panel.symbol} في الشارت ${panel.id}، الفريم ${panel.timeframe}، آخر ${panel.period} شمعة. الاستراتيجيات الظاهرة: ${strategies.join("، ") || "لا توجد استراتيجيات مختارة"}. المؤشرات الظاهرة وإعداداتها: ${visibleIndicators.join("، ") || "لا توجد مؤشرات مختارة"}. اجلب البيانات اللازمة واشرح الأدلة ومستويات الدعم والمقاومة والنتائج الفنية لهذه الاختيارات، ولا تفترض نتائج غير محسوبة.`
+    : `Analyze ${panel.symbol} in chart ${panel.id}, timeframe ${panel.timeframe}, last ${panel.period} candles. Visible strategies: ${strategies.join(", ") || "none selected"}. Visible indicators and parameters: ${visibleIndicators.join(", ") || "none selected"}. Fetch the required data and explain evidence, support/resistance and technical results for these selections; do not invent uncomputed results.`;
+}
 export default function StrategyWorkspace(props: Props) {
   const { user } = useAuth();
   const { language } = useLanguage();
@@ -51,6 +85,9 @@ export default function StrategyWorkspace(props: Props) {
     "local" | "cloud" | "saving" | "error"
   >("local");
   const [tool, setTool] = useState<string | null>(null);
+  const panelIndicators = useRef<
+    Record<string, import("@/components/TradingViewChart").ActiveIndicator[]>
+  >({});
   const [fullscreen, setFullscreen] = useState<string | null>(null);
   const [layersOpen, setLayersOpen] = useState<string | null>(null);
   const [captureError, setCaptureError] = useState("");
@@ -313,22 +350,25 @@ export default function StrategyWorkspace(props: Props) {
     };
   }, []);
 
-  const emitChartContext = useCallback(() => {
-    if (typeof window === "undefined") return;
-    const chartContext = {
-      active_chart_id: workspace.activePanelId,
-      charts: workspace.panels.slice(0, workspace.layout).map((p) => ({
-        id: p.id,
-        symbol: p.symbol,
-        timeframe: "1d" as const,
-        period: p.period || 500,
-        strategy_ids: p.strategyIds,
-      })),
-    };
-    window.dispatchEvent(
-      new CustomEvent("strategy-lab-context", { detail: chartContext }),
-    );
-  }, [workspace]);
+  const emitChartContext = useCallback(
+    (activePanelId?: string) => {
+      if (typeof window === "undefined") return;
+      const chartContext = {
+        active_chart_id: activePanelId || workspace.activePanelId,
+        charts: workspace.panels.slice(0, workspace.layout).map((p) => ({
+          id: p.id,
+          symbol: p.symbol,
+          timeframe: "1d" as const,
+          period: p.period || 500,
+          strategy_ids: p.strategyIds,
+        })),
+      };
+      window.dispatchEvent(
+        new CustomEvent("strategy-lab-context", { detail: chartContext }),
+      );
+    },
+    [workspace],
+  );
 
   useEffect(() => {
     emitChartContext();
@@ -374,7 +414,7 @@ export default function StrategyWorkspace(props: Props) {
           ? {
               ...panel,
               ...(patch.symbol && patch.symbol !== panel.symbol
-                ? { drawings: [], toolOverlays: [] }
+                ? { drawings: [], toolOverlays: [], tradeSettings: undefined }
                 : {}),
               ...patch,
             }
@@ -396,7 +436,7 @@ export default function StrategyWorkspace(props: Props) {
         backgroundColor: props.theme === "dark" ? "#050816" : "#ffffff",
       });
       const anchor = document.createElement("a");
-      anchor.download = `${active.symbol}-chart.png`;
+      anchor.download = `${workspace.panels.find((panel) => panel.id === id)?.symbol || id}-chart.png`;
       anchor.href = url;
       anchor.click();
     } catch {
@@ -438,7 +478,7 @@ export default function StrategyWorkspace(props: Props) {
           className="flex gap-1"
           aria-label={ar ? "تقسيم الشاشة" : "Chart layout"}
         >
-          {([1, 2, 3, 4, 6, 8] as const).map((count) => (
+          {([1, 2, 3, 4, 5, 6, 7, 8] as const).map((count) => (
             <button
               key={count}
               aria-pressed={workspace.layout === count}
@@ -504,11 +544,13 @@ export default function StrategyWorkspace(props: Props) {
         </nav>
       )}
       <div
-        className={`grid flex-1 min-h-0 gap-1 p-1 ${workspace.layout === 8 ? "md:grid-cols-4" : workspace.layout === 6 ? "md:grid-cols-3" : workspace.layout > 1 ? "md:grid-cols-2" : "grid-cols-1"} ${workspace.layout > 2 ? "md:grid-rows-2" : "grid-rows-1"}`}
+        data-testid="chart-workspace-grid"
+        className={`grid flex-1 min-h-0 gap-1 p-1 grid-cols-1 ${workspace.layout > 1 ? "md:grid-cols-12" : ""} ${workspace.layout > 2 ? "md:grid-rows-2" : "grid-rows-1"}`}
       >
         {workspace.panels.slice(0, workspace.layout).map((panel, index) => (
           <div
             key={panel.id}
+            data-chart-panel={panel.id}
             ref={(node) => {
               if (node) containers.current.set(panel.id, node);
               else containers.current.delete(panel.id);
@@ -527,7 +569,7 @@ export default function StrategyWorkspace(props: Props) {
                   : { ...current, activePanelId: panel.id },
               )
             }
-            className={`${fullscreen === panel.id ? "fixed inset-0 z-[100]" : "relative min-h-0"} ${panel.id !== active.id ? "hidden md:flex" : "flex"} group flex-col overflow-hidden rounded-lg border ${panel.id === active.id ? "border-indigo-500" : "border-zinc-200 dark:border-white/10"} bg-[var(--app-surface-strong)]`}
+            className={`${panelGridSpan(workspace.layout, index)} ${fullscreen === panel.id ? "fixed inset-0 z-[100]" : "relative min-h-0"} ${panel.id !== active.id ? "hidden md:flex" : "flex"} group flex-col overflow-hidden rounded-lg border ${panel.id === active.id ? "border-indigo-500" : "border-zinc-200 dark:border-white/10"} bg-[var(--app-surface-strong)]`}
           >
             <div className="flex shrink-0 items-center gap-2 border-b border-zinc-200 px-2 py-1 dark:border-white/10">
               <span className="text-[10px] text-zinc-500">{index + 1}</span>
@@ -577,6 +619,9 @@ export default function StrategyWorkspace(props: Props) {
               updatePanel={updatePanel}
               serverAnalyses={serverResults[panel.id]?.analysisById}
               compact={workspace.layout > 1}
+              onIndicatorsChange={(indicators) => {
+                panelIndicators.current[panel.id] = indicators;
+              }}
             />
             <div
               className={`absolute z-30 transition-all duration-200 end-3 flex items-center gap-1.5 ${
@@ -635,6 +680,27 @@ export default function StrategyWorkspace(props: Props) {
                 >
                   <Layers3 className="h-4 w-4" />
                 </button>
+                <button
+                  aria-label={ar ? "تحليل AI" : "AI analysis"}
+                  onClick={() => {
+                    emitChartContext(panel.id);
+                    window.dispatchEvent(
+                      new CustomEvent("open-chat-with-message", {
+                        detail: buildChartAnalysisPrompt(
+                          panel,
+                          panelIndicators.current[panel.id] || [],
+                          ar,
+                        ),
+                      }),
+                    );
+                  }}
+                  className="app-icon-button flex items-center gap-1 shrink-0 rounded-lg p-1.5"
+                >
+                  <BrainCircuit className="h-4 w-4" />
+                  <span className="rounded bg-indigo-500/15 px-1 text-[10px] font-bold text-indigo-500">
+                    AI
+                  </span>
+                </button>
                 {toolLabels.map((item) => (
                   <button
                     key={item.id}
@@ -650,22 +716,6 @@ export default function StrategyWorkspace(props: Props) {
                     {ar ? item.ar : item.en}
                   </button>
                 ))}
-                <button
-                  aria-label={ar ? "تحليل AI" : "AI analysis"}
-                  onClick={() => {
-                    emitChartContext();
-                    window.dispatchEvent(
-                      new CustomEvent("open-chat-with-message", {
-                        detail: ar
-                          ? `حلل سهم ${panel.symbol} في الشارت ${panel.id} باستخدام استراتيجيات معمل التحليل (مثل وايكوف أو SMC أو البرايس أكشن) واشرح الأدلة ومستويات الدعم والمقاومة والنتائج الفنية`
-                          : `Analyze ${panel.symbol} in chart ${panel.id} using strategy lab tools (such as Wyckoff, SMC, or Price Action); explain evidence, levels, and technical results`,
-                      }),
-                    );
-                  }}
-                  className="app-icon-button shrink-0 rounded-lg p-1.5"
-                >
-                  <BrainCircuit className="h-4 w-4" />
-                </button>
                 <button
                   aria-label={ar ? "حفظ الصورة" : "Save image"}
                   onClick={() => void capture(panel.id)}
@@ -1146,10 +1196,7 @@ export function useLabCandles(panel: LabPanel) {
       live = false;
     };
   }, [panel.symbol, panel.exchange, revision]);
-  const selected = useMemo(
-    () => aggregateCandles(candles, "daily"),
-    [candles],
-  );
+  const selected = useMemo(() => aggregateCandles(candles, "daily"), [candles]);
   return {
     candles: selected,
     error,
@@ -1174,6 +1221,9 @@ function LabPanelChart(
       import("@/lib/strategy-lab").StrategyAnalysis
     >;
     compact: boolean;
+    onIndicatorsChange: (
+      indicators: import("@/components/TradingViewChart").ActiveIndicator[],
+    ) => void;
   },
 ) {
   const { candles, loading, error, retry } = useLabCandles(props.panel);
@@ -1333,6 +1383,7 @@ function LabPanelChart(
         initialDrawings={props.panel.drawings}
         hiddenDrawingIds={props.panel.hiddenDrawingIds}
         onDrawingsChange={onDrawingsChange}
+        onIndicatorsChange={props.onIndicatorsChange}
         onStrategyLevelChange={onStrategyLevelChange}
       />
       {props.panel.tradeSettings && (

@@ -34,7 +34,7 @@ export interface LabPanel {
 export interface LabWorkspace {
   version: 1;
   panels: LabPanel[];
-  layout: 1 | 2 | 3 | 4 | 6 | 8;
+  layout: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   activePanelId: string;
   syncTime: boolean;
 }
@@ -62,7 +62,7 @@ export function parseWorkspace(value: unknown): LabWorkspace | null {
   const input = value as LabWorkspace;
   if (
     ![4, 8].includes(input.panels.length) ||
-    ![1, 2, 3, 4, 6, 8].includes(input.layout)
+    ![1, 2, 3, 4, 5, 6, 7, 8].includes(input.layout)
   )
     return null;
   if (input.panels.length === 4)

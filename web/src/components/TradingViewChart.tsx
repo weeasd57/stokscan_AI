@@ -248,6 +248,7 @@ interface TradingViewChartProps {
   drawingScope?: string;
   initialDrawings?: ChartDrawing[];
   onDrawingsChange?: (drawings: ChartDrawing[]) => void;
+  onIndicatorsChange?: (indicators: ActiveIndicator[]) => void;
   onStrategyLevelChange?: (id: string, value: number) => void;
   compact?: boolean;
   hiddenDrawingIds?: string[];
@@ -344,6 +345,7 @@ export default function TradingViewChart({
   drawingScope,
   initialDrawings,
   onDrawingsChange,
+  onIndicatorsChange,
   onStrategyLevelChange,
   compact = false,
   hiddenDrawingIds,
@@ -413,6 +415,11 @@ export default function TradingViewChart({
           },
         ],
   );
+  const indicatorsChangeRef = useRef(onIndicatorsChange);
+  indicatorsChangeRef.current = onIndicatorsChange;
+  useEffect(() => {
+    indicatorsChangeRef.current?.(activeIndicators);
+  }, [activeIndicators]);
 
   // Hover details legend state
   const [hoverData, setHoverData] = useState<{
@@ -917,7 +924,7 @@ export default function TradingViewChart({
       if (width <= 0 || height <= 0) return;
 
       if (chartRefs.current.priceChart) {
-        const paneHeight = 120;
+        const paneHeight = compact ? 60 : 120;
         const activeLowerPanesCount = lowerPaneIndicators.length;
         const pricePaneHeight = Math.max(
           150,
@@ -937,7 +944,7 @@ export default function TradingViewChart({
     const width = mainContainerRef.current?.clientWidth || 0;
     const height = mainContainerRef.current?.clientHeight || 450;
 
-    const paneHeight = 120;
+    const paneHeight = compact ? 60 : 120;
     const activeLowerPanesCount = lowerPaneIndicators.length;
     const priceHeight = Math.max(
       150,
@@ -1875,6 +1882,7 @@ export default function TradingViewChart({
     customMarkers,
     recommendationMarkers,
     theme,
+    compact,
   ]);
 
   useEffect(() => {
@@ -3206,7 +3214,7 @@ export default function TradingViewChart({
         {lowerPaneIndicators.map((ind) => (
           <div
             key={ind.id}
-            className="w-full h-[120px] relative border-t border-zinc-200 dark:border-[#2a2e39] mt-1 shrink-0 overflow-hidden"
+            className={`w-full ${compact ? "h-[60px]" : "h-[120px]"} relative border-t border-zinc-200 dark:border-[#2a2e39] mt-1 shrink-0 overflow-hidden`}
           >
             <div className="absolute top-1.5 left-4 z-20 pointer-events-none text-[9px] font-mono font-bold text-zinc-500 dark:text-[#787b86] uppercase tracking-wider flex items-center gap-1.5">
               <span

@@ -87,7 +87,7 @@ export function validateChartWorkspace(value: unknown): boolean {
   if (
     state.version !== 1 ||
     typeof state.layout !== "number" ||
-    ![1, 2, 3, 4, 6, 8].includes(state.layout) ||
+    ![1, 2, 3, 4, 5, 6, 7, 8].includes(state.layout) ||
     typeof state.syncTime !== "boolean"
   )
     return false;

@@ -61,6 +61,20 @@ afterEach(() => {
   cleanup();
   jest.clearAllMocks();
 });
+test("manual valuation needs dated evidence and calculates only from supplied inputs", () => {
+  render(<LabTools {...props({ tool: "valuation" })} />);
+  fireEvent.change(screen.getByRole("spinbutton", { name: "EPS" }), {
+    target: { value: "10" },
+  });
+  expect(screen.queryByText("80.00 — 120.00 EGP")).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Statement date"), {
+    target: { value: "2026-10-07" },
+  });
+  fireEvent.change(screen.getByLabelText("EPS source"), {
+    target: { value: "UI test fixture, not actual financial evidence" },
+  });
+  expect(screen.getByText("80.00 — 120.00 EGP")).toBeInTheDocument();
+});
 test("changing strategy selections updates comparison immediately without Draw", () => {
   render(<LabTools {...props()} />);
   fireEvent.click(screen.getByRole("checkbox", { name: "Trend / MACD" }));
