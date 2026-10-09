@@ -68,6 +68,14 @@ describe("Agentic architecture integration: current production path", () => {
         const records = r.events.find(e=>e.type === "tools_data").data.results;
         expect(records[0].availability).toBe("error");
     });
+    test("an explicit stock backtest suggestion works with another stock's chart open",async()=>{
+        const d=db(()=>({data:Array.from({length:40},(_,i)=>({date:new Date(Date.UTC(2026,0,i+1)).toISOString().slice(0,10),open:100+i,high:102+i,low:99+i,close:101+i,volume:1000})),error:null}));
+        const r=await run([{tool_calls:[call("compare_strategies_history",{symbol:"AFMC",strategy_ids:["trend_macd"],bar_limit:60})]},{content:"AFMC: اختبرت الاتجاه وMACD على الفترة المطلوبة؛ العينة محدودة."},verdict()],{db:d,userMessage:"اختبر الاتجاه وMACD على AFMC خلال آخر 60 جلسة",options:{chartContext:{active_chart_id:"panel-1",charts:[{id:"panel-1",symbol:"COMI",timeframe:"1d"}]}}});
+        expect(r.done.publication_review.final_passed).toBe(true);
+        expect(d.queries[0].ops).toContainEqual(["eq","symbol","AFMC"]);
+        expect(r.done.chart_actions[0].chart_id).toBeNull();
+        expect(r.done.chart_actions[0].symbol).toBe("AFMC");
+    });
     test("current chart window and timeframe default into the tool", async () => {
         const d=db(()=>({data:Array.from({length:40},(_,i)=>({date:new Date(Date.UTC(2026,0,i+1)).toISOString().slice(0,10),open:100+i,high:102+i,low:99+i,close:101+i,volume:1000})),error:null}));
         const r=await run([{tool_calls:[call("apply_chart_strategy",{symbol:"COMI",strategy_id:"smc"})]},{content:"تم تطبيق تحليل النطاق على شارت COMI اليومي."},verdict()],{db:d,options:{chartContext:{active_chart_id:"panel-1",charts:[{id:"panel-1",symbol:"COMI",timeframe:"1d",period:500,strategy_ids:["smc"]}]}}});

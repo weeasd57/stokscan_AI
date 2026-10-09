@@ -11,6 +11,7 @@ import { logAiInteraction } from "@/lib/ai/logger";
 
 import { extractExplicitSymbols, runPipeline, runPipelineStream } from "@/lib/ai/pipeline";
 import { sanitizeChartContext } from "@/lib/ai/chart-strategy-tools";
+import { stockStrategyFollowups } from "@/lib/ai/strategy-followups";
 import { detectPortfolioIntent, normalizeArabicIntent } from "@/lib/ai/intent-policy";
 import { analyzeImage } from "@/lib/ai/vision";
 import { retrieveRelevantMemory } from "@/lib/ai/memory";
@@ -743,6 +744,8 @@ export async function POST(req: NextRequest) {
                                         tokenBuffer = "";
                                     }
                                      const replyText = filterOutput(stripEnvironmentMetadata(event.data.response));
+                                     const suggestedButtons = sanitizeSuggestedButtons(stockStrategyFollowups(toolsResults,event.data?.publication_review?.final_passed === true)
+                                         ?? generateSuggestedButtons(plannerResult || {}, sessionState));
                                      const responseMetadata = {
                                          ...extractProvenanceFromToolResults(toolsResults, streamTables),
                                          correlation_id: correlationId,
@@ -752,6 +755,7 @@ export async function POST(req: NextRequest) {
                                          response_task: event.data?.response_task || null,
                                          vision_error: event.data?.vision_error || null,
                                          response_kind: event.data?.vision_error ? "vision_fallback" : event.data?.response_origin === "fallback" ? "fallback" : "normal",
+                                         suggested_buttons: suggestedButtons,
                                      };
                                     if (clientMessageId) await supabase.from("ai_chat_idempotency").update({ status: "completed", response: replyText, updated_at: new Date().toISOString() }).eq("user_id", userId).eq("client_message_id", clientMessageId);
                                     const sessionUpdate = event.data.session_update;
@@ -787,7 +791,6 @@ export async function POST(req: NextRequest) {
                                         console.error("Failed to log chat messages to DB:", dbErr);
                                     }
 
-                                    const suggestedButtons = sanitizeSuggestedButtons(generateSuggestedButtons(plannerResult || {}, sessionState));
                                     const optimalModel = selectOptimalModel(plannerResult?.intent || "general_chat", plannerResult?.entities?.symbols?.length || 0, userRequestedModel);
 
                                      await logAiInteraction(supabase, {
@@ -936,6 +939,8 @@ export async function POST(req: NextRequest) {
         );
 
         const replyText = filterOutput(pipelineResult.response);
+        const suggestedButtons = sanitizeSuggestedButtons(stockStrategyFollowups(pipelineResult?.tools?.results || [],pipelineResult.publication_review?.final_passed === true)
+            ?? generateSuggestedButtons(pipelineResult.plan,sessionState));
         if (clientMessageId) await supabase.from("ai_chat_idempotency").update({ status: "completed", response: replyText, updated_at: new Date().toISOString() }).eq("user_id", userId).eq("client_message_id", clientMessageId);
 
         // Update Limits
@@ -949,6 +954,7 @@ export async function POST(req: NextRequest) {
                 provenance.usage = pipelineResult.usage || null;
                 provenance.publication_review = pipelineResult.publication_review || null;
                 provenance.response_origin = pipelineResult.response_origin || null;
+                provenance.suggested_buttons = suggestedButtons;
                 await insertChatMessages(supabase, [
                     {
                         session_id: activeSessionId,
@@ -974,7 +980,6 @@ export async function POST(req: NextRequest) {
             console.error("Failed to log chat messages to DB:", dbErr);
         }
 
-        const suggestedButtons = sanitizeSuggestedButtons(generateSuggestedButtons(pipelineResult.plan, sessionState));
 
         await logAiInteraction(supabase, {
             sessionId: activeSessionId,
@@ -1113,7 +1118,7 @@ export async function GET(req: NextRequest) {
         if (sessionId) {
             let { data: messages, error: historyError } = await supabase
                 .from("ai_chat_messages")
-                .select("role, content, image_url, created_at, latency_ms")
+                .select("role, content, image_url, created_at, latency_ms, metadata")
                 .eq("session_id", sessionId)
                 .eq("user_id", userId)
                 .order("created_at", { ascending: true });
@@ -1132,7 +1137,8 @@ export async function GET(req: NextRequest) {
                 content: stripEnvironmentMetadata(String(m.content || "")),
                 timestamp: new Date(m.created_at).getTime(),
                 imageUrl: m.image_url || undefined,
-                latencyMs: typeof m.latency_ms === "number" && m.latency_ms > 0 ? m.latency_ms : undefined
+                latencyMs: typeof m.latency_ms === "number" && m.latency_ms > 0 ? m.latency_ms : undefined,
+                suggestedButtons: m.role === "assistant" ? sanitizeSuggestedButtons(m.metadata?.suggested_buttons) : undefined
             }));
 
             return NextResponse.json({ history: formattedHistory });

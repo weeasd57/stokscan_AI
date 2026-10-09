@@ -142,9 +142,13 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[]): Async
                 if (["apply_chart_strategy", "compare_strategies_history"].includes(call.function.name) && context.chart_context) {
                     const target = context.chart_context.charts.find(c => c.id === (args.chart_id ?? context.chart_context!.active_chart_id));
                     if (!target) throw new Error("الشارت المستهدف غير موجود في مساحة العمل");
-                    if (args.symbol && String(args.symbol).toUpperCase().replace(/\.CA$/, "") !== target.symbol) throw new Error("رمز الأداة لا يطابق الشارت المستهدف");
-                    args = { ...args, chart_id: target.id, symbol: target.symbol, timeframe: args.timeframe ?? target.timeframe,
-                        ...(!args.start_date && !args.end_date && args.bar_limit == null && target.period ? {bar_limit: target.period} : {}) };
+                    const otherStockBacktest = call.function.name === "compare_strategies_history" && args.chart_id == null && args.symbol
+                        && String(args.symbol).toUpperCase().replace(/\.CA$/, "") !== target.symbol;
+                    if (!otherStockBacktest) {
+                        if (args.symbol && String(args.symbol).toUpperCase().replace(/\.CA$/, "") !== target.symbol) throw new Error("رمز الأداة لا يطابق الشارت المستهدف");
+                        args = { ...args, chart_id: target.id, symbol: target.symbol, timeframe: args.timeframe ?? target.timeframe,
+                            ...(!args.start_date && !args.end_date && args.bar_limit == null && target.period ? {bar_limit: target.period} : {}) };
+                    }
                 }
                 // A request may repeat a write in a repair turn. Never execute the same write twice.
                 const fingerprint = call.function.name + JSON.stringify(Object.keys(args).sort().map(k => [k, args[k]]));
