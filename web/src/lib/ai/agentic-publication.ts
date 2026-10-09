@@ -200,8 +200,28 @@ function checkStrategyClaims(reply: string, evidence: AgenticEvidence[]): string
     return reasons;
 }
 
+function normalizeDigitsAndNumberFormatting(value: string): string {
+    return value.replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+        .replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/٫/g, ".").replace(/,/g, ".");
+}
+
+/** Explicit position inputs in the current request are part of the answer contract. */
+export function checkUserPositionInputs(reply: string, request: string): string[] {
+    const normalizedRequest = normalizeDigitsAndNumberFormatting(request);
+    const normalizedReply = normalizeDigitsAndNumberFormatting(reply);
+    const reasons: string[] = [];
+    const average = normalizedRequest.match(/(?:متوسطي|متوسط(?:ي)?(?:\s+(?:الشراء|سعر\s+الشراء))?|سعر\s+شرائي|اشتريت(?:ه)?\s+بسعر)\s*(?:(?:هو|فيه|عند)\s*)?[:=]?\s*(\d+(?:\.\d+)?)/i);
+    const quantity = normalizedRequest.match(/(?:معايا|معي|عندي)\s*(\d+(?:\.\d+)?)\s*(?:سهم|أسهم|اسهم)(?=\s|$|[،,.!?])/i)
+        || normalizedRequest.match(/(?:كمية(?:\s+الأسهم)?|عدد\s+الأسهم)\s*(?:هي\s*)?[:=]?\s*(\d+(?:\.\d+)?)/i);
+    if (average && !new RegExp(`(?<![\\d.])${average[1].replace(".", "\\.")}(?![\\d.])`).test(normalizedReply))
+        reasons.push(`user_position_average_omitted:${average[1]}`);
+    if (quantity && !new RegExp(`(?<![\\d.])${quantity[1].replace(".", "\\.")}(?![\\d.])`).test(normalizedReply))
+        reasons.push(`user_position_quantity_omitted:${quantity[1]}`);
+    return reasons;
+}
+
 /** This validates output evidence/protocol only. It never routes user intent. */
-export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): string[] {
+export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], request = ""): string[] {
     const reasons: string[] = [];
     if (!reply.trim()) reasons.push("empty_response");
     if (/\b(?:get_stock(?:_levels)?|get_market|get_comparison|get_news|get_recommendations|get_technical_scan|get_accumulation_stocks|manage_portfolio|list_chart_strategies|apply_chart_strategy|compare_strategies_history|stock_prices|stock_technical_indicators|stock_scans_summary|ai_chat_sessions|ai_chat_messages)\b/.test(reply)) reasons.push("internal_implementation_names_in_response");
@@ -212,6 +232,7 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
     const facts = agenticFacts(evidence);
     reasons.push(...checkStrategyClaims(reply, evidence));
     reasons.push(...checkAttribution(reply, facts));
+    if (request) reasons.push(...checkUserPositionInputs(reply, request));
     // Verify comparative distance statements from the same dated comparison,
     // independently of whether all quoted values themselves are grounded.
     const latestComparisons=new Map<string,AgenticEvidence>();

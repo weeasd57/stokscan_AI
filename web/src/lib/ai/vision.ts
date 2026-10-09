@@ -4,7 +4,7 @@ import { AI_CONFIG } from "./config";
 import { getDeepSeekApiKey, getNvidiaApiKeys } from "./server-secrets";
 import { executionFetch } from "./execution";
 
-const VISION_SYSTEM_PROMPT = `You are a financial image analyzer. Examine the attached image and return ONLY a valid JSON object with no markdown fences, no comments, and no extra text.
+const VISION_SYSTEM_PROMPT = `You are a financial image analyzer. Examine all attached image(s), combine the distinct visible evidence, and return ONLY a valid JSON object with no markdown fences, no comments, and no extra text.
 
 Return one JSON object with these keys: image_type, symbols, technical_observations, market_depth, user_relevant_summary, uncertainties, confidence.
 Do not copy this instruction, do not return a schema, and do not use placeholder values.
@@ -17,6 +17,8 @@ Rules:
   * "متوسط سعر الوحدات" or "متوسط الشراء" = average purchase price → price.
   * "القيمة السوقية" (market value) and "القيمة الشرائية" (purchase value) and "المكسب/الخسارة" (profit/loss in money) are NOT price and NOT quantity — ignore them.
   * "العائد %" (return %) is NOT quantity — put it in change_pct only if it is a small percentage, never in quantity.
+- A number beside a ticker is not a share quantity unless a quantity/units heading is visibly attached to that column. A number beside "العائد %" is commonly the position value or cash gain; never copy it into quantity or price.
+- Preserve the sign and decimal of every percentage exactly as shown. Do not drop a visible minus sign or relabel "العائد %" as daily change.
 - If the screen lists holdings with only market value and return % (no share count and no average price), return the symbols with price and quantity set to null. Never fill quantity from a percentage.
 - If the screen is a single-stock position detail, use the units as quantity and the average unit price as price.
 - Return each ticker at most once.
@@ -335,7 +337,7 @@ export async function reconcileVisionWithMarket(vision: VisionContext, supabase:
 }
 
 export async function analyzeImage(
-    imageUrl: string,
+    imageUrl: string | string[],
     userMessage: string,
     apiKeys: string[],
     messageId: string
@@ -348,9 +350,11 @@ export async function analyzeImage(
 
     // System prompt goes in `system` role — putting it in the user message causes prose output.
     const userContent: Array<{ type: string; text?: string; image_url?: { url: string; detail?: string } }> = [];
-    // Send a short, neutral user message so the model focuses on the system prompt instructions.
-    userContent.push({ type: "text", text: "Analyze the attached image and return JSON only." });
-    userContent.push({ type: "image_url", image_url: { url: imageUrl, detail: "low" } });
+    const imageUrls = (Array.isArray(imageUrl) ? imageUrl : [imageUrl]).filter(Boolean).slice(0, 3);
+    // Keep every screenshot at its own resolution. `low` downsamples to 512px
+    // and can erase small labels and digits from dense broker screenshots.
+    userContent.push({ type: "text", text: `Analyze all ${imageUrls.length} attached image(s) and return one combined JSON result.` });
+    for (const url of imageUrls) userContent.push({ type: "image_url", image_url: { url, detail: "high" } });
 
     const visionStartTime = Date.now();
     let lastFailure = "vision_unavailable";
@@ -358,12 +362,12 @@ export async function analyzeImage(
         vision_unavailable: 0,
         vision_request_failed: 1,
         vision_timeout: 2,
-        vision_invalid_json: 3,
+        vision_output_truncated: 3,
+        vision_invalid_json: 4,
     };
     const recordFailure = (failure: string) => {
         const priority = (value: string) => {
-            if (value.startsWith("vision_http_")) return 4;
-            return failurePriority[value] ?? 0;
+            return value.startsWith("vision_http_") ? 5 : (failurePriority[value] ?? 0);
         };
         const current = priority(lastFailure);
         const next = priority(failure);
@@ -389,10 +393,9 @@ export async function analyzeImage(
                         { role: "system", content: VISION_SYSTEM_PROMPT },
                         { role: "user", content: userContent }
                     ],
-                    // Tables with many holdings need room for every symbol entry;
-                    // 320 tokens truncated the JSON mid-array and made every
-                    // parsable response fail validation.
-                    max_tokens: 900,
+                    // Leave enough output budget for longer watchlists while
+                    // staying bounded; incomplete JSON is retried/fails safely.
+                    max_tokens: 1800,
                     temperature: 0.05,
                     // NVIDIA's OpenAI-compatible endpoint supports JSON mode
                     // for this model. Without it the model sometimes returns
@@ -411,7 +414,14 @@ export async function analyzeImage(
                 return null;
             }
             const json = await res.json();
-            const rawContent = json.choices?.[0]?.message?.content?.trim() || "";
+            const choice = json.choices?.[0];
+            const finishReason = String(choice?.finish_reason || "");
+            const rawContent = choice?.message?.content?.trim() || "";
+            if (finishReason === "length") {
+                recordFailure("vision_output_truncated");
+                console.warn(`[VISION] model=${model} output_truncated chars=${rawContent.length} completion_tokens=${Number(json.usage?.completion_tokens) || 0}`);
+                return null;
+            }
             const parsed = extractJsonFromResponse(rawContent);
             const hasVisionShape = hasValidVisionContract(parsed);
             // The strict contract rejects near-miss responses (wrong image_type
@@ -426,8 +436,7 @@ export async function analyzeImage(
             }
             if (!validated) {
                 recordFailure("vision_invalid_json");
-                const preview = rawContent.replace(/\s+/g, " ").slice(0, 160);
-                console.warn(`[VISION] model=${model} returned no usable JSON (chars=${rawContent.length}) preview=${preview}`);
+                console.warn(`[VISION] model=${model} returned no usable JSON (chars=${rawContent.length}, finish_reason=${finishReason || "unknown"}, completion_tokens=${Number(json.usage?.completion_tokens) || 0})`);
             } else {
                 validated.message_id = messageId;
                 return validated;

@@ -12,11 +12,11 @@ const VALID_VISION = {
     confidence: 0.9,
 };
 
-function okResponse(payload) {
+function okResponse(payload, finishReason = "stop") {
     return {
         ok: true,
         status: 200,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify(payload) } }] }),
+        json: async () => ({ choices: [{ finish_reason: finishReason, message: { content: JSON.stringify(payload) } }] }),
     };
 }
 
@@ -66,5 +66,21 @@ describe("analyzeImage key retry", () => {
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(result.vision).toBeNull();
         expect(result.error).toBe("vision_http_500");
+    });
+
+    it("preserves separate screenshots and retries an explicitly truncated result", async () => {
+        const truncated = okResponse({ image_type: "table", symbols: [], technical_observations: [] }, "length");
+        const fetchMock = jest.fn().mockResolvedValueOnce(truncated).mockResolvedValueOnce(okResponse(VALID_VISION));
+        global.fetch = fetchMock;
+
+        const result = await analyzeImage(["data:image/jpeg;base64,AAAA", "data:image/jpeg;base64,BBBB"], "حلل الصورتين", ["key-one", "key-two"], "msg-4");
+
+        const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+        expect(firstBody.messages[1].content.filter(part => part.type === "image_url")).toHaveLength(2);
+        expect(firstBody.messages[1].content.filter(part => part.type === "image_url").every(part => part.image_url.detail === "high")).toBe(true);
+        expect(firstBody.max_tokens).toBe(1800);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(result.error).toBeNull();
+        expect(result.vision?.symbols.map(s => s.symbol)).toEqual(["COMI"]);
     });
 });

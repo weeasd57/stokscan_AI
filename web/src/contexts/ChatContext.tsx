@@ -4,6 +4,7 @@ import { createContext, useContext, useState, ReactNode, useEffect, useCallback,
 import { useAuth } from "@/contexts/AuthContext";
 import { ChatSession } from "@/components/chat/ChatSidebar";
 import { sanitizeReply, sanitizeUiLabel, stripEnvironmentLeak } from "@/lib/ai/sanitizer";
+import { orderChatMessages } from "@/lib/ai/chat-order";
 
 export type ChatMessage = {
     id?: string;
@@ -298,7 +299,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                         }
                     });
 
-                    const mergedHistory: ChatMessage[] = data.history.map((srvMsg: ChatMessage, idx: number) => {
+                    const mergedHistory: ChatMessage[] = orderChatMessages(data.history.map((srvMsg: ChatMessage, idx: number) => {
                         const localImg = localImageMap.get(idx);
                         return {
                             ...srvMsg,
@@ -308,7 +309,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                             imageUrl: srvMsg.imageUrl || localImg?.imageUrl,
                             images: srvMsg.images || localImg?.images
                         };
-                    });
+                    }));
 
                     // If a message is actively streaming in this session, preserve the streaming message at the end
                     if (loadingSessionIds.current[sessionId]) {
@@ -464,6 +465,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             }, ...prev]);
         }
 
+        // One request per session at a time. The server's idempotency key is
+        // intentionally per client message, so a fast double-submit otherwise
+        // creates two different keys and spends quota / produces two answers.
+        // The previous behavior also aborted the first request below.
+        if (loadingSessionIds.current[currentSessionId]) return;
+
         const newUserMsg: ChatMessage = {
             role: "user",
             content: text || (imagesList.length > 0 ? `📷 [${imagesList.length} Images attached]` : ""),
@@ -490,7 +497,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             id: assistantMsgId,
             role: "assistant",
             content: "",
-            timestamp: Date.now(),
+            timestamp: newUserMsg.timestamp + 1,
             isStreaming: true,
             statusText: "جاري تحليل السؤال...",
         };

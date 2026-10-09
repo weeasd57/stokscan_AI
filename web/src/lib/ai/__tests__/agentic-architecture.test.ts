@@ -1,7 +1,9 @@
 import { executeAgenticTool, runAgenticPipelineStream, AGENTIC_TOOLS_SCHEMA } from "../agentic-pipeline";
 import { cairoWeekBounds } from "../agentic-tools";
-import { checkAgenticDraft, toAgenticEvidence, evidenceMemory } from "../agentic-publication";
+import { checkAgenticDraft, checkUserPositionInputs, toAgenticEvidence, evidenceMemory } from "../agentic-publication";
 import { compactHistory } from "../agentic-runtime";
+import { AGENTIC_SYSTEM_PROMPT } from "../agentic-pipeline";
+import { analyzeImage } from "../vision";
 jest.mock("../server-secrets", () => ({ getDeepSeekApiKey: () => "offline-fake-key" }));
 jest.mock("../vision", () => ({ analyzeImage: jest.fn(), reconcileVisionWithMarket: jest.fn() }));
 
@@ -34,6 +36,22 @@ async function run(messages: any[], overrides: any = {}) {
 const stockDb = () => db(q => ({ data: q.table === "stock_prices" ? [price] : q.table === "stocks" ? { symbol:"COMI",name:"Commercial Bank" } : [], error:null }));
 
 describe("Agentic architecture integration: current production path", () => {
+    test("publication completeness catches a user position that the draft ignored", () => {
+        const request = "وضع سهم جولدن تكس ايه متوسطي فيه 155 ومعايا 4 اسهم ف اديني توقعاتك كدا";
+        expect(checkUserPositionInputs("السهم في اتجاه ضعيف. لو تحب اكتبلي متوسطك والكمية.", request)).toEqual([
+            "user_position_average_omitted:155", "user_position_quantity_omitted:4",
+        ]);
+        expect(checkAgenticDraft("بمتوسط ١٥٥ جنيه وكمية 4 أسهم، ربحك الورقي 20 جنيه تقريباً.", [], request)).toEqual([]);
+    });
+    test("an attached image that vision cannot read gets a precise failure instead of 'no image attached'", async () => {
+        (analyzeImage as jest.Mock).mockResolvedValueOnce({ vision: null, error: "vision_http_503" });
+        const r = await run([], { userMessage: "حلل الصورة المرفقة", images: ["fixture"] });
+        expect(r.fetchMock).not.toHaveBeenCalled();
+        expect(r.done).toMatchObject({ vision: null, vision_error: "vision_http_503", response_origin: "safe_fallback" });
+        expect(r.done.response).toContain("وصلت الصورة إلى الشات");
+        expect(r.done.response).not.toContain("لا أستطيع رؤية صورة مرفقة");
+        expect(r.events.find(e => e.type === "token").data).toBe(r.done.response);
+    });
     test("truncated reviewer is recovered within the same repair budget",async()=>{
         const r=await run([{content:"مدة استثمارك قد إيه وهل تحتاج المبلغ قريباً؟"},{content:"invalid-json"},{content:"مدة استثمارك قد إيه وهل تحتاج المبلغ قريباً؟"},verdict()],{userMessage:"معايا 10 تلاف اعمل بيهم ايه"});
         expect(r.done.publication_review).toMatchObject({repaired:true,final_passed:true});
@@ -152,6 +170,43 @@ describe("Agentic architecture integration: current production path", () => {
     test("vision confidence, uncertainty and quantities are context, not asserted market verification", async () => {
         const r=await run([{content:"الصورة غير مؤكدة"},verdict()],{images:["fixture"],options:{mockVisionResult:{symbols:[{symbol:"COMI",visible_values:{quantity:10}}],confidence:.4,uncertainties:["uncertain-fixture"]}}});
         expect(JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[1].content).toContain("uncertain-fixture"); expect(r.done.vision.confidence).toBe(.4);
+    });
+    test("portfolio image request uses image evidence without a market-data fan-out", async () => {
+        const vision={image_type:"portfolio",symbols:[{symbol:"ETEL",visible_values:{quantity:null,price:null,change_pct:73.26}}],confidence:.95,
+            uncertainties:["لا يظهر متوسط الشراء أو عدد الوحدات"],technical_observations:[],market_depth:{},user_relevant_summary:"لقطة محفظة؛ عائد ظاهر 73.26%"};
+        const r=await run([{content:"الصورة تعرض ETEL وعائداً ظاهراً، لكنها لا تعرض الكمية أو متوسط الشراء بوضوح."},verdict()],{
+            userMessage:"قم بقراءة وتحليل هذه الصورة المرفقة.",images:["fixture"],options:{mockVisionResult:vision}});
+        const context=JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[1].content;
+        expect(context).toContain("لا يظهر متوسط الشراء أو عدد الوحدات");
+        expect(AGENTIC_SYSTEM_PROMPT).toContain("لا تخلط بين قيمة المركز أو المكسب النقدي أو العائد % وبين عدد الأسهم أو متوسط الشراء");
+        expect(AGENTIC_SYSTEM_PROMPT).toContain("[افتح البروفايل عند قسم محفظتي](/profile#portfolio)");
+        expect(AGENTIC_SYSTEM_PROMPT).toContain("لم تحفظ المراكز بسبب نقص متوسط الشراء");
+        expect(r.events.filter(e=>e.type==="tools_data")).toHaveLength(0);
+        expect(r.queries.some((q: Query)=>["positions","stock_prices","stock_technical_indicators"].includes(q.table))).toBe(false);
+        expect(r.done.publication_review.final_passed).toBe(true);
+    });
+    test("an image without explicit units and average price cannot authorize portfolio registration", async () => {
+        const vision={image_type:"portfolio",symbols:[{symbol:"ETEL",visible_values:{quantity:null,price:null,change_pct:73.26}}],confidence:.95,
+            uncertainties:["quantity and average purchase price are not visible"],technical_observations:[],market_depth:{},user_relevant_summary:"portfolio image"};
+        const d=db();
+        const r=await run([{tool_calls:[call("manage_portfolio",{operation:"add",symbol:"ETEL",quantity:749,price:148})]},
+            {content:'{"authorized":false}'},{content:"لم أسجل المركز لأن الصورة لا توضح متوسط الشراء."},verdict()],{
+            userMessage:"قم بقراءة وتحليل هذه الصورة المرفقة.",images:["fixture"],db:d,options:{mockVisionResult:vision}});
+        expect(d.queries.some(q=>q.table==="positions" && q.ops.some(o=>o[0]==="insert"))).toBe(false);
+        expect(r.events.find(e=>e.type==="tools_data").data.results[0].data.persisted).toBe(false);
+    });
+    test("an image follow-up retains tickers but does not reuse unverified numeric extraction", async () => {
+        const r=await run([{content:"الصورة السابقة توضح رموز الأسهم، لكنها لا تثبت الكميات أو متوسطات الشراء. أرسل أول خمسة رموز مع الكمية ومتوسط الشراء لكل سهم."},verdict()],{
+            userMessage:"جدد محفظتي بناء على الصور المرسلة لك",
+            summary:{last_vision_context:{image_type:"portfolio",symbols:[{symbol:"ETEL",name:"",visible_values:{quantity:749,price:null,change_pct:73.26}}],confidence:.95,
+                uncertainties:[],user_relevant_summary:"قد تحتوي الصورة على أرقام ليست كميات مؤكدة."}},
+        });
+        const context=JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[1].content;
+        expect(context).toContain("ETEL");
+        expect(context).not.toContain("749");
+        expect(context).not.toContain("73.26");
+        expect(r.queries.some((q: Query)=>q.table==="positions" && q.ops.some(o=>o[0]==="insert"))).toBe(false);
+        expect(r.done.publication_review.final_passed).toBe(true);
     });
     test("tool metadata preserves source, availability and date", async () => {
         const r=await run([{tool_calls:[call("get_stock_levels",{symbols:["COMI"]})]},{content:"COMI سعره 100 جنيه"},verdict()],{db:stockDb()});

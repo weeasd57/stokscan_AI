@@ -19,6 +19,7 @@ import { executeStructuredTools } from "@/lib/ai/tools-v2";
 import { generateV2Response, generateV2Stream } from "@/lib/ai/final-v2";
 import { getDeepSeekApiKey, getNvidiaApiKeys, isUnlimitedChatUser } from "@/lib/ai/server-secrets";
 import { uploadChatImages } from "@/lib/ai/chat-storage";
+import { createChatMessageTimestamps, orderChatMessages } from "@/lib/ai/chat-order";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -391,6 +392,7 @@ async function handleSessionResolution(
 }
 
 export async function POST(req: NextRequest) {
+    const requestReceivedAt = Date.now();
     const totalRequestStartTime = Date.now();
     let correlationId = req.headers.get("x-correlation-id")?.slice(0, 128) || crypto.randomUUID();
     let supabase: any = null;
@@ -766,6 +768,7 @@ export async function POST(req: NextRequest) {
                                     try {
                                         if (activeSessionId) {
                                              const provenance = responseMetadata;
+                                            const messageTimestamps = createChatMessageTimestamps(requestReceivedAt, Date.now());
                                             await insertChatMessages(supabase, [
                                                 {
                                                     session_id: activeSessionId,
@@ -774,7 +777,7 @@ export async function POST(req: NextRequest) {
                                                     content: sanitizeUserMessage(message || (hasImages ? "📷 [Image attached]" : "")),
                                                     client_message_id: clientMessageId || null,
                                              image_url: finalSavedImageUrl,
-                                                    created_at: new Date().toISOString()
+                                                    created_at: messageTimestamps.user
                                                 },
                                                 {
                                                     session_id: activeSessionId,
@@ -783,7 +786,7 @@ export async function POST(req: NextRequest) {
                                                     content: replyText,
                                                     latency_ms: streamingTotalLatencyMs,
                                              metadata: provenance,
-                                                    created_at: new Date().toISOString()
+                                                    created_at: messageTimestamps.assistant
                                                 }
                                             ]);
                                         }
@@ -955,6 +958,7 @@ export async function POST(req: NextRequest) {
                 provenance.publication_review = pipelineResult.publication_review || null;
                 provenance.response_origin = pipelineResult.response_origin || null;
                 provenance.suggested_buttons = suggestedButtons;
+                const messageTimestamps = createChatMessageTimestamps(requestReceivedAt, Date.now());
                 await insertChatMessages(supabase, [
                     {
                         session_id: activeSessionId,
@@ -963,7 +967,7 @@ export async function POST(req: NextRequest) {
                         content: message || (hasImages ? "📷 [Image attached]" : ""),
                         client_message_id: clientMessageId || null,
                         image_url: finalSavedImageUrl,
-                        created_at: new Date().toISOString()
+                        created_at: messageTimestamps.user
                     },
                     {
                         session_id: activeSessionId,
@@ -972,7 +976,7 @@ export async function POST(req: NextRequest) {
                         content: replyText,
                         latency_ms: totalLatencyMs,
                         metadata: provenance,
-                        created_at: new Date().toISOString()
+                        created_at: messageTimestamps.assistant
                     }
                 ]);
             }
@@ -1118,28 +1122,29 @@ export async function GET(req: NextRequest) {
         if (sessionId) {
             let { data: messages, error: historyError } = await supabase
                 .from("ai_chat_messages")
-                .select("role, content, image_url, created_at, latency_ms, metadata")
+                .select("id, role, content, image_url, created_at, latency_ms, metadata")
                 .eq("session_id", sessionId)
                 .eq("user_id", userId)
                 .order("created_at", { ascending: true });
             if (historyError && isMissingColumnError(historyError)) {
                 const fallback = await supabase
                     .from("ai_chat_messages")
-                    .select("role, content, image_url, created_at")
+                    .select("id, role, content, image_url, created_at")
                     .eq("session_id", sessionId)
                     .eq("user_id", userId)
                     .order("created_at", { ascending: true });
                 messages = fallback.data;
             }
 
-            const formattedHistory = (messages || []).map((m: any) => ({
+            const formattedHistory = orderChatMessages((messages || []).map((m: any) => ({
+                id: m.id,
                 role: m.role,
                 content: stripEnvironmentMetadata(String(m.content || "")),
                 timestamp: new Date(m.created_at).getTime(),
                 imageUrl: m.image_url || undefined,
                 latencyMs: typeof m.latency_ms === "number" && m.latency_ms > 0 ? m.latency_ms : undefined,
                 suggestedButtons: m.role === "assistant" ? sanitizeSuggestedButtons(m.metadata?.suggested_buttons) : undefined
-            }));
+            })));
 
             return NextResponse.json({ history: formattedHistory });
         }

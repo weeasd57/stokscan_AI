@@ -201,7 +201,7 @@ export default function ChatWidget() {
         }
     }, [messages, isOpen, isLoading, isUserScrolledUp]);
 
-    async function compressAndResizeImage(base64Str: string, maxDim = 768, quality = 0.8): Promise<string> {
+    async function compressAndResizeImage(base64Str: string, maxDim = 1600, quality = 0.85): Promise<string> {
         return new Promise((resolve) => {
             const img = new Image();
             img.onload = () => {
@@ -232,58 +232,6 @@ export default function ChatWidget() {
             img.onerror = () => resolve(base64Str);
             img.src = base64Str;
         });
-    }
-
-    async function combineImagesSideBySide(imagesBase64: string[]): Promise<string> {
-        if (imagesBase64.length <= 1) return imagesBase64[0] || "";
-
-        try {
-            const loadedImages: HTMLImageElement[] = await Promise.all(
-                imagesBase64.map(src => new Promise<HTMLImageElement>((resolve, reject) => {
-                    const img = new Image();
-                    img.onload = () => resolve(img);
-                    img.onerror = reject;
-                    img.src = src;
-                }))
-            );
-
-            const targetHeight = 768;
-            const gap = 12;
-            const rawWidths = loadedImages.map(img => (img.width / img.height) * targetHeight);
-            const rawTotalWidth = rawWidths.reduce((sum, w) => sum + w, 0) + (loadedImages.length - 1) * gap;
-            const scale = rawTotalWidth > targetHeight ? targetHeight / rawTotalWidth : 1;
-            const scaledWidths = rawWidths.map(w => Math.round(w * scale));
-            const scaledGap = Math.max(1, Math.round(gap * scale));
-            const canvasHeight = Math.round(targetHeight * scale);
-            const totalWidth = scaledWidths.reduce((sum, w) => sum + w, 0) + (loadedImages.length - 1) * scaledGap;
-
-            const canvas = document.createElement("canvas");
-            canvas.width = totalWidth;
-            canvas.height = canvasHeight;
-            const ctx = canvas.getContext("2d");
-
-            if (!ctx) return imagesBase64[0];
-
-            ctx.fillStyle = "#09090b";
-            ctx.fillRect(0, 0, totalWidth, canvasHeight);
-
-            let currentX = 0;
-            loadedImages.forEach((img, i) => {
-                const w = scaledWidths[i];
-                ctx.drawImage(img, currentX, 0, w, canvasHeight);
-                currentX += w;
-                if (i < loadedImages.length - 1) {
-                    ctx.fillStyle = "#f59e0b";
-                    ctx.fillRect(currentX, 0, scaledGap, canvasHeight);
-                    currentX += scaledGap;
-                }
-            });
-
-            return canvas.toDataURL("image/jpeg", 0.85);
-        } catch (e) {
-            console.error("Failed to combine images side-by-side:", e);
-            return imagesBase64[0];
-        }
     }
 
     const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -332,14 +280,9 @@ export default function ChatWidget() {
         setInput("");
         setImagePreviews([]);
 
-        let finalImagePayload: string | undefined = undefined;
-        if (currentPreviews.length === 1) {
-            finalImagePayload = currentPreviews[0];
-        } else if (currentPreviews.length > 1) {
-            finalImagePayload = await combineImagesSideBySide(currentPreviews);
-        }
-
-        await sendMessage(textToSend, finalImagePayload);
+        // Keep images separate: a side-by-side composite shrank each screenshot
+        // to a fraction of the available pixels and made dense text unreadable.
+        await sendMessage(textToSend, currentPreviews.length ? currentPreviews : undefined);
     };
 
     if (!isOpen) {
