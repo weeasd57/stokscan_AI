@@ -117,7 +117,7 @@ interface TextDrawing {
   text: string;
 }
 
-type ChartDrawing =
+export type ChartDrawing =
   | HorizontalDrawing
   | TrendDrawing
   | RectangleDrawing
@@ -239,6 +239,18 @@ interface TradingViewChartProps {
   focusRequestId?: number;
   hideIndicators?: boolean;
   showApiMarkers?: boolean;
+  externalCandles?: Candle[];
+  externalTimeframe?: "1d" | "1w" | "1m";
+  onCandlesLoaded?: (candles: Candle[]) => void;
+  strategyOverlays?: { id: string; label: string; kind: "line" | "zone" | "time"; points: { time: number; value: number }[]; color?: string }[];
+  syncGroup?: string;
+  chartPanelId?: string;
+  drawingScope?: string;
+  initialDrawings?: ChartDrawing[];
+  onDrawingsChange?: (drawings: ChartDrawing[]) => void;
+  onStrategyLevelChange?: (id: string, value: number) => void;
+  compact?: boolean;
+  hiddenDrawingIds?: string[];
 }
 
 export interface ActiveIndicator {
@@ -323,6 +335,18 @@ export default function TradingViewChart({
   focusRequestId,
   hideIndicators = false,
   showApiMarkers = true,
+  externalCandles,
+  externalTimeframe = "1d",
+  onCandlesLoaded,
+  strategyOverlays = [],
+  syncGroup,
+  chartPanelId,
+  drawingScope,
+  initialDrawings,
+  onDrawingsChange,
+  onStrategyLevelChange,
+  compact = false,
+  hiddenDrawingIds,
 }: TradingViewChartProps) {
   const { user } = useAuth();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
@@ -333,6 +357,12 @@ export default function TradingViewChart({
 
   // States
   const [candlesData, setCandlesData] = useState<Candle[]>([]);
+  const candlesLoadedRef = useRef(onCandlesLoaded);
+  candlesLoadedRef.current = onCandlesLoaded;
+  const drawingChangeRef = useRef(onDrawingsChange);
+  drawingChangeRef.current = onDrawingsChange;
+  const initialDrawingsRef = useRef(initialDrawings);
+  initialDrawingsRef.current = initialDrawings;
   const [marketUpdatedAt, setMarketUpdatedAt] = useState<string | null>(null);
   const [markersData, setMarkersData] = useState<any[]>([]);
   const [recommendationMarkers, setRecommendationMarkers] = useState<RecommendationChartMarker[]>([]);
@@ -422,6 +452,9 @@ export default function TradingViewChart({
   const drawingStartPointRef = useRef<ChartPoint | null>(null);
   const [drawingStartPoint, setDrawingStartPoint] = useState<ChartPoint | null>(null);
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
+  useEffect(() => {
+    if (selectedDrawingId && hiddenDrawingIds?.includes(selectedDrawingId)) setSelectedDrawingId(null);
+  }, [selectedDrawingId, hiddenDrawingIds]);
   const [drawingStyle, setDrawingStyle] = useState<DrawingStyle>(
     TOOL_DEFAULT_STYLES[activeTool] ?? DEFAULT_DRAWING_STYLE,
   );
@@ -473,7 +506,7 @@ export default function TradingViewChart({
     `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   const getDrawingStorageScope = () =>
-    `${String(exchange || "").toUpperCase()}::${String(symbol || "").toUpperCase()}`;
+    `${user?.id || "guest"}::${drawingScope ? `${drawingScope}::` : ""}${String(exchange || "").toUpperCase()}::${String(symbol || "").toUpperCase()}`;
 
   const toStoredPoint = (point: ChartPoint): StoredChartPoint => ({
     price: point.price,
@@ -501,6 +534,10 @@ export default function TradingViewChart({
 
   const saveDrawings = async (nextDrawings: ChartDrawing[]) => {
     persistGuestDrawings(nextDrawings);
+    if (drawingScope) {
+      drawingChangeRef.current?.(nextDrawings);
+      return;
+    }
     if (!user) return;
 
     await supabase.from("chart_drawings").upsert(
@@ -517,7 +554,7 @@ export default function TradingViewChart({
   const updateDrawings = (updater: (prev: ChartDrawing[]) => ChartDrawing[]) => {
     setDrawings((prev) => {
       const next = updater(prev);
-      void saveDrawings(next);
+      queueMicrotask(() => void saveDrawings(next));
       return next;
     });
   };
@@ -752,7 +789,8 @@ export default function TradingViewChart({
         guestDrawings = parsed[scope] ?? [];
       } catch {}
 
-      if (!user) {
+      if (drawingScope || !user) {
+        if (drawingScope && initialDrawingsRef.current) guestDrawings = initialDrawingsRef.current;
         if (!cancelled) setDrawings(guestDrawings);
         return;
       }
@@ -774,20 +812,36 @@ export default function TradingViewChart({
     return () => {
       cancelled = true;
     };
-  }, [exchange, supabase, symbol, user]);
+  }, [exchange, supabase, symbol, user, drawingScope]);
+
+  useEffect(() => {
+    if (!drawingScope || initialDrawings === undefined) return;
+    setDrawings(current => JSON.stringify(current) === JSON.stringify(initialDrawings) ? current : initialDrawings);
+  }, [drawingScope, initialDrawings]);
 
   // 1. Fetch OHLCV candles data from our FastAPI backend
   useEffect(() => {
     const controller = new AbortController();
     setRecommendationMarkers([]);
+    if (externalCandles !== undefined) return () => controller.abort();
     getRecommendationChartMarkers(symbol, exchange || "EGX", controller.signal)
       .then(setRecommendationMarkers)
       .catch(() => { if (!controller.signal.aborted) setRecommendationMarkers([]); });
     return () => controller.abort();
-  }, [symbol, exchange, user]);
+  }, [symbol, exchange, user, externalCandles !== undefined]);
 
   useEffect(() => {
     let isMounted = true;
+    const controller = new AbortController();
+    if (externalCandles !== undefined) {
+      setCandlesData(externalCandles);
+      setLoading(false);
+      setError(null);
+      setMarkersData([]);
+      setTimeframe(externalTimeframe);
+      candlesLoadedRef.current?.(externalCandles);
+      return;
+    }
     setLoading(true);
     setError(null);
     setMarketUpdatedAt(null);
@@ -799,7 +853,7 @@ export default function TradingViewChart({
         if (exchange) {
           url += `&exchange=${encodeURIComponent(exchange)}`;
         }
-        const res = await fetch(url);
+        const res = await fetch(url, { signal: controller.signal });
         if (!res.ok) {
           throw new Error(
             `Failed to load historical candles (Status ${res.status})`,
@@ -815,6 +869,7 @@ export default function TradingViewChart({
         }
 
         setCandlesData(data.candles);
+        candlesLoadedRef.current?.(data.candles);
         setMarketUpdatedAt(data.updated_at || null);
         setMarkersData(data.markers || []);
         // EGX is end-of-day data; do not surface a stale intraday label.
@@ -832,8 +887,9 @@ export default function TradingViewChart({
 
     return () => {
       isMounted = false;
+      controller.abort();
     };
-  }, [symbol, exchange]);
+  }, [symbol, exchange, externalCandles, externalTimeframe]);
 
   // Indicators that render in separate lower panes
   const lowerPaneIndicators = useMemo(() => {
@@ -1822,6 +1878,37 @@ export default function TradingViewChart({
   ]);
 
   useEffect(() => {
+    const chart = chartRefs.current.priceChart;
+    if (!chart || !syncGroup || !chartPanelId) return;
+    let applying = false;
+    let lastRange = "";
+    const sendRange = () => {
+      if (applying) return;
+      const range = chart.timeScale().getVisibleRange();
+      const key = JSON.stringify(range);
+      if (!range || key === lastRange) return;
+      lastRange = key;
+      window.dispatchEvent(new CustomEvent("strategy-lab-range", { detail: { group: syncGroup, source: chartPanelId, range } }));
+    };
+    const receiveRange = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (!detail || detail.group !== syncGroup || detail.source === chartPanelId || !detail.range) return;
+      const key = JSON.stringify(detail.range);
+      if (lastRange === key) return;
+      lastRange = key;
+      applying = true;
+      try { chart.timeScale().setVisibleRange(detail.range); } catch { /* source range may be outside this symbol's history */ }
+      applying = false;
+    };
+    chart.timeScale().subscribeVisibleTimeRangeChange(sendRange);
+    window.addEventListener("strategy-lab-range", receiveRange);
+    return () => {
+      try { chart.timeScale().unsubscribeVisibleTimeRangeChange(sendRange); } catch { /* chart already disposed */ }
+      window.removeEventListener("strategy-lab-range", receiveRange);
+    };
+  }, [syncGroup, chartPanelId, candlesData, activeIndicators, loading, error, markersData, lowerPaneIndicators, customMarkers, recommendationMarkers, theme]);
+
+  useEffect(() => {
     if (activeTool === "trash") {
       drawnPriceLevelsRef.current = [];
       drawingStartPointRef.current = null;
@@ -2754,7 +2841,7 @@ export default function TradingViewChart({
             className="absolute inset-0 overflow-hidden"
           />
 
-          {isEgxEndOfDay && (
+          {isEgxEndOfDay && !compact && (
             <div
               dir="rtl"
               className="pointer-events-none absolute right-3 top-3 z-30 max-w-[260px] rounded-xl border border-amber-300/70 bg-white/95 px-3 py-2 text-right shadow-lg backdrop-blur-md dark:border-amber-500/30 dark:bg-[#131722]/95"
@@ -2783,7 +2870,42 @@ export default function TradingViewChart({
             className="absolute inset-0 w-full h-full overflow-visible z-10"
             style={{ pointerEvents: "none" }}
           >
-            {drawings.map((d) => renderSingleDrawing(d))}
+            {[...new Map(strategyOverlays.map(overlay => [overlay.id, overlay])).values()].map((overlay) => {
+              const chart = chartRefs.current.priceChart;
+              const series = chartRefs.current.candlestickSeries;
+              if (!chart || !series) return null;
+              const xForTime = (time: number) => {
+                const direct = chart.timeScale().timeToCoordinate(time as UTCTimestamp);
+                if (direct !== null) return direct;
+                const last = candlesData.at(-1);
+                const previous = candlesData.at(-2);
+                if (!last || !previous || time <= last.time) return null;
+                const step = Math.max(86400, last.time - previous.time);
+                return chart.timeScale().logicalToCoordinate((candlesData.length - 1 + (time - last.time) / step) as any);
+              };
+              const points = overlay.points.map((point) => ({
+                x: xForTime(point.time),
+                y: series.priceToCoordinate(point.value),
+              })).filter((point): point is { x: NonNullable<typeof point.x>; y: NonNullable<typeof point.y> } => point.x !== null && point.y !== null);
+              if (!points.length) return null;
+              const color = overlay.color || "#22d3ee";
+              const first = points[0];
+              return <g key={overlay.id}>
+                {overlay.kind === "time" ? <line x1={first.x} x2={first.x} y1={0} y2="100%" stroke={color} strokeDasharray="4 4" opacity={0.65} /> : overlay.kind === "zone" && points.length >= 2 ? <rect x={Math.min(first.x, points[1].x)} y={Math.min(first.y, points[1].y)} width={Math.abs(points[1].x - first.x)} height={Math.abs(points[1].y - first.y)} fill={color} fillOpacity={0.1} stroke={color} strokeOpacity={0.6} /> : <polyline points={points.map(point => `${point.x},${point.y}`).join(" ")} fill="none" stroke={color} strokeWidth={1.5} />}
+                {onStrategyLevelChange && /^trade-(entry|stop|target)$/.test(overlay.id) && <line x1={0} x2="100%" y1={first.y} y2={first.y} stroke="transparent" strokeWidth={14} style={{ pointerEvents: "stroke", cursor: "ns-resize" }}
+                  onPointerDown={event => { event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); }}
+                  onPointerMove={event => {
+                    if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+                    const rect = priceContainerRef.current?.getBoundingClientRect();
+                    if (!rect) return;
+                    const price = series.coordinateToPrice(event.clientY - rect.top);
+                    if (price !== null && Number(price) > 0) onStrategyLevelChange(overlay.id, Number(price));
+                  }}
+                  onPointerUp={event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }} />}
+                <text x={first.x + 4} y={Math.max(12, first.y - 5)} fill={color} fontSize={10}>{overlay.label}</text>
+              </g>;
+            })}
+            {drawings.filter(d => !hiddenDrawingIds?.includes(d.id)).map((d) => renderSingleDrawing(d))}
             {drawingPreview && renderSingleDrawing(drawingPreview, true)}
             {/* First-point indicator */}
             {drawingStartPoint && (
@@ -2806,14 +2928,14 @@ export default function TradingViewChart({
               className="absolute inset-0 w-full h-full overflow-visible z-20"
               style={{ pointerEvents: "none" }}
             >
-              {drawings.map((d) => renderDrawingHitArea(d))}
+              {drawings.filter(d => !hiddenDrawingIds?.includes(d.id)).map((d) => renderDrawingHitArea(d))}
             </svg>
           )}
 
           {/* Drawing Properties Panel (TradingView-like floating editor) */}
-          {selectedDrawing && activeTool === "cursor" && (
+          {selectedDrawing && !hiddenDrawingIds?.includes(selectedDrawing.id) && activeTool === "cursor" && (
             <div
-              className="absolute z-40 bg-white/95 backdrop-blur-xl border border-zinc-200 rounded-2xl shadow-2xl select-none overflow-hidden animate-fade-in dark:bg-[#1c2030]/95 dark:border-[#2a2e39]"
+              className="app-panel-strong app-text-primary absolute z-40 rounded-2xl select-none overflow-hidden animate-fade-in"
               style={{ left: propsPanelPos.x, top: propsPanelPos.y, width: propsPanelPos.width }}
             >
               {/* Resize handle */}
@@ -2831,7 +2953,7 @@ export default function TradingViewChart({
               />
 
               <div
-                className="px-3 py-2.5 border-b border-zinc-200 flex items-center justify-between cursor-grab active:cursor-grabbing dark:border-[#2a2e39]"
+                className="px-3 py-3 border-b border-[var(--app-border-strong)] flex items-center justify-between cursor-grab active:cursor-grabbing bg-[var(--app-surface-soft)]"
                 onPointerDown={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -2869,7 +2991,7 @@ export default function TradingViewChart({
                   </button>
                   <button
                     onClick={() => setSelectedDrawingId(null)}
-                    className="p-1 rounded hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950 transition-all dark:hover:bg-[#2a2e39] dark:text-[#787b86] dark:hover:text-white"
+                    className="app-icon-button p-1.5 rounded-lg transition-all"
                     title="Close"
                   >
                     <X className="w-3.5 h-3.5" />
@@ -3055,7 +3177,7 @@ export default function TradingViewChart({
                       updateDrawingStyle(selectedDrawing.id, newStyle);
                     }}
                     placeholder="Label..."
-                    className="h-7 w-[140px] rounded-lg bg-zinc-50 border border-zinc-200 px-2 text-[10px] font-bold text-zinc-950 placeholder:text-zinc-400 outline-none focus:border-indigo-500 transition-all dark:bg-[#131722] dark:border-white/10 dark:text-white dark:placeholder:text-[#787b86]"
+                    className="app-control h-9 w-[140px] rounded-lg px-2 text-xs font-bold outline-none focus-visible:ring-2 focus-visible:ring-amber-400 transition-all"
                   />
                 </div>
 
@@ -3157,11 +3279,11 @@ export default function TradingViewChart({
 
         {/* Indicators Modal Overlay */}
         {showIndicatorModal && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 select-none" style={{ zIndex: 999999 }}>
-            <div className="bg-white border border-zinc-200 rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden max-h-[85vh] dark:bg-[#131722] dark:border-[#2a2e39]">
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 select-none" style={{ zIndex: 999999 }}>
+            <div role="dialog" aria-modal="true" aria-labelledby="chart-indicators-title" className="app-panel-strong app-text-primary rounded-2xl w-full max-w-2xl flex flex-col overflow-hidden max-h-[85vh]">
               {/* Header */}
-              <div className="px-5 py-4 border-b border-zinc-200 flex items-center justify-between dark:border-[#2a2e39]">
-                <span className="text-sm font-bold text-zinc-950 dark:text-white uppercase tracking-wider">
+              <div className="px-5 py-4 border-b border-[var(--app-border-strong)] bg-[var(--app-surface-soft)] flex items-center justify-between">
+                <span id="chart-indicators-title" className="text-sm font-black uppercase tracking-wider">
                   Indicators Workspace
                 </span>
                 <button
@@ -3169,23 +3291,24 @@ export default function TradingViewChart({
                     setShowIndicatorModal(false);
                     setIndicatorSearchQuery("");
                   }}
-                  className="p-1.5 rounded hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950 transition-colors dark:hover:bg-[#1c2030] dark:text-[#b2b5be] dark:hover:text-white"
+                  aria-label="Close indicators"
+                  className="app-icon-button h-10 w-10 flex items-center justify-center rounded-xl transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               {/* Search Input */}
-              <div className="px-5 py-3 border-b border-zinc-200 bg-zinc-50 relative dark:border-[#2a2e39] dark:bg-[#1c2030]/20">
+              <div className="px-5 py-4 border-b border-[var(--app-border)] relative">
                 <input
                   type="text"
                   placeholder="Search indicators..."
                   value={indicatorSearchQuery}
                   onChange={(e) => setIndicatorSearchQuery(e.target.value)}
-                  className="w-full h-9 pl-9 pr-4 rounded bg-white border border-zinc-200 text-zinc-950 text-xs placeholder-zinc-400 focus:outline-none focus:border-indigo-500 transition-all dark:bg-[#1c2030] dark:border-[#2a2e39] dark:text-white dark:placeholder-[#787b86] dark:focus:border-[#2962ff]"
+                  className="app-control w-full h-11 pl-10 pr-4 rounded-xl text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 transition-all"
                   autoFocus
                 />
-                <Search className="absolute left-8 top-5 w-4 h-4 text-zinc-400 dark:text-[#787b86]" />
+                <Search className="app-text-muted absolute left-8 top-7 w-4 h-4" />
               </div>
 
               <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-6 min-h-0">
@@ -3199,7 +3322,7 @@ export default function TradingViewChart({
                       <button
                         key={ind.type}
                         onClick={() => addIndicator(ind.type)}
-                        className="p-3.5 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 hover:border-zinc-300 transition-all text-left flex flex-col justify-between h-24 group relative overflow-hidden active:scale-[0.98] dark:border-white/5 dark:bg-[#1c2030]/20 dark:hover:bg-[#1c2030]/60 dark:hover:border-zinc-700"
+                        className="app-panel p-4 rounded-xl transition-all text-left flex flex-col justify-between min-h-28 group relative overflow-hidden active:scale-[0.98] focus-visible:outline-amber-400"
                       >
                         <div className="space-y-1 z-10 relative">
                           <div className="text-[11px] font-black text-zinc-950 dark:text-white uppercase group-hover:text-indigo-500 dark:group-hover:text-indigo-400 transition-colors">
@@ -3210,10 +3333,10 @@ export default function TradingViewChart({
                           </div>
                         </div>
                         <div className="z-10 relative flex justify-between items-center w-full">
-                          <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500 border border-zinc-200 dark:bg-zinc-800 dark:text-[#787b86] dark:border-white/5">
+                          <span className="app-chip text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-lg">
                             {ind.category}
                           </span>
-                          <span className="text-[9px] font-black text-indigo-400 group-hover:translate-x-1 transition-transform uppercase tracking-wider flex items-center gap-0.5">
+                          <span className="text-[10px] font-black text-amber-500 group-hover:translate-x-1 transition-transform uppercase tracking-wider flex items-center gap-0.5">
                             + Add
                           </span>
                         </div>

@@ -28,6 +28,7 @@ import { explicitBollingerPreset } from "./scan-request";
 import { completeDecisionTools, ResponseTask } from "./response-task";
 
 export interface PipelineResult {
+    chart_actions?: import("./chart-strategy-tools").ChartAction[];
     usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; provider_calls: number; tool_calls: number; model: string };
     response_origin?: "llm" | "deterministic" | "fallback";
     response_task?: ResponseTask | null;
@@ -1957,6 +1958,7 @@ export function buildTopMoversResponse(tools: StructuredToolOutput): string | nu
 }
 
 export interface PipelineOptions {
+    chartContext?: import("./chart-strategy-tools").ChartContext;
     signal?: AbortSignal;
     timeoutMs?: number;
     mockToolsResults?: StructuredToolOutput;
@@ -4115,6 +4117,7 @@ export async function runPipeline(
             result.response_task = event.data.response_task ?? null;
             result.session_update = event.data.session_update ?? result.session_update;
             result.tables = event.data.tables ?? [];
+            result.chart_actions = event.data.chart_actions ?? [];
         }
     }
     return result;

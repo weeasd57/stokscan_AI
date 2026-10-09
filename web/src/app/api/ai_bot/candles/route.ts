@@ -22,8 +22,10 @@ export async function GET(req: NextRequest) {
     const url = new URL(req.url);
     const symbol = url.searchParams.get("symbol");
     const exchange = url.searchParams.get("exchange") || "EGX";
-    const limit = Math.min(Number(url.searchParams.get("limit") || 150), 1000);
+    const rawLimit = Number(url.searchParams.get("limit") || 150);
+    const limit = url.searchParams.get("all") === "true" || rawLimit > 1000 ? Math.min(rawLimit || 5000, 5000) : Math.min(rawLimit, 1000);
     const bot_id = url.searchParams.get("bot_id") || "primary";
+    const includeMarkers = url.searchParams.get("include_markers") !== "false";
 
     if (!symbol) {
       return NextResponse.json({ candles: [], markers: [] }, { status: 400 });
@@ -47,7 +49,8 @@ export async function GET(req: NextRequest) {
         signal: AbortSignal.timeout(30000),
       });
       if (backendResponse.ok) {
-        return NextResponse.json(await backendResponse.json(), {
+        const payload = await backendResponse.json();
+        return NextResponse.json(includeMarkers ? payload : { ...payload, markers: [] }, {
           headers: dailyCacheHeaders(DAILY_CACHE_TAGS.market),
         });
       }
@@ -96,6 +99,9 @@ export async function GET(req: NextRequest) {
     }).filter(c => c.time > 0);
 
     // Fetch markers from bot_trades
+    if (!includeMarkers) {
+      return NextResponse.json({ candles, markers: [], timeframe }, { headers: dailyCacheHeaders(DAILY_CACHE_TAGS.market) });
+    }
     const { data: markersData } = await supabase
       .from("bot_trades")
       .select("timestamp,action,price,entry_price,pnl")

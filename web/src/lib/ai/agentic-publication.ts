@@ -15,11 +15,17 @@ export interface AgenticEvidence {
 }
 
 const memoryTools = new Set(["get_stock", "get_stock_levels", "get_market", "get_technical_scan", "get_accumulation_stocks", "get_comparison", "get_news", "get_recommendations"]);
+memoryTools.add("apply_chart_strategy"); memoryTools.add("compare_strategies_history");
 /** Remove duplicate aliases/payload text, without removing source, dates, identity or unknown values. */
 export function compactEvidence(record: AgenticEvidence): AgenticEvidence {
     const data = { ...record.data };
     if (data.comparison) delete data.comparisons;
     if (data.stocks) delete data.accumulation_stocks;
+    if (data.analysis) data.analysis = { strategyId: data.analysis.strategyId, warnings: data.analysis.warnings,
+        overlay_labels: data.analysis.overlays?.map((o: any) => o.label), signal_count: data.analysis.signals?.length, last_signal: data.analysis.signals?.at(-1) };
+    if (data.comparison?.results) data.comparison = { warnings: data.comparison.warnings,
+        results: data.comparison.results.map((r: any) => ({ strategyId: r.strategyId,
+            metrics: data.strategy_metrics?.some((m: any) => m.strategy_id === r.strategyId) ? r.metrics : undefined, warnings: r.warnings })) };
     return { ...record, data };
 }
 
@@ -57,12 +63,13 @@ export function toAgenticEvidence(tool: string, args: any, data: any): AgenticEv
     // A scan's output symbols (not its empty input) are the ordered reference for follow-ups.
     const dates = [...new Set<string>(rows.map(r => r.date || r.scan_date || r.current_date || r.signal_date || r.published_at).filter(Boolean))];
     const missing = rows.some(r => r.error || r.availability === "missing");
-    return { tool, arguments: args, data, source: "supabase:" + ({ get_stock: "stock_technical_indicators+stocks+stock_scans_summary", get_stock_levels: "stock_prices",
+    return { tool, arguments: args, data, source: tool === "list_chart_strategies" ? "deterministic:strategy-catalog" : "supabase:" + ({ get_stock: "stock_technical_indicators+stocks+stock_scans_summary", get_stock_levels: "stock_prices",
+        apply_chart_strategy: "stock_prices+deterministic-strategy-engine", compare_strategies_history: "stock_prices+deterministic-backtest", list_chart_strategies: "strategy-catalog",
         manage_portfolio: "positions+stock_technical_indicators", get_market: "market_cache+stock_technical_indicators", get_news: "news+stocks",
         get_recommendations: "scan_results+stock_technical_indicators", get_accumulation_stocks: "stock_scans_summary", get_comparison: "stock_technical_indicators",
         get_technical_scan: args.preset === "smart_money_flow" ? "stock_scans_summary" : "stock_technical_indicators" } as any)[tool],
         data_time: dates.length === 1 ? dates[0] : data?.date || data?.session_date || null, symbols,
-        availability: data?.status === "error" ? "error" : data?.availability === "missing" || (!rows.length && !data?.egx30?.close && !data?.persisted)
+        availability: data?.status === "error" ? "error" : data?.availability === "missing" || (!rows.length && !data?.egx30?.close && !data?.persisted && !data?.strategies?.length)
             ? "missing" : missing || data?.valuation_complete === false || data?.truncated ? "partial" : "available", data_type: "historical" };
 }
 
@@ -84,6 +91,14 @@ export function agenticFacts(evidence: AgenticEvidence[]): FactRecord[] {
     const facts = buildFactRecords(adapted);
     for (const e of evidence) {
         for (const row of evidenceRows(e.data)) {
+            for (const [key, field] of [["total", "chart_signal_count"], ["buy_count", "chart_buy_signal_count"], ["sell_count", "chart_sell_signal_count"]] as const) {
+                const value = row.signal_summary?.[key];
+                if (typeof value === "number" && Number.isFinite(value)) facts.push({ id: `${row.symbol}:${row.analysis?.strategyId}:${key}`, symbol: row.symbol, field, value, unit: "count", as_of: row.date ?? null, source: e.source, tool: e.tool, fetched_at: new Date().toISOString() });
+            }
+            for (const metrics of row.strategy_metrics || []) {
+                const fields: Array<[string, FactRecord["field"], FactRecord["unit"]]> = [["totalReturnPct", "backtest_return_pct", "percent"], ["maxDrawdownPct", "backtest_drawdown_pct", "percent"], ["winRatePct", "backtest_win_rate_pct", "percent"], ["profitFactor", "backtest_profit_factor", "ratio"], ["closedTrades", "backtest_closed_trades", "count"], ["finalEquity", "backtest_final_equity", "egp"]];
+                for (const [key, field, unit] of fields) if (typeof metrics[key] === "number" && Number.isFinite(metrics[key])) facts.push({ id: `${row.symbol}:${metrics.strategy_id}:${key}`, symbol: row.symbol, field, value: metrics[key], unit, as_of: row.date ?? null, source: e.source, tool: e.tool, fetched_at: new Date().toISOString() });
+            }
             // Different calculated targets remain separate supported observations.
             if (row.symbol && Number.isFinite(row.take_profit_2)) facts.push({ id: `${row.symbol}:target2`, symbol: row.symbol,
                 field: "target_price", value: row.take_profit_2, unit: "egp", as_of: row.date ?? null, source: e.source, tool: e.tool, fetched_at: new Date().toISOString() });
@@ -133,14 +148,55 @@ function tableMetricFields(label: string): FactRecord["field"][] | undefined {
     const text = label.replace(/[*_]/g, "");
     if (/EMA\s*50/i.test(text) && /EMA\s*200/i.test(text)) return ["ema_50","ema_200"];
     const labels: Array<[RegExp, FactRecord["field"][]]> = [
+        [/^(?!.*سعر).*(?:إشارات.*شراء|buy.*signals|(?:إشارات|صفقات)\s*شراء|^شراء$)/i,["chart_buy_signal_count"]], [/^(?!.*سعر).*(?:إشارات.*بيع|sell.*signals|(?:إشارات|صفقات)\s*بيع|^بيع$)/i,["chart_sell_signal_count"]], [/(?:عدد|إجمالي|مجموع|كل)?\s*إشارات|signal.*count|إشارات/i,["chart_signal_count"]],
+        [/هبوط|drawdown/i,["backtest_drawdown_pct"]], [/فوز|نجاح|win.?rate|صفقات.*رابح|رابح/i,["backtest_win_rate_pct"]], [/معامل.*ربح|profit.?factor/i,["backtest_profit_factor"]], [/(?:عدد|إجمالي|مجموع)?\s*صفقات(?!.*(?:رابح|شراء|بيع))|trades/i,["backtest_closed_trades"]], [/قيمة.*نهاي|رأس.*مال.*نهاي|equity/i,["backtest_final_equity"]], [/عائد|total.?return/i,["backtest_return_pct"]],
         [/RSI|القوة النسبية/i,["rsi"]], [/هيست|hist/i,["macd_hist"]], [/MACD.*(?:signal|إشار|اشار)|(?:signal|إشار|اشار).*MACD/i,["macd_signal"]], [/MACD/i,["macd","macd_signal","macd_hist"]],
         [/EMA\s*50/i,["ema_50"]], [/EMA\s*200/i,["ema_200"]], [/حجم.*نسبي|الحجم النسبي|r_vol|vol_ratio/i,["vol_ratio"]],
         [/KING/i,["king_ai_score"]], [/EGX.*AI/i,["egx_ai_score"]], [/تجميع/i,["acc_score"]], [/تصريف/i,["dist_score"]],
-        [/سعر.*(?:شراء|دخول)|الدخول/i,["entry_price"]], [/وقف/i,["stop_loss"]], [/هدف|مستهدف/i,["target_price"]], [/دعم/i,["support"]], [/مقاوم/i,["resistance"]],
-        [/تكلف/i,["cost_basis"]], [/قيمة.*سوق|القيمة السوقية/i,["market_value"]], [/ربح|خسار|عائد|النسبة/i,["profit_pct","profit_value"]],
+        [/سعر.*(?:شراء|دخول)|الدخول/i,["entry_price","cost_basis"]], [/وقف/i,["stop_loss"]], [/هدف|مستهدف/i,["target_price"]], [/دعم/i,["support"]], [/مقاوم/i,["resistance"]],
+        [/تكلف/i,["cost_basis"]], [/قيمة.*سوق|القيمة السوقية/i,["market_value"]], [/ربح|خسار|عائد|النسبة/i,["profit_pct","profit_value","backtest_return_pct"]],
         [/تغير|التغيّر/i,["change_pct"]], [/كمية|الكمية|عدد|مراكز/i,["quantity"]], [/إغلاق|اغلاق|السعر|سعر|price|close/i,["price","close"]],
     ];
     return labels.find(([pattern]) => pattern.test(text))?.[1];
+}
+
+/** Bind backtest claims to the selected strategy as well as the stock. */
+function checkStrategyClaims(reply: string, evidence: AgenticEvidence[]): string[] {
+    const reasons: string[] = [];
+    const latest = new Map<string, any>();
+    for (const e of evidence.filter(e => e.availability !== "error")) for (const row of evidenceRows(e.data)) for (const m of row.strategy_metrics || []) latest.set(`${row.symbol}:${m.strategy_id}`, { ...m, symbol: row.symbol });
+    const rows = [...latest.values()];
+    const labels: Array<[RegExp, string]> = [[/هبوط|drawdown/i, "maxDrawdownPct"], [/فوز|نجاح|win.?rate|صفقات.*رابح|رابح/i, "winRatePct"], [/معامل.*ربح|profit.?factor/i, "profitFactor"], [/(?:عدد|إجمالي|مجموع)?\s*صفقات(?!.*رابح)|trades/i, "closedTrades"], [/قيمة.*نهاي|رأس.*مال.*نهاي|equity/i, "finalEquity"], [/عائد|return/i, "totalReturnPct"]];
+    let headers: string[] = [], owner: any = null, stockOwner: string | null = null;
+    for (const line of reply.split("\n")) {
+        const stockNames = [...new Set(rows.map(r => r.symbol))].filter(s => line.includes(s));
+        if (stockNames.length === 1) stockOwner = stockNames[0];
+        const selected = rows.filter((r: any) => (!stockOwner || r.symbol === stockOwner) && (line.includes(r.strategy_id) || line.includes(r.strategy_name)));
+        if (selected.length === 1) owner = selected[0];
+        if (line.trim().startsWith("|")) {
+            if (/^\|[\s\-:|]+\|$/.test(line.trim())) continue;
+            const cells = line.split("|").slice(1, -1);
+            if (!selected.length && cells.some(c => /استراتيجية|strategy/i.test(c))) { headers = cells; continue; }
+            if (selected.length !== 1) continue;
+            cells.forEach((cell, i) => {
+                const key = labels.find(([pattern]) => pattern.test(headers[i] || ""))?.[1];
+                if (!key) return;
+                const n = Number(cleanCellText(cell).replace(/[%٪]/g, "").trim());
+                if (!Number.isFinite(n) || !/\d/.test(cell)) return;
+                const expected = selected[0][key];
+                if (typeof expected !== "number" || Math.abs(n - expected) > Math.max(0.02, Math.abs(expected) * 0.005)) reasons.push(`strategy_metric_mismatch:${selected[0].symbol}:${selected[0].strategy_id}:${key}`);
+            });
+        } else if (owner && selected.length <= 1) {
+            for (const match of line.matchAll(/[-+]?\d+(?:\.\d+)?\s*(?:%|٪|جنيه)/g)) {
+                const prefix = line.slice(0, match.index);
+                const candidates = labels.flatMap(([pattern, key]) => { const found = [...prefix.matchAll(new RegExp(pattern.source, pattern.flags + "g"))].at(-1); return found ? [{ key, index: found.index! }] : []; }).sort((a, b) => b.index - a.index);
+                if (!candidates.length) continue;
+                const key = candidates[0].key, n = Number(match[0].replace(/[%٪\s]|جنيه/g, "")), expected = owner[key];
+                if (typeof expected !== "number" || Math.abs(n - expected) > Math.max(0.02, Math.abs(expected) * 0.005)) reasons.push(`strategy_metric_mismatch:${owner.symbol}:${owner.strategy_id}:${key}`);
+            }
+        }
+    }
+    return reasons;
 }
 
 /** This validates output evidence/protocol only. It never routes user intent. */
@@ -152,6 +208,7 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
     if (!/[\p{L}]{2}/u.test(substantive)) reasons.push("response_has_no_substantive_answer");
     if (/DSML|<\/?tool_call|<\/?function_call/i.test(reply)) reasons.push("internal_tool_protocol_in_response");
     const facts = agenticFacts(evidence);
+    reasons.push(...checkStrategyClaims(reply, evidence));
     reasons.push(...checkAttribution(reply, facts));
     // Compare claimed above/below relations to the actual quote, not merely whether both numbers exist.
     let owner: string | null = null;
@@ -297,7 +354,17 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
             if (idx === rankColIdx || cells[idx].includes(symbol)) continue;
             const fields = tableMetricFields(headers[idx]) || (currentSymbol ? tableMetricFields(cells[0]) : undefined);
             const relevant = symbol === "PORTFOLIO" ? portfolioFacts : facts.filter(f => f.symbol === symbol);
-            const targetFacts = fields ? relevant.filter(f => fields.includes(f.field)) : relevant;
+            const strategyRows = evidence.flatMap(e => evidenceRows(e.data));
+            const knownStrategies = [
+                ...strategyRows.flatMap(r => r.strategy_metrics || []),
+                ...strategyRows.filter(r => r.analysis?.strategyId).map(r => ({
+                    strategy_id: r.analysis.strategyId,
+                    strategy_name: r.analysis.strategyId
+                }))
+            ];
+            const namedStrategy = knownStrategies.find(m => line.includes(m.strategy_id) || (m.strategy_name && line.includes(m.strategy_name)));
+            const strategyRelevant = namedStrategy ? relevant.filter(f => (!f.field.startsWith("backtest_") && !f.field.startsWith("chart_")) || f.id.includes(`:${namedStrategy.strategy_id}:`)) : relevant;
+            const targetFacts = fields ? strategyRelevant.filter(f => fields.includes(f.field)) : strategyRelevant;
             const clean = cleanCellText(cells[idx]);
             for (const match of clean.matchAll(/[-+]?\d+(?:\.\d+)?/g)) {
                 const n = Number(match[0]);

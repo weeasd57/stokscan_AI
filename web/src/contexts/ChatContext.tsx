@@ -123,6 +123,30 @@ function cleanChatText(text: string): string {
 
 export function ChatProvider({ children }: { children: ReactNode }) {
     const { user } = useAuth();
+    const chartContextRef = useRef<unknown>(undefined);
+    const chartGenerationRef = useRef(0);
+    const chartOwnerRef = useRef(user?.id);
+    if (chartOwnerRef.current !== user?.id) {
+        chartOwnerRef.current = user?.id;
+        chartContextRef.current = undefined;
+        chartGenerationRef.current++;
+    }
+    useEffect(() => {
+        const receiveContext = (event: Event) => {
+            const next = (event as CustomEvent).detail || undefined;
+            if (JSON.stringify(next) !== JSON.stringify(chartContextRef.current)) chartGenerationRef.current++;
+            chartContextRef.current = next;
+        };
+        window.addEventListener("strategy-lab-context", receiveContext);
+        return () => window.removeEventListener("strategy-lab-context", receiveContext);
+    }, []);
+
+    const publishChartActions = (actions: unknown, requestContext: unknown, requestOwner: string | undefined, generation: number) => {
+        if (!Array.isArray(actions) || !requestContext || generation !== chartGenerationRef.current || requestOwner !== chartOwnerRef.current || JSON.stringify(requestContext) !== JSON.stringify(chartContextRef.current)) return;
+        for (const action of actions.slice(0, 10)) {
+            window.dispatchEvent(new CustomEvent("strategy-lab-result", { detail: action }));
+        }
+    };
 
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -503,6 +527,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             }
             abortControllerRef.current = new AbortController();
 
+            const requestChartContext = chartContextRef.current;
+            const requestChartOwner = chartOwnerRef.current;
+            const requestChartGeneration = chartGenerationRef.current;
             const response = await fetch("/api/ai-chat", {
                 method: "POST",
                 headers: {
@@ -520,6 +547,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                     session_id: currentSessionId,
                     client_message_id: `${currentSessionId}:${newUserMsg.timestamp}`,
                     stream: true,
+                    chart_context: requestChartContext,
                 })
             });
 
@@ -578,6 +606,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             // Fallback for non-streaming JSON responses
             if (contentType.includes("application/json") || !response.body) {
                 const data = await response.json();
+                publishChartActions(data.chart_actions, requestChartContext, requestChartOwner, requestChartGeneration);
                 if (data.remaining_quota !== undefined) {
                     setRemainingQuota(data.remaining_quota);
                 }
@@ -665,6 +694,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                                 }
                             } else if (currentEventName === "done" || parsed.type === "done" || parsed.event === "done") {
                                 receivedDone = true;
+                                publishChartActions(parsed.chart_actions, requestChartContext, requestChartOwner, requestChartGeneration);
                                 if (parsed.reply) {
                                     assistantMsg.content = stripMarkdownTables(sanitizeReply(parsed.reply));
                                 } else if (assistantMsg.content) {

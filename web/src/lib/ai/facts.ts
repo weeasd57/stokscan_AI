@@ -9,6 +9,8 @@
  */
 
 export type FactField =
+    | "chart_signal_count" | "chart_buy_signal_count" | "chart_sell_signal_count"
+    | "backtest_return_pct" | "backtest_drawdown_pct" | "backtest_win_rate_pct" | "backtest_profit_factor" | "backtest_closed_trades" | "backtest_final_equity"
     | "price"
     | "change_pct"
     | "rsi"
@@ -66,6 +68,9 @@ export interface FactRecord {
 }
 
 const FIELD_UNITS: Record<FactField, FactUnit> = {
+    chart_signal_count: "count", chart_buy_signal_count: "count", chart_sell_signal_count: "count",
+    backtest_return_pct: "percent", backtest_drawdown_pct: "percent", backtest_win_rate_pct: "percent",
+    backtest_profit_factor: "ratio", backtest_closed_trades: "count", backtest_final_equity: "egp",
     price: "egp",
     close: "egp",
     change_pct: "percent",

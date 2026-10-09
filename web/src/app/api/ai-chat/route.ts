@@ -10,6 +10,7 @@ import { AI_CONFIG } from "@/lib/ai/config";
 import { logAiInteraction } from "@/lib/ai/logger";
 
 import { extractExplicitSymbols, runPipeline, runPipelineStream } from "@/lib/ai/pipeline";
+import { sanitizeChartContext } from "@/lib/ai/chart-strategy-tools";
 import { detectPortfolioIntent, normalizeArabicIntent } from "@/lib/ai/intent-policy";
 import { analyzeImage } from "@/lib/ai/vision";
 import { retrieveRelevantMemory } from "@/lib/ai/memory";
@@ -432,6 +433,7 @@ export async function POST(req: NextRequest) {
             }
         }
         const body = await req.json();
+        const chartContext = sanitizeChartContext(body.chart_context);
         const rawMessage = typeof body.message === "string" ? body.message : "";
         const message = sanitizeUserMessage(rawMessage);
         const { history, image, images, model: userRequestedModel, session_id: inputSessionId, stream } = body;
@@ -657,7 +659,7 @@ export async function POST(req: NextRequest) {
                             activeSessionId,
                             messageId,
                             userRequestedModel,
-                            { isPro: userIsPro }
+                            { isPro: userIsPro, chartContext }
                         );
 
                         // Keep only a bounded rolling window for safety checks.
@@ -824,6 +826,7 @@ export async function POST(req: NextRequest) {
                                         suggested_buttons: suggestedButtons,
                                         session_state: sessionUpdate,
                                         tables: event.data.tables || [],
+                                        chart_actions: event.data.chart_actions || [],
                                         latency_ms: streamingTotalLatencyMs
                                     });
 
@@ -929,7 +932,7 @@ export async function POST(req: NextRequest) {
             activeSessionId,
             messageId,
             userRequestedModel,
-            { isPro: userIsPro }
+            { isPro: userIsPro, chartContext }
         );
 
         const replyText = filterOutput(pipelineResult.response);
@@ -1004,6 +1007,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
             reply: replyText,
             tables: pipelineResult.tables,
+            chart_actions: pipelineResult.chart_actions || [],
             session_id: activeSessionId,
             remaining_quota: calcRemainingQuota(),
             suggested_buttons: suggestedButtons,

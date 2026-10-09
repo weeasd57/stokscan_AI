@@ -1,4 +1,5 @@
 import { executionSupabase } from "./execution";
+import { executeChartStrategyTool, type ChartHistoryCache } from "./chart-strategy-tools";
 
 const normalizeSymbol = (value: unknown) => String(value).trim().toUpperCase().replace(/\.CA$/i, "");
 const finite = (value: unknown): number | null => value == null || value === "" || !Number.isFinite(Number(value)) ? null : Number(value);
@@ -34,15 +35,17 @@ export function cairoWeekBounds(now = new Date()) {
     return { thisWeekStartIso:utcMidnight(local), lastWeekStartIso:utcMidnight(previous) };
 }
 
-export async function executeAgenticTool(toolName:string,args:Record<string,any>,supabase:any,userId:string):Promise<any> {
+export async function executeAgenticTool(toolName:string,args:Record<string,any>,supabase:any,userId:string,chartHistoryCache?:ChartHistoryCache):Promise<any> {
     try {
         const enums:Record<string,string[]> = { operation:["view","add","buy","purchase","update","remove","delete","sell"], preset:["momentum_and_volume","top_gainers","top_losers","rsi_oversold","macd_cross","smart_money_flow"], status:["open","closed","all"], timeframe:["this_week","last_week","all"] };
         if (args?.symbol != null && (typeof args.symbol !== "string" || !/^[A-Za-z0-9.]{2,12}$/.test(args.symbol.trim()))) throw new Error("رمز السهم غير صالح");
         if (!args || Array.isArray(args) || typeof args !== "object") throw new Error("مدخلات الأداة يجب أن تكون كائناً");
-        for (const [key,values] of Object.entries(enums)) if (args[key] != null && !values.includes(String(args[key]).toLowerCase())) throw new Error("قيمة مدخل الأداة غير مدعومة: "+key);
+        const chartTool = ["list_chart_strategies", "apply_chart_strategy", "compare_strategies_history"].includes(toolName);
+        for (const [key,values] of Object.entries(enums)) if (!(chartTool && key === "timeframe") && args[key] != null && !values.includes(String(args[key]).toLowerCase())) throw new Error("قيمة مدخل الأداة غير مدعومة: "+key);
         if (args.symbols != null && (!Array.isArray(args.symbols) || args.symbols.length > 10 || args.symbols.some((s:any)=>typeof s !== "string" || !/^[A-Za-z0-9.]{2,12}$/.test(s.trim())))) throw new Error("الحد الأقصى 10 رموز موثقة لكل أداة");
         if (["get_stock","get_stock_levels","get_comparison"].includes(toolName) && !args.symbols?.length) throw new Error("رموز الأسهم مطلوبة");
         const normalized = {...args, ...(args.symbols ? {symbols:Array.from(new Set(args.symbols.map(normalizeSymbol)))} : {})};
+        if (chartTool) return await executeChartStrategyTool(toolName, normalized, checkedClient(executionSupabase(supabase)), chartHistoryCache);
         return await executeRawTool(toolName,normalized,checkedClient(executionSupabase(supabase)),userId);
     } catch (error:any) { return {status:"error", availability:"error", persisted:false, message:error.message}; }
 }

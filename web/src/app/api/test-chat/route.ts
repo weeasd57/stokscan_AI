@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 import { runPipeline, runPipelineStream } from "@/lib/ai/pipeline";
 import { getDeepSeekApiKey, getNvidiaApiKeys } from "@/lib/ai/server-secrets";
+import { sanitizeChartContext } from "@/lib/ai/chart-strategy-tools";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,6 +91,7 @@ export async function POST(req: NextRequest) {
             });
         }
 
+        const chartContext = sanitizeChartContext(body.chart_context);
         const result = await runPipeline(
             message,
             images,
@@ -102,12 +104,14 @@ export async function POST(req: NextRequest) {
             "",
             `test-${Date.now()}`,
             undefined,
-            { isPro: body.is_pro ?? false }
+            { isPro: body.is_pro ?? false, chartContext }
         );
 
         return NextResponse.json({
             message,
             latency_ms: Date.now() - t0,
+            chart_actions: result.chart_actions || [],
+            publication_review: result.publication_review,
             plan: {
                 intent: result.plan.intent,
                 tools: result.plan.tools,

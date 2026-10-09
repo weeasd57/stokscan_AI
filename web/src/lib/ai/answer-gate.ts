@@ -79,17 +79,21 @@ export function checkAttribution(reply: string, facts: FactRecord[]): string[] {
     }
     if (bySymbol.size === 0) return reasons;
 
-    const percentFields = new Set(["change_pct", "profit_pct", "premium_pct"]);
+    const percentFields = new Set(["change_pct", "profit_pct", "premium_pct", "backtest_return_pct", "backtest_drawdown_pct", "backtest_win_rate_pct"]);
     const currencyFields = new Set([
+        "backtest_final_equity",
         "price", "close", "support", "resistance", "sma_50", "sma_200", "ema_50", "ema_200", "target_price", "stop_loss", "exit_price",
         "bb_upper", "bb_lower", "highest_price", "market_value", "cost_basis", "profit_value", "entry_price",
     ]);
     const metricFields = (prefix: string, percentage: boolean): Set<string> | null => {
         const labels: Array<[RegExp, string[]]> = percentage ? [
-            [/ربح|خسار|عائد|مكسب/i, ["profit_pct"]],
+            [/هبوط|drawdown/i, ["backtest_drawdown_pct"]],
+            [/فوز|نجاح|win.?rate/i, ["backtest_win_rate_pct"]],
+            [/ربح|خسار|عائد|مكسب/i, ["profit_pct", "backtest_return_pct"]],
             [/ارتفع|صعد|هبط|انخفض|نزل|تغير|تراجع/i, ["change_pct"]],
             [/علاوه|علاوة/i, ["premium_pct"]],
         ] : [
+            [/قيمة.*نهاي|رأس.*مال.*نهاي|equity/i, ["backtest_final_equity"]],
             [/(?:متوسط|سعر)\s*الشراء|(?:(?:متوسط|سعر)\s*)?الدخول(?:\s*(?:الإشارة|الاشارة|التوصية|التوصيه))?|\bدخول\b/i, ["entry_price"]],
             [/هدف|مستهدف|المستهدف|الهدف/i, ["target_price"]],
             [/وقف|الوقف|وقف\s*(?:الخسارة|الخساره)/i, ["stop_loss"]],

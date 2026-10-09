@@ -2,13 +2,32 @@
 
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import TradingViewChart from "@/components/TradingViewChartDynamic";
-import { getRecommendationChartHistory, RecommendationChartRecord, getStockFundamentals, searchSymbols } from "@/lib/api";
-import { 
-  Loader2, MousePointer, TrendingUp, Minus, Type, CalendarDays, BrainCircuit,
-  Trash2, Compass, Landmark, Activity,
-  ChevronRight, ChevronLeft, Search, Star,
-  ExternalLink, ArrowRightLeft, Plus
+import StrategyWorkspace from "@/components/strategy-lab/StrategyWorkspace";
+import {
+  getRecommendationChartHistory,
+  RecommendationChartRecord,
+  getStockFundamentals,
+  searchSymbols,
+} from "@/lib/api";
+import {
+  Loader2,
+  MousePointer,
+  TrendingUp,
+  Minus,
+  Type,
+  CalendarDays,
+  BrainCircuit,
+  Trash2,
+  Compass,
+  Landmark,
+  Activity,
+  ChevronRight,
+  ChevronLeft,
+  Search,
+  Star,
+  ExternalLink,
+  ArrowRightLeft,
+  Plus,
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -26,11 +45,14 @@ function ChartContent() {
   const exchange = searchParams.get("exchange") || "EGX";
 
   const { user } = useAuth();
-  const { watchlist, saveSymbol, removeSymbol, removeSymbolBySymbol, isSaved } = useWatchlist();
+  const { watchlist, saveSymbol, removeSymbol, removeSymbolBySymbol, isSaved } =
+    useWatchlist();
 
   const handleWatchlistToggle = () => {
     if (!user) {
-      router.push(`/login?redirect=/chart?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`);
+      router.push(
+        `/login?redirect=/chart?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`,
+      );
       return;
     }
 
@@ -55,16 +77,23 @@ function ChartContent() {
   const [activeTool, setActiveTool] = useState<string>("cursor");
   const [fundamentals, setFundamentals] = useState<any>(null);
   const [loadingFunds, setLoadingFunds] = useState<boolean>(false);
-  const [recommendations, setRecommendations] = useState<RecommendationChartRecord[]>([]);
+  const [recommendations, setRecommendations] = useState<
+    RecommendationChartRecord[]
+  >([]);
   const [loadingRecommendations, setLoadingRecommendations] = useState(true);
   const [recommendationsError, setRecommendationsError] = useState(false);
-  const [selectedRecommendationId, setSelectedRecommendationId] = useState<string | null>(null);
+  const [selectedRecommendationId, setSelectedRecommendationId] = useState<
+    string | null
+  >(null);
   const [focusTimestamp, setFocusTimestamp] = useState<number | undefined>();
   const [focusRequestId, setFocusRequestId] = useState(0);
   const [rightSidebarOpen, setRightSidebarOpen] = useState<boolean>(true);
   const [rightSidebarWidth, setRightSidebarWidth] = useState<number>(320);
-  const [isResizingRightSidebar, setIsResizingRightSidebar] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<"watchlist" | "details">("details");
+  const [isResizingRightSidebar, setIsResizingRightSidebar] =
+    useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<"watchlist" | "details">(
+    "details",
+  );
 
   useEffect(() => {
     // Disable body scroll when workspace is active
@@ -78,7 +107,10 @@ function ChartContent() {
     if (!isResizingRightSidebar) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      const newWidth = Math.max(240, Math.min(480, window.innerWidth - e.clientX));
+      const newWidth = Math.max(
+        240,
+        Math.min(480, window.innerWidth - e.clientX),
+      );
       setRightSidebarWidth(newWidth);
     };
 
@@ -109,7 +141,11 @@ function ChartContent() {
   useEffect(() => {
     if (!symbol) return;
     setLoadingFunds(true);
-    const fullTicker = symbol.includes('.') ? symbol : (exchange ? `${symbol}.${exchange}` : symbol);
+    const fullTicker = symbol.includes(".")
+      ? symbol
+      : exchange
+        ? `${symbol}.${exchange}`
+        : symbol;
     getStockFundamentals(fullTicker)
       .then((data) => {
         setFundamentals(data);
@@ -131,17 +167,30 @@ function ChartContent() {
     setFocusTimestamp(undefined);
     getRecommendationChartHistory(symbol, exchange, controller.signal)
       .then((data) => setRecommendations(data.recommendations))
-      .catch(() => { if (!controller.signal.aborted) setRecommendationsError(true); })
-      .finally(() => { if (!controller.signal.aborted) setLoadingRecommendations(false); });
+      .catch(() => {
+        if (!controller.signal.aborted) setRecommendationsError(true);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingRecommendations(false);
+      });
     return () => controller.abort();
   }, [symbol, exchange, user]);
 
-  const closedRecommendations = recommendations.filter((row) => ["win", "loss"].includes(String(row.status).toLowerCase()));
-  const wins = closedRecommendations.filter((row) => String(row.status).toLowerCase() === "win").length;
+  const closedRecommendations = recommendations.filter((row) =>
+    ["win", "loss"].includes(String(row.status).toLowerCase()),
+  );
+  const wins = closedRecommendations.filter(
+    (row) => String(row.status).toLowerCase() === "win",
+  ).length;
   const averageReturn = closedRecommendations.length
-    ? closedRecommendations.reduce((sum, row) => sum + Number(row.profit_loss_pct || 0), 0) / closedRecommendations.length
+    ? closedRecommendations.reduce(
+        (sum, row) => sum + Number(row.profit_loss_pct || 0),
+        0,
+      ) / closedRecommendations.length
     : null;
-  const selectedRecommendation = recommendations.find((row) => row.id === selectedRecommendationId);
+  const selectedRecommendation = recommendations.find(
+    (row) => row.id === selectedRecommendationId,
+  );
   const jumpToDate = (date: string | null | undefined) => {
     if (!date) return;
     const timestamp = Date.parse(date);
@@ -160,7 +209,14 @@ function ChartContent() {
     const delayDebounce = setTimeout(async () => {
       setSearching(true);
       try {
-        const results = await searchSymbols(searchQuery, "Egypt", 50, undefined, undefined, "EGX");
+        const results = await searchSymbols(
+          searchQuery,
+          "Egypt",
+          50,
+          undefined,
+          undefined,
+          "EGX",
+        );
         setSearchResults(results);
       } catch (err) {
         console.error("Error searching symbols:", err);
@@ -173,7 +229,9 @@ function ChartContent() {
   }, [searchQuery]);
 
   const selectSymbol = (sym: string, ex: string) => {
-    router.push(`/chart?symbol=${encodeURIComponent(sym)}&exchange=${encodeURIComponent(ex)}`);
+    router.push(
+      `/chart?symbol=${encodeURIComponent(sym)}&exchange=${encodeURIComponent(ex)}`,
+    );
   };
 
   const handleToolClick = (tool: string) => {
@@ -194,11 +252,13 @@ function ChartContent() {
   return (
     <div className="fixed inset-x-0 bottom-0 page-below-header z-40 bg-zinc-50 text-zinc-900 dark:bg-[#050816] dark:text-[#d1d4dc] flex overflow-hidden select-none font-sans">
       {/* 1. LEFT TOOLBAR (Drawing tools) */}
-      <aside className="w-12 border-r border-zinc-200 bg-white/85 dark:border-[#2a2e39] dark:bg-[#1c2030]/20 flex flex-col items-center py-4 gap-4 shrink-0 z-10 select-none shadow-[4px_0_0_rgba(0,0,0,0.04)] dark:shadow-none">
+      <aside className="hidden md:flex w-12 border-r border-zinc-200 bg-white/85 dark:border-[#2a2e39] dark:bg-[#1c2030]/20 flex flex-col items-center py-4 gap-4 shrink-0 z-10 select-none shadow-[4px_0_0_rgba(0,0,0,0.04)] dark:shadow-none">
         <button
           onClick={() => handleToolClick("cursor")}
           className={`p-2 rounded-xl transition-all duration-200 group relative ${
-            activeTool === "cursor" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
+            activeTool === "cursor"
+              ? "bg-indigo-600 text-white"
+              : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
           }`}
           title="Crosshair / Pointer"
         >
@@ -211,7 +271,9 @@ function ChartContent() {
         <button
           onClick={() => handleToolClick("trend")}
           className={`p-2 rounded-xl transition-all duration-200 group relative ${
-            activeTool === "trend" ? "bg-emerald-600 text-white" : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
+            activeTool === "trend"
+              ? "bg-emerald-600 text-white"
+              : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
           }`}
           title="Trend Line"
         >
@@ -224,7 +286,9 @@ function ChartContent() {
         <button
           onClick={() => handleToolClick("horizontal")}
           className={`p-2 rounded-xl transition-all duration-200 group relative ${
-            activeTool === "horizontal" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
+            activeTool === "horizontal"
+              ? "bg-indigo-600 text-white"
+              : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
           }`}
           title="Horizontal Support/Resistance Line"
         >
@@ -237,7 +301,9 @@ function ChartContent() {
         <button
           onClick={() => handleToolClick("text")}
           className={`p-2 rounded-xl transition-all duration-200 group relative ${
-            activeTool === "text" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
+            activeTool === "text"
+              ? "bg-indigo-600 text-white"
+              : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
           }`}
           title="Text Label"
         >
@@ -250,12 +316,19 @@ function ChartContent() {
         <button
           onClick={() => handleToolClick("rectangle")}
           className={`p-2 rounded-xl transition-all duration-200 group relative ${
-            activeTool === "rectangle" ? "bg-sky-600 text-white" : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
+            activeTool === "rectangle"
+              ? "bg-sky-600 text-white"
+              : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
           }`}
           title="Rectangle Zone"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <rect x="4" y="6" width="16" height="12" strokeWidth="2"/>
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <rect x="4" y="6" width="16" height="12" strokeWidth="2" />
           </svg>
           <span className="absolute left-14 top-1/2 -translate-y-1/2 bg-white text-[10px] font-bold text-zinc-900 px-2 py-1 rounded border border-zinc-200 shadow-xl dark:bg-zinc-950 dark:text-white dark:border-white/5 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none uppercase tracking-wider">
             Rectangle Zone
@@ -265,7 +338,9 @@ function ChartContent() {
         <button
           onClick={() => handleToolClick("fib")}
           className={`p-2 rounded-xl transition-all duration-200 group relative ${
-            activeTool === "fib" ? "bg-amber-600 text-white" : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
+            activeTool === "fib"
+              ? "bg-amber-600 text-white"
+              : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
           }`}
           title="Fibonacci Retracement"
         >
@@ -278,7 +353,9 @@ function ChartContent() {
         <button
           onClick={() => handleToolClick("ray")}
           className={`p-2 rounded-xl transition-all duration-200 group relative ${
-            activeTool === "ray" ? "bg-orange-600 text-white" : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
+            activeTool === "ray"
+              ? "bg-orange-600 text-white"
+              : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
           }`}
           title="Ray"
         >
@@ -291,7 +368,9 @@ function ChartContent() {
         <button
           onClick={() => handleToolClick("extendedLine")}
           className={`p-2 rounded-xl transition-all duration-200 group relative ${
-            activeTool === "extendedLine" ? "bg-fuchsia-600 text-white" : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
+            activeTool === "extendedLine"
+              ? "bg-fuchsia-600 text-white"
+              : "text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:text-[#787b86] dark:hover:text-white dark:hover:bg-zinc-800"
           }`}
           title="Extended Line"
         >
@@ -309,7 +388,7 @@ function ChartContent() {
           title="Clear all drawings"
         >
           <Trash2 className="w-4 h-4" />
-            <span className="absolute left-14 top-1/2 -translate-y-1/2 bg-white text-[10px] font-bold text-zinc-900 px-2 py-1 rounded border border-zinc-200 shadow-xl dark:bg-zinc-950 dark:text-white dark:border-white/5 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none uppercase tracking-wider">
+          <span className="absolute left-14 top-1/2 -translate-y-1/2 bg-white text-[10px] font-bold text-zinc-900 px-2 py-1 rounded border border-zinc-200 shadow-xl dark:bg-zinc-950 dark:text-white dark:border-white/5 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none uppercase tracking-wider">
             Clear Drawings
           </span>
         </button>
@@ -318,9 +397,9 @@ function ChartContent() {
       {/* 2. MAIN CENTER WORKSPACE */}
       <main className="flex-1 min-w-0 h-full bg-zinc-50 dark:bg-[#050816] flex flex-col relative">
         <div className="flex-1 min-h-0 w-full relative">
-          <TradingViewChart 
-            symbol={symbol} 
-            exchange={exchange} 
+          <StrategyWorkspace
+            symbol={symbol}
+            exchange={exchange}
             theme={theme}
             activeTool={activeTool}
             focusTimestamp={focusTimestamp}
@@ -334,15 +413,19 @@ function ChartContent() {
       <button
         onClick={() => setRightSidebarOpen(!rightSidebarOpen)}
         style={{ right: rightSidebarOpen ? rightSidebarWidth - 1 : 0 }}
-        className="absolute top-1/2 z-30 -translate-y-1/2 w-5 h-12 rounded-l-xl bg-white border-l border-y border-zinc-200 hover:bg-zinc-100 flex items-center justify-center text-zinc-500 hover:text-zinc-950 transition-all shadow-xl dark:bg-[#0c0d12] dark:border-[#2a2e39] dark:hover:bg-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+        className="hidden lg:flex absolute top-1/2 z-30 -translate-y-1/2 w-5 h-12 rounded-l-xl bg-white border-l border-y border-zinc-200 hover:bg-zinc-100 flex items-center justify-center text-zinc-500 hover:text-zinc-950 transition-all shadow-xl dark:bg-[#0c0d12] dark:border-[#2a2e39] dark:hover:bg-zinc-900 dark:text-zinc-400 dark:hover:text-white"
       >
-        {rightSidebarOpen ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+        {rightSidebarOpen ? (
+          <ChevronRight className="w-3.5 h-3.5" />
+        ) : (
+          <ChevronLeft className="w-3.5 h-3.5" />
+        )}
       </button>
 
       {rightSidebarOpen && (
-        <aside 
-          style={{ width: rightSidebarWidth }} 
-          className="border-l border-zinc-200 bg-white/85 backdrop-blur-2xl flex flex-col shrink-0 z-20 h-full relative shadow-[-8px_0_24px_rgba(15,23,42,0.08)] dark:border-[#2a2e39] dark:bg-[#0c0d12]/60 dark:shadow-none"
+        <aside
+          style={{ width: rightSidebarWidth }}
+          className="hidden lg:flex border-l border-zinc-200 bg-white/85 backdrop-blur-2xl flex-col shrink-0 z-20 h-full relative shadow-[-8px_0_24px_rgba(15,23,42,0.08)] dark:border-[#2a2e39] dark:bg-[#0c0d12]/60 dark:shadow-none"
         >
           {/* Resize Handle */}
           <div
@@ -354,7 +437,9 @@ function ChartContent() {
             <button
               onClick={() => setActiveTab("details")}
               className={`flex-1 text-[10px] font-black uppercase tracking-wider transition-all border-b-2 flex items-center justify-center gap-1.5 ${
-                activeTab === "details" ? "border-indigo-500 text-zinc-950 bg-indigo-50 dark:text-white dark:bg-zinc-900/40" : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"
+                activeTab === "details"
+                  ? "border-indigo-500 text-zinc-950 bg-indigo-50 dark:text-white dark:bg-zinc-900/40"
+                  : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"
               }`}
             >
               <Activity className="w-3.5 h-3.5" />
@@ -363,7 +448,9 @@ function ChartContent() {
             <button
               onClick={() => setActiveTab("watchlist")}
               className={`flex-1 text-[10px] font-black uppercase tracking-wider transition-all border-b-2 flex items-center justify-center gap-1.5 ${
-                activeTab === "watchlist" ? "border-indigo-500 text-zinc-950 bg-indigo-50 dark:text-white dark:bg-zinc-900/40" : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"
+                activeTab === "watchlist"
+                  ? "border-indigo-500 text-zinc-950 bg-indigo-50 dark:text-white dark:bg-zinc-900/40"
+                  : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"
               }`}
             >
               <Landmark className="w-3.5 h-3.5" />
@@ -383,9 +470,13 @@ function ChartContent() {
                       <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20">
                         {exchange}
                       </span>
-                      <h3 className="text-xl font-black text-zinc-950 dark:text-white uppercase tracking-tight mt-2">{symbol}</h3>
+                      <h3 className="text-xl font-black text-zinc-950 dark:text-white uppercase tracking-tight mt-2">
+                        {symbol}
+                      </h3>
                       <p className="text-xs text-zinc-400 font-semibold leading-relaxed mt-1">
-                        {loadingFunds ? "Loading Profile..." : (fundamentals?.name || symbol)}
+                        {loadingFunds
+                          ? "Loading Profile..."
+                          : fundamentals?.name || symbol}
                       </p>
                     </div>
 
@@ -396,9 +487,15 @@ function ChartContent() {
                           ? "bg-indigo-600/15 border-indigo-500/30 text-indigo-400 hover:bg-indigo-600/25"
                           : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:bg-zinc-900/40 dark:border-white/5 dark:hover:text-white dark:hover:bg-zinc-800"
                       }`}
-                      title={isSaved(symbol) ? "Remove from Watchlist" : "Add to Watchlist"}
+                      title={
+                        isSaved(symbol)
+                          ? "Remove from Watchlist"
+                          : "Add to Watchlist"
+                      }
                     >
-                      <Star className={`w-4 h-4 ${isSaved(symbol) ? "fill-indigo-400 text-indigo-400" : ""}`} />
+                      <Star
+                        className={`w-4 h-4 ${isSaved(symbol) ? "fill-indigo-400 text-indigo-400" : ""}`}
+                      />
                     </button>
                   </div>
                 </div>
@@ -406,8 +503,12 @@ function ChartContent() {
                 <div className="rounded-2xl border border-cyan-200/70 bg-gradient-to-br from-cyan-50 to-white p-4 dark:border-cyan-400/15 dark:from-cyan-950/25 dark:to-zinc-950/40">
                   <div className="flex items-center gap-2 text-xs font-bold text-cyan-800 dark:text-cyan-200">
                     <CalendarDays className="h-4 w-4 shrink-0" />
-                    <span>{isAr ? "تحديث بيانات التحليل" : "Analysis data updates"}</span>
-                    <span className="ms-auto rounded-full bg-cyan-600/10 px-2 py-1 text-[10px]">{isAr ? "يوميًا" : "Daily"}</span>
+                    <span>
+                      {isAr ? "تحديث بيانات التحليل" : "Analysis data updates"}
+                    </span>
+                    <span className="ms-auto rounded-full bg-cyan-600/10 px-2 py-1 text-[10px]">
+                      {isAr ? "يوميًا" : "Daily"}
+                    </span>
                   </div>
                   <p className="mt-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400">
                     {isAr
@@ -416,50 +517,184 @@ function ChartContent() {
                   </p>
                   <div className="mt-3 flex items-start gap-2 border-t border-cyan-200/70 pt-3 text-[11px] leading-relaxed text-zinc-600 dark:border-cyan-400/10 dark:text-zinc-400">
                     <BrainCircuit className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500" />
-                    <span>{isAr
-                      ? "قراءة السهم تجمع مؤشرات فنية وسياق السوق؛ والتوصيات السابقة موضحة على الرسم بحسب تاريخها. الأداء السابق لا يضمن النتائج المقبلة."
-                      : "Stock analysis combines technical indicators with market context. Past recommendations appear on the chart by date; past performance does not guarantee future results."}</span>
+                    <span>
+                      {isAr
+                        ? "قراءة السهم تجمع مؤشرات فنية وسياق السوق؛ والتوصيات السابقة موضحة على الرسم بحسب تاريخها. الأداء السابق لا يضمن النتائج المقبلة."
+                        : "Stock analysis combines technical indicators with market context. Past recommendations appear on the chart by date; past performance does not guarantee future results."}
+                    </span>
                   </div>
                 </div>
 
                 <section className="p-4 rounded-2xl border border-indigo-200 bg-indigo-50/70 space-y-3 dark:border-indigo-500/15 dark:bg-indigo-500/[0.03]">
-                  <h4 className="text-sm font-black text-zinc-950 dark:text-white">{isAr ? "توصياتنا للسهم" : "Our recommendations for this stock"}</h4>
-                  {loadingRecommendations ? <div className="flex items-center gap-2 text-xs text-zinc-500"><Loader2 className="w-4 h-4 animate-spin" />{isAr ? "جاري تحميل التوصيات..." : "Loading recommendations..."}</div>
-                    : recommendationsError ? <p className="text-xs text-red-500">{isAr ? "تعذر تحميل سجل التوصيات." : "Could not load recommendation history."}</p>
-                    : recommendations.length === 0 ? <p className="text-xs text-zinc-500">{isAr ? "لا توجد توصيات متاحة لهذا السهم." : "No recommendations available for this stock."}</p>
-                    : <>
+                  <h4 className="text-sm font-black text-zinc-950 dark:text-white">
+                    {isAr
+                      ? "توصياتنا للسهم"
+                      : "Our recommendations for this stock"}
+                  </h4>
+                  {loadingRecommendations ? (
+                    <div className="flex items-center gap-2 text-xs text-zinc-500">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      {isAr
+                        ? "جاري تحميل التوصيات..."
+                        : "Loading recommendations..."}
+                    </div>
+                  ) : recommendationsError ? (
+                    <p className="text-xs text-red-500">
+                      {isAr
+                        ? "تعذر تحميل سجل التوصيات."
+                        : "Could not load recommendation history."}
+                    </p>
+                  ) : recommendations.length === 0 ? (
+                    <p className="text-xs text-zinc-500">
+                      {isAr
+                        ? "لا توجد توصيات متاحة لهذا السهم."
+                        : "No recommendations available for this stock."}
+                    </p>
+                  ) : (
+                    <>
                       <div className="grid grid-cols-2 gap-2 text-center">
-                        <div className="rounded-lg bg-white/70 p-2 dark:bg-zinc-900/40"><div className="text-lg font-black">{recommendations.length}</div><div className="text-[10px] text-zinc-500">{isAr ? "إجمالي التوصيات" : "Recommendations"}</div></div>
-                        <div className="rounded-lg bg-white/70 p-2 dark:bg-zinc-900/40"><div className="text-lg font-black">{closedRecommendations.length}</div><div className="text-[10px] text-zinc-500">{isAr ? "مغلقة" : "Closed"}</div></div>
-                        <div className="rounded-lg bg-white/70 p-2 dark:bg-zinc-900/40"><div className="text-lg font-black text-emerald-500">{closedRecommendations.length ? `${Math.round(wins / closedRecommendations.length * 100)}%` : "—"}</div><div className="text-[10px] text-zinc-500">{isAr ? "نسبة النجاح" : "Win rate"}</div></div>
-                        <div className="rounded-lg bg-white/70 p-2 dark:bg-zinc-900/40"><div className={`text-lg font-black ${averageReturn !== null && averageReturn >= 0 ? "text-emerald-500" : "text-red-500"}`}>{averageReturn === null ? "—" : `${averageReturn.toFixed(1)}%`}</div><div className="text-[10px] text-zinc-500">{isAr ? "متوسط العائد المغلق" : "Avg. closed return"}</div></div>
-                      </div>
-                      <p className="text-[10px] text-zinc-500">{isAr ? "الإحصاءات تخص التوصيات المتاحة لحسابك فقط." : "Statistics cover recommendations available to your account."}</p>
-                      <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
-                        {recommendations.map((row) => <div key={row.id} className="rounded-lg border border-zinc-200 bg-white/70 p-2 dark:border-white/10 dark:bg-zinc-900/40">
-                          <button className="w-full text-start flex items-center justify-between text-xs font-semibold" onClick={() => { setSelectedRecommendationId(row.id === selectedRecommendationId ? null : row.id); jumpToDate(row.created_at); }}>
-                            <span>{new Date(row.created_at).toLocaleDateString(isAr ? "ar-EG" : "en-US")}</span>
-                            <span className={String(row.status).toLowerCase() === "win" ? "text-emerald-500" : String(row.status).toLowerCase() === "loss" ? "text-red-500" : "text-amber-500"}>{String(row.status || "open").toUpperCase()}</span>
-                          </button>
-                          <div className="mt-2 flex gap-2">
-                            <button onClick={() => { setSelectedRecommendationId(row.id); jumpToDate(row.created_at); }} className="rounded bg-emerald-500/15 px-2 py-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">{isAr ? "اذهب للدخول" : "Go to entry"}</button>
-                            {row.exit_at && <button onClick={() => { setSelectedRecommendationId(row.id); jumpToDate(row.exit_at); }} className="rounded bg-red-500/15 px-2 py-1 text-[10px] font-bold text-red-600 dark:text-red-400">{isAr ? "اذهب للخروج" : "Go to exit"}</button>}
+                        <div className="rounded-lg bg-white/70 p-2 dark:bg-zinc-900/40">
+                          <div className="text-lg font-black">
+                            {recommendations.length}
                           </div>
-                        </div>)}
+                          <div className="text-[10px] text-zinc-500">
+                            {isAr ? "إجمالي التوصيات" : "Recommendations"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-white/70 p-2 dark:bg-zinc-900/40">
+                          <div className="text-lg font-black">
+                            {closedRecommendations.length}
+                          </div>
+                          <div className="text-[10px] text-zinc-500">
+                            {isAr ? "مغلقة" : "Closed"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-white/70 p-2 dark:bg-zinc-900/40">
+                          <div className="text-lg font-black text-emerald-500">
+                            {closedRecommendations.length
+                              ? `${Math.round((wins / closedRecommendations.length) * 100)}%`
+                              : "—"}
+                          </div>
+                          <div className="text-[10px] text-zinc-500">
+                            {isAr ? "نسبة النجاح" : "Win rate"}
+                          </div>
+                        </div>
+                        <div className="rounded-lg bg-white/70 p-2 dark:bg-zinc-900/40">
+                          <div
+                            className={`text-lg font-black ${averageReturn !== null && averageReturn >= 0 ? "text-emerald-500" : "text-red-500"}`}
+                          >
+                            {averageReturn === null
+                              ? "—"
+                              : `${averageReturn.toFixed(1)}%`}
+                          </div>
+                          <div className="text-[10px] text-zinc-500">
+                            {isAr
+                              ? "متوسط العائد المغلق"
+                              : "Avg. closed return"}
+                          </div>
+                        </div>
                       </div>
-                      {selectedRecommendation && <div className="rounded-lg border border-indigo-500/20 p-3 text-xs space-y-1">
-                        <div className="font-bold">{isAr ? "تفاصيل التوصية" : "Recommendation details"} · {selectedRecommendation.signal || "BUY"}</div>
-                        <div>{isAr ? "الدخول" : "Entry"}: {selectedRecommendation.entry_price ?? "—"} · {isAr ? "الخروج" : "Exit"}: {selectedRecommendation.exit_price ?? "—"}</div>
-                        <div>{isAr ? "الهدف" : "Target"}: {selectedRecommendation.target_price ?? "—"} · {isAr ? "وقف الخسارة" : "Stop"}: {selectedRecommendation.stop_loss ?? "—"}</div>
-                        <div>{isAr ? "العائد" : "Return"}: {selectedRecommendation.profit_loss_pct == null ? "—" : `${Number(selectedRecommendation.profit_loss_pct).toFixed(2)}%`}</div>
-                      </div>}
-                    </>}
+                      <p className="text-[10px] text-zinc-500">
+                        {isAr
+                          ? "الإحصاءات تخص التوصيات المتاحة لحسابك فقط."
+                          : "Statistics cover recommendations available to your account."}
+                      </p>
+                      <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+                        {recommendations.map((row) => (
+                          <div
+                            key={row.id}
+                            className="rounded-lg border border-zinc-200 bg-white/70 p-2 dark:border-white/10 dark:bg-zinc-900/40"
+                          >
+                            <button
+                              className="w-full text-start flex items-center justify-between text-xs font-semibold"
+                              onClick={() => {
+                                setSelectedRecommendationId(
+                                  row.id === selectedRecommendationId
+                                    ? null
+                                    : row.id,
+                                );
+                                jumpToDate(row.created_at);
+                              }}
+                            >
+                              <span>
+                                {new Date(row.created_at).toLocaleDateString(
+                                  isAr ? "ar-EG" : "en-US",
+                                )}
+                              </span>
+                              <span
+                                className={
+                                  String(row.status).toLowerCase() === "win"
+                                    ? "text-emerald-500"
+                                    : String(row.status).toLowerCase() ===
+                                        "loss"
+                                      ? "text-red-500"
+                                      : "text-amber-500"
+                                }
+                              >
+                                {String(row.status || "open").toUpperCase()}
+                              </span>
+                            </button>
+                            <div className="mt-2 flex gap-2">
+                              <button
+                                onClick={() => {
+                                  setSelectedRecommendationId(row.id);
+                                  jumpToDate(row.created_at);
+                                }}
+                                className="rounded bg-emerald-500/15 px-2 py-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400"
+                              >
+                                {isAr ? "اذهب للدخول" : "Go to entry"}
+                              </button>
+                              {row.exit_at && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedRecommendationId(row.id);
+                                    jumpToDate(row.exit_at);
+                                  }}
+                                  className="rounded bg-red-500/15 px-2 py-1 text-[10px] font-bold text-red-600 dark:text-red-400"
+                                >
+                                  {isAr ? "اذهب للخروج" : "Go to exit"}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {selectedRecommendation && (
+                        <div className="rounded-lg border border-indigo-500/20 p-3 text-xs space-y-1">
+                          <div className="font-bold">
+                            {isAr ? "تفاصيل التوصية" : "Recommendation details"}{" "}
+                            · {selectedRecommendation.signal || "BUY"}
+                          </div>
+                          <div>
+                            {isAr ? "الدخول" : "Entry"}:{" "}
+                            {selectedRecommendation.entry_price ?? "—"} ·{" "}
+                            {isAr ? "الخروج" : "Exit"}:{" "}
+                            {selectedRecommendation.exit_price ?? "—"}
+                          </div>
+                          <div>
+                            {isAr ? "الهدف" : "Target"}:{" "}
+                            {selectedRecommendation.target_price ?? "—"} ·{" "}
+                            {isAr ? "وقف الخسارة" : "Stop"}:{" "}
+                            {selectedRecommendation.stop_loss ?? "—"}
+                          </div>
+                          <div>
+                            {isAr ? "العائد" : "Return"}:{" "}
+                            {selectedRecommendation.profit_loss_pct == null
+                              ? "—"
+                              : `${Number(selectedRecommendation.profit_loss_pct).toFixed(2)}%`}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </section>
 
                 {/* Company Profile Details */}
                 <div className="space-y-4">
-                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block border-b border-zinc-200 dark:border-[#2a2e39] pb-1.5">Fundamentals Data</span>
-                  
+                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block border-b border-zinc-200 dark:border-[#2a2e39] pb-1.5">
+                    Fundamentals Data
+                  </span>
+
                   {loadingFunds ? (
                     <div className="flex items-center justify-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
@@ -468,23 +703,33 @@ function ChartContent() {
                     <div className="grid grid-cols-2 gap-4">
                       {/* Market Cap */}
                       <div className="p-3 rounded-xl border border-zinc-200 bg-white flex flex-col gap-1 dark:border-white/5 dark:bg-zinc-900/20">
-                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-wider">Mkt Cap</span>
+                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-wider">
+                          Mkt Cap
+                        </span>
                         <span className="font-mono font-bold text-zinc-950 dark:text-white text-xs mt-0.5">
-                          {formatCompact(fundamentals?.marketCap || fundamentals?.MarketCap)}
+                          {formatCompact(
+                            fundamentals?.marketCap || fundamentals?.MarketCap,
+                          )}
                         </span>
                       </div>
 
                       {/* PE Ratio */}
                       <div className="p-3 rounded-xl border border-zinc-200 bg-white flex flex-col gap-1 dark:border-white/5 dark:bg-zinc-900/20">
-                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-wider">P/E Ratio</span>
+                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-wider">
+                          P/E Ratio
+                        </span>
                         <span className="font-mono font-bold text-zinc-950 dark:text-white text-xs mt-0.5">
-                          {fundamentals?.peRatio || fundamentals?.PERatio || "N/A"}
+                          {fundamentals?.peRatio ||
+                            fundamentals?.PERatio ||
+                            "N/A"}
                         </span>
                       </div>
 
                       {/* EPS */}
                       <div className="p-3 rounded-xl border border-zinc-200 bg-white flex flex-col gap-1 dark:border-white/5 dark:bg-zinc-900/20">
-                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-wider">EPS</span>
+                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-wider">
+                          EPS
+                        </span>
                         <span className="font-mono font-bold text-zinc-950 dark:text-white text-xs mt-0.5">
                           {fundamentals?.eps || fundamentals?.EPS || "N/A"}
                         </span>
@@ -492,7 +737,9 @@ function ChartContent() {
 
                       {/* Beta */}
                       <div className="p-3 rounded-xl border border-zinc-200 bg-white flex flex-col gap-1 dark:border-white/5 dark:bg-zinc-900/20">
-                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-wider">Beta</span>
+                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-wider">
+                          Beta
+                        </span>
                         <span className="font-mono font-bold text-zinc-950 dark:text-white text-xs mt-0.5">
                           {fundamentals?.beta || fundamentals?.Beta || "N/A"}
                         </span>
@@ -500,11 +747,15 @@ function ChartContent() {
 
                       {/* Dividend Yield */}
                       <div className="p-3 rounded-xl border border-zinc-200 bg-white flex flex-col gap-1 col-span-2 dark:border-white/5 dark:bg-zinc-900/20">
-                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-wider">Dividend Yield</span>
+                        <span className="text-[8px] font-black text-zinc-500 uppercase tracking-wider">
+                          Dividend Yield
+                        </span>
                         <span className="font-mono font-bold text-zinc-950 dark:text-white text-xs mt-0.5">
-                          {fundamentals?.dividendYield !== undefined 
+                          {fundamentals?.dividendYield !== undefined
                             ? `${(Number(fundamentals?.dividendYield) * 100).toFixed(2)}%`
-                            : (fundamentals?.DividendYield !== undefined ? `${(Number(fundamentals?.DividendYield) * 100).toFixed(2)}%` : "N/A")}
+                            : fundamentals?.DividendYield !== undefined
+                              ? `${(Number(fundamentals?.DividendYield) * 100).toFixed(2)}%`
+                              : "N/A"}
                         </span>
                       </div>
                     </div>
@@ -514,19 +765,27 @@ function ChartContent() {
                 {/* Classification info */}
                 {!loadingFunds && fundamentals && (
                   <div className="space-y-3">
-                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block border-b border-zinc-200 dark:border-[#2a2e39] pb-1.5">Categorization</span>
+                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block border-b border-zinc-200 dark:border-[#2a2e39] pb-1.5">
+                      Categorization
+                    </span>
                     <div className="space-y-2 text-xs font-semibold">
                       <div className="flex justify-between py-1 border-b border-zinc-200 dark:border-white/5">
                         <span className="text-zinc-500">Sector:</span>
-                        <span className="text-zinc-700 dark:text-zinc-300 text-right">{fundamentals?.sector || "N/A"}</span>
+                        <span className="text-zinc-700 dark:text-zinc-300 text-right">
+                          {fundamentals?.sector || "N/A"}
+                        </span>
                       </div>
                       <div className="flex justify-between py-1 border-b border-zinc-200 dark:border-white/5">
                         <span className="text-zinc-500">Industry:</span>
-                        <span className="text-zinc-700 dark:text-zinc-300 text-right">{fundamentals?.industry || "N/A"}</span>
+                        <span className="text-zinc-700 dark:text-zinc-300 text-right">
+                          {fundamentals?.industry || "N/A"}
+                        </span>
                       </div>
                       <div className="flex justify-between py-1">
                         <span className="text-zinc-500">Currency:</span>
-                        <span className="text-zinc-700 dark:text-zinc-300 text-right uppercase">{fundamentals?.currency || "EGP"}</span>
+                        <span className="text-zinc-700 dark:text-zinc-300 text-right uppercase">
+                          {fundamentals?.currency || "EGP"}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -539,8 +798,14 @@ function ChartContent() {
               <div className="space-y-4 animate-fade-in h-full flex flex-col min-h-0">
                 <div className="flex items-center justify-between gap-3 border-b border-zinc-200 dark:border-[#2a2e39] pb-3">
                   <div className="text-right">
-                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block">قائمة المراقبة</span>
-                    <span className="text-[10px] text-zinc-600 font-semibold">{user ? `${watchlist.length} سهم محفوظ` : "سجل الدخول للمزامنة"}</span>
+                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block">
+                      قائمة المراقبة
+                    </span>
+                    <span className="text-[10px] text-zinc-600 font-semibold">
+                      {user
+                        ? `${watchlist.length} سهم محفوظ`
+                        : "سجل الدخول للمزامنة"}
+                    </span>
                   </div>
                   <button
                     onClick={handleWatchlistToggle}
@@ -549,9 +814,17 @@ function ChartContent() {
                         ? "bg-indigo-600/15 border-indigo-500/30 text-indigo-300"
                         : "bg-zinc-50 border-zinc-200 text-zinc-500 hover:text-zinc-950 hover:bg-zinc-100 dark:bg-zinc-900/40 dark:border-white/10 dark:text-zinc-400 dark:hover:text-white dark:hover:bg-zinc-800"
                     }`}
-                    title={isSaved(symbol) ? "إزالة السهم الحالي" : "إضافة السهم الحالي"}
+                    title={
+                      isSaved(symbol)
+                        ? "إزالة السهم الحالي"
+                        : "إضافة السهم الحالي"
+                    }
                   >
-                    {isSaved(symbol) ? <Star className="w-4 h-4 fill-indigo-300" /> : <Plus className="w-4 h-4" />}
+                    {isSaved(symbol) ? (
+                      <Star className="w-4 h-4 fill-indigo-300" />
+                    ) : (
+                      <Plus className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
 
@@ -559,9 +832,16 @@ function ChartContent() {
                   {!user ? (
                     <div className="text-center py-8 px-4 rounded-xl bg-zinc-50 border border-dashed border-zinc-300 space-y-3 dark:bg-zinc-950/25 dark:border-white/10">
                       <Landmark className="w-6 h-6 text-zinc-600 mx-auto" />
-                      <p className="text-xs text-zinc-500 leading-relaxed">قم بتسجيل الدخول لمشاهدة وتعديل قائمة المراقبة الحقيقية الخاصة بك.</p>
+                      <p className="text-xs text-zinc-500 leading-relaxed">
+                        قم بتسجيل الدخول لمشاهدة وتعديل قائمة المراقبة الحقيقية
+                        الخاصة بك.
+                      </p>
                       <button
-                        onClick={() => router.push(`/login?redirect=/chart?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`)}
+                        onClick={() =>
+                          router.push(
+                            `/login?redirect=/chart?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`,
+                          )
+                        }
                         className="w-full py-2 text-[10px] font-black bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors uppercase tracking-wider"
                       >
                         تسجيل الدخول
@@ -570,7 +850,9 @@ function ChartContent() {
                   ) : watchlist.length === 0 ? (
                     <div className="text-center py-8 px-4 rounded-xl bg-zinc-50 border border-dashed border-zinc-300 space-y-3 dark:bg-zinc-950/25 dark:border-white/10">
                       <Star className="w-6 h-6 text-zinc-600 mx-auto" />
-                      <p className="text-xs text-zinc-500 leading-relaxed">القائمة فارغة. اضغط زر النجمة لإضافة السهم الحالي.</p>
+                      <p className="text-xs text-zinc-500 leading-relaxed">
+                        القائمة فارغة. اضغط زر النجمة لإضافة السهم الحالي.
+                      </p>
                     </div>
                   ) : (
                     watchlist.map((item) => (
@@ -584,10 +866,17 @@ function ChartContent() {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <button
-                            onClick={() => selectSymbol(item.symbol, item.metadata?.exchange || exchange || "EGX")}
+                            onClick={() =>
+                              selectSymbol(
+                                item.symbol,
+                                item.metadata?.exchange || exchange || "EGX",
+                              )
+                            }
                             className="flex-1 text-right flex flex-col min-w-0"
                           >
-                            <span className="text-sm font-black text-zinc-950 dark:text-white uppercase">{item.symbol}</span>
+                            <span className="text-sm font-black text-zinc-950 dark:text-white uppercase">
+                              {item.symbol}
+                            </span>
                             <span className="text-[10px] text-zinc-500 font-semibold truncate w-full mt-0.5">
                               {item.name || item.symbol}
                             </span>
@@ -595,7 +884,7 @@ function ChartContent() {
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => router.push("/profile")}
-                               className="text-zinc-500 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:text-indigo-300 dark:hover:bg-white/5 transition-all"
+                              className="text-zinc-500 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:text-indigo-300 dark:hover:bg-white/5 transition-all"
                               title="تعديل من البروفايل"
                             >
                               <ExternalLink className="w-3.5 h-3.5" />
@@ -605,7 +894,7 @@ function ChartContent() {
                                 e.stopPropagation();
                                 removeSymbol(item.id);
                               }}
-                               className="text-zinc-500 hover:text-red-500 p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:text-red-400 dark:hover:bg-white/5 transition-all"
+                              className="text-zinc-500 hover:text-red-500 p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:text-red-400 dark:hover:bg-white/5 transition-all"
                               title="إزالة"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -627,12 +916,16 @@ function ChartContent() {
 
 export default function ChartPage() {
   return (
-    <Suspense fallback={
-      <div className="w-screen h-screen flex flex-col items-center justify-center bg-zinc-50 text-zinc-500 dark:bg-[#050816] dark:text-[#787b86]">
-        <Loader2 className="w-8 h-8 animate-spin text-[#2962ff] mb-2" />
-        <span className="text-xs font-bold uppercase tracking-wider">Loading Trading Workspace...</span>
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="w-screen h-screen flex flex-col items-center justify-center bg-zinc-50 text-zinc-500 dark:bg-[#050816] dark:text-[#787b86]">
+          <Loader2 className="w-8 h-8 animate-spin text-[#2962ff] mb-2" />
+          <span className="text-xs font-bold uppercase tracking-wider">
+            Loading Trading Workspace...
+          </span>
+        </div>
+      }
+    >
       <ChartContent />
     </Suspense>
   );

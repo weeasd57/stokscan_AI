@@ -34,7 +34,28 @@ async function run(messages: any[], overrides: any = {}) {
 const stockDb = () => db(q => ({ data: q.table === "stock_prices" ? [price] : q.table === "stocks" ? { symbol:"COMI",name:"Commercial Bank" } : [], error:null }));
 
 describe("Agentic architecture integration: current production path", () => {
-    test("nine tools remain LLM selected", () => expect(new Set(AGENTIC_TOOLS_SCHEMA.map(t=>t.function.name)).size).toBe(9));
+    test("chart context binds target symbol and publishes checked structured action", async () => {
+        const d = db(() => ({ data: Array.from({length:40}, (_,i) => ({date:new Date(Date.UTC(2026,0,i+1)).toISOString().slice(0,10),open:100+i,high:102+i,low:99+i,close:101+i,volume:1000})), error:null }));
+        const r = await run([{tool_calls:[call("apply_chart_strategy",{symbol:"COMI",strategy_id:"smc",chart_id:"panel-2"})]}, {content:"تم تطبيق SMC على شارت COMI؛ الرسومات تقريب لكسر نطاق سابق."}, verdict()], {db:d,options:{chartContext:{active_chart_id:"panel-2",charts:[{id:"panel-2",symbol:"COMI",timeframe:"1d"}]}}});
+        expect(r.done.chart_actions).toHaveLength(1);
+        expect(r.done.chart_actions[0]).toMatchObject({type:"apply_strategy",chart_id:"panel-2",symbol:"COMI"});
+        expect(r.done.chart_actions[0].result.analysis.overlays.length).toBeGreaterThan(0);
+        expect(JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[1].content).toContain("chart_context");
+    });
+    test("chart tool cannot silently mutate a different stock from its target", async () => {
+        const r = await run([{tool_calls:[call("apply_chart_strategy",{symbol:"EAST",strategy_id:"smc",chart_id:"panel-2"})]}, {content:"تعذر التطبيق لأن الرمز لا يطابق الشارت المستهدف."}, verdict()], {options:{chartContext:{active_chart_id:"panel-2",charts:[{id:"panel-2",symbol:"COMI",timeframe:"1d"}]}}});
+        expect(r.queries).toHaveLength(0); expect(r.done.chart_actions).toEqual([]);
+        const records = r.events.find(e=>e.type === "tools_data").data.results;
+        expect(records[0].availability).toBe("error");
+    });
+    test("current chart window and timeframe default into the tool", async () => {
+        const d=db(()=>({data:Array.from({length:40},(_,i)=>({date:new Date(Date.UTC(2026,0,i+1)).toISOString().slice(0,10),open:100+i,high:102+i,low:99+i,close:101+i,volume:1000})),error:null}));
+        const r=await run([{tool_calls:[call("apply_chart_strategy",{symbol:"COMI",strategy_id:"smc"})]},{content:"تم تطبيق تحليل النطاق على شارت COMI اليومي."},verdict()],{db:d,options:{chartContext:{active_chart_id:"panel-1",charts:[{id:"panel-1",symbol:"COMI",timeframe:"1d",period:500,strategy_ids:["smc"]}]}}});
+        expect(d.queries[0].ops).toContainEqual(["limit",500]);
+        expect(r.done.chart_actions[0].result.timeframe).toBe("1d");
+        expect(r.done.chart_actions[0].result.bounded_rows).toBe(500);
+    });
+    test("twelve tools remain LLM selected", () => expect(new Set(AGENTIC_TOOLS_SCHEMA.map(t=>t.function.name)).size).toBe(12));
     test("direct greeting is reviewed and publishes only canonical answer", async () => {
         const r = await run([{content:"أهلاً"},verdict()]); expect(r.queries).toHaveLength(0);
         expect(r.done.publication_review.final_passed).toBe(true); expect(r.events.filter(e=>e.type === "token")).toHaveLength(1);
@@ -180,7 +201,7 @@ describe("Agentic architecture integration: current production path", () => {
 });
 
 describe("Agentic tool correctness and failure boundaries", () => {
-    test.each(AGENTIC_TOOLS_SCHEMA.map(t=>t.function.name))("all nine tools: %s reads healthy bounded fixtures",async tool=>{
+    test.each(AGENTIC_TOOLS_SCHEMA.map(t=>t.function.name).filter(name => !["list_chart_strategies", "apply_chart_strategy", "compare_strategies_history"].includes(name)))("existing data tools: %s reads healthy bounded fixtures",async tool=>{
         const d=db(q=>({data:q.table === "stocks" ? [{id:1,symbol:"COMI",name:"Commercial Bank"}] : q.table === "stock_prices" ? [price]
             : q.table === "market_cache" ? {payload:{egx30:[{close:100,date:"2026-10-07"},{close:101,date:price.date}],regime:"sideways"}}
             : q.table === "stock_technical_indicators" ? [{symbol:"COMI",...price,change_pct:1,r_vol:2,rsi_14:55,macd:1,macd_signal:.5,macd_histogram:.5}]
