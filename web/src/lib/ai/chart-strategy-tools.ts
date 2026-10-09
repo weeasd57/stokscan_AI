@@ -54,9 +54,9 @@ export async function executeChartStrategyTool(name: string, args: Record<string
     if (start && end && start > end) throw new Error("بداية الفترة بعد نهايتها");
     const settings = params(args.params);
     const ids = name === "apply_chart_strategy" ? [strategy(args.strategy_id)] : (() => {
-        if (!Array.isArray(args.strategy_ids) || args.strategy_ids.length < 2 || args.strategy_ids.length > 10) throw new Error("اختر من استراتيجيتين إلى عشر استراتيجيات");
+        if (!Array.isArray(args.strategy_ids) || args.strategy_ids.length < 1 || args.strategy_ids.length > 10) throw new Error("اختر من استراتيجية إلى عشر استراتيجيات");
         const unique = [...new Set(args.strategy_ids.map(strategy))];
-        if (unique.length < 2) throw new Error("المقارنة تحتاج استراتيجيتين مختلفتين");
+        if (!unique.length) throw new Error("الاختبار يحتاج استراتيجية واحدة على الأقل");
         return unique;
     })();
     if (name === "compare_strategies_history") {
@@ -98,5 +98,5 @@ const common = { symbol: { type: "string" }, chart_id: { type: "string", descrip
 export const CHART_STRATEGY_TOOL_SCHEMA = [
     { type: "function", function: { name: "list_chart_strategies", description: "قائمة استراتيجيات الشارت وحدودها وما يمكن اختباره؛ لا نسب نجاح ثابتة.", parameters: { type: "object", properties: {}, additionalProperties: false } } },
     { type: "function", function: { name: "apply_chart_strategy", description: "احسب رسومات وإشارات استراتيجية على شارت مستهدف. استخدم الرمز والفريم ومعرف الشارت من السياق؛ لا تختلق إحداثيات.", parameters: { type: "object", properties: { ...common, strategy_id: { type: "string", enum: STRATEGIES.map(s => s.id) } }, required: ["symbol", "strategy_id"], additionalProperties: false } } },
-    { type: "function", function: { name: "compare_strategies_history", description: "قارن استراتيجيات مستقلة بنفس تاريخ السهم والتكاليف. الرسومات فقط لا تُرتب كاستراتيجيات تداول؛ العينة الصغيرة والتعديلات غير المتحققة معلنة.", parameters: { type: "object", properties: { ...common, strategy_ids: { type: "array", minItems: 2, maxItems: 10, uniqueItems: true, items: { type: "string", enum: STRATEGIES.map(s => s.id) } }, initialCapital: { type: "number", exclusiveMinimum: 0 }, commissionBps: { type: "number", minimum: 0, maximum: 1000 }, slippageBps: { type: "number", minimum: 0, maximum: 1000 } }, required: ["symbol", "strategy_ids"], additionalProperties: false } } },
+    { type: "function", function: { name: "compare_strategies_history", description: "اختبر استراتيجية واحدة أو قارن عدة استراتيجيات بنفس تاريخ السهم والتكاليف. اختر الاستراتيجيات المطلوبة فقط. للفترة الحديثة حدد start_date/end_date أو bar_limit صراحة. الرسومات فقط لا تُرتب كاستراتيجيات تداول؛ العينة الصغيرة والتعديلات غير المتحققة معلنة.", parameters: { type: "object", properties: { ...common, strategy_ids: { type: "array", minItems: 1, maxItems: 10, uniqueItems: true, items: { type: "string", enum: STRATEGIES.map(s => s.id) } }, initialCapital: { type: "number", exclusiveMinimum: 0 }, commissionBps: { type: "number", minimum: 0, maximum: 1000 }, slippageBps: { type: "number", minimum: 0, maximum: 1000 } }, required: ["symbol", "strategy_ids"], additionalProperties: false } } },
 ];

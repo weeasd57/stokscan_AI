@@ -192,6 +192,7 @@ function checkStrategyClaims(reply: string, evidence: AgenticEvidence[]): string
                 const candidates = labels.flatMap(([pattern, key]) => { const found = [...prefix.matchAll(new RegExp(pattern.source, pattern.flags + "g"))].at(-1); return found ? [{ key, index: found.index! }] : []; }).sort((a, b) => b.index - a.index);
                 if (!candidates.length) continue;
                 const key = candidates[0].key, n = Number(match[0].replace(/[%٪\s]|جنيه/g, "")), expected = owner[key];
+                if (["closedTrades", "profitFactor"].includes(key) && /[%٪]/.test(match[0])) continue;
                 if (typeof expected !== "number" || Math.abs(n - expected) > Math.max(0.02, Math.abs(expected) * 0.005)) reasons.push(`strategy_metric_mismatch:${owner.symbol}:${owner.strategy_id}:${key}`);
             }
         }
@@ -203,6 +204,7 @@ function checkStrategyClaims(reply: string, evidence: AgenticEvidence[]): string
 export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): string[] {
     const reasons: string[] = [];
     if (!reply.trim()) reasons.push("empty_response");
+    if (/\b(?:get_stock(?:_levels)?|get_market|get_comparison|get_news|get_recommendations|get_technical_scan|get_accumulation_stocks|manage_portfolio|list_chart_strategies|apply_chart_strategy|compare_strategies_history|stock_prices|stock_technical_indicators|stock_scans_summary|ai_chat_sessions|ai_chat_messages)\b/.test(reply)) reasons.push("internal_implementation_names_in_response");
     const substantive = reply.replace(/\[[^\]]*\]\(https?:\/\/[^)]*\)/g, "").replace(/https?:\/\/\S+/g, "")
         .replace(/✅ تحليل EGX Bots[^\n]*/g, "").replace(/📢[^\n]*/g, "");
     if (!/[\p{L}]{2}/u.test(substantive)) reasons.push("response_has_no_substantive_answer");

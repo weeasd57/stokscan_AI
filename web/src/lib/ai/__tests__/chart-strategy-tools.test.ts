@@ -12,6 +12,14 @@ function fixtureDb(rows: any[], error: any = null) {
     return { client, queries };
 }
 const candles = Array.from({ length: 90 }, (_, i) => ({ date: new Date(Date.UTC(2026, 0, i + 1)).toISOString().slice(0, 10), open: 100 + i, high: 102 + i, low: 99 + i, close: 101 + i, volume: 1000 }));
+test("single requested strategy computes metrics without inventing a second strategy",async()=>{
+    const d=fixtureDb(candles);const result=await executeAgenticTool("compare_strategies_history",{symbol:"AFMC",strategy_ids:["trend_macd"]},d.client,"user");
+    expect(result.status).toBe("success");expect(result.strategy_metrics.map((m:any)=>m.strategy_id)).toEqual(["trend_macd"]);
+});
+test("percentage following closed-trade prose is not mistaken for a trade count",()=>{
+    const e=[toAgenticEvidence("compare_strategies_history",{symbol:"COMI"},{symbol:"COMI",strategy_metrics:[{strategy_id:"trend_macd",strategy_name:"الاتجاه وMACD",closedTrades:20,winRatePct:45,totalReturnPct:36.71,maxDrawdownPct:24.76,profitFactor:1.93}]})];
+    expect(checkAgenticDraft("COMI: الاتجاه وMACD 20 صفقة مغلقة، والعائد 36.71%.",e)).toEqual([]);
+});
 test("catalog is available without database reads or invented win rates", async () => {
     const d = fixtureDb([]), data = await executeAgenticTool("list_chart_strategies", {}, d.client, "user");
     expect(data.strategies).toHaveLength(10); expect(d.queries).toHaveLength(0);

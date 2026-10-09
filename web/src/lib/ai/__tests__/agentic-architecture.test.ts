@@ -34,6 +34,26 @@ async function run(messages: any[], overrides: any = {}) {
 const stockDb = () => db(q => ({ data: q.table === "stock_prices" ? [price] : q.table === "stocks" ? { symbol:"COMI",name:"Commercial Bank" } : [], error:null }));
 
 describe("Agentic architecture integration: current production path", () => {
+    test("truncated reviewer is recovered within the same repair budget",async()=>{
+        const r=await run([{content:"مدة استثمارك قد إيه وهل تحتاج المبلغ قريباً؟"},{content:"invalid-json"},{content:"مدة استثمارك قد إيه وهل تحتاج المبلغ قريباً؟"},verdict()],{userMessage:"معايا 10 تلاف اعمل بيهم ايه"});
+        expect(r.done.publication_review).toMatchObject({repaired:true,final_passed:true});
+        expect(r.done.response_origin).toBe("llm");
+    });
+    test("fallback for a failed new request never publishes old session quotes",async()=>{
+        const previous=toAgenticEvidence("get_stock",{symbols:["AFMC"]},{stocks:[{symbol:"AFMC",close:152,date:price.date}]});
+        const r=await run([{content:"غير مكتمل"},verdict(false,["لم ينجز الطلب"]),{content:"غير مكتمل"},verdict(false,["لم ينجز الطلب"])],{userMessage:"في باكتيست ELEC؟",summary:{last_tool_evidence:[previous]}});
+        expect(r.done.response_origin).toBe("safe_fallback");expect(r.done.response).not.toContain("AFMC");expect(r.done.response).not.toContain("152");
+    });
+    test("internal tool names cannot publish even if the reviewer approves",async()=>{
+        const r=await run([{content:"أستخدم get_stock من stock_prices"},verdict(),{content:"أستخدم بيانات الأسعار اليومية ومحرك التحليل الفني."},verdict()]);
+        expect(r.done.publication_review.final_passed).toBe(true);expect(r.done.response).not.toContain("get_stock");expect(r.done.response).not.toContain("stock_prices");
+    });
+    test("a truncated writer gets one completion pass rather than publishing a fragment",async()=>{
+        const queue=[response({content:"جزء غير مكتمل"},"length"),response({content:"حدد مدة الاستثمار ودرجة تحمل الخسارة قبل توزيع المبلغ."}),response(verdict())];
+        global.fetch=jest.fn().mockImplementation(()=>Promise.resolve(queue.shift()));const events:any[]=[];
+        for await(const e of runAgenticPipelineStream("معايا 10 تلاف",[],state,null,[],db().client,[],"u","s","m"))events.push(e);
+        const done=events.find(e=>e.type === "done").data;expect(done.publication_review.final_passed).toBe(true);expect(done.response).not.toContain("جزء غير مكتمل");expect(done.usage.provider_calls).toBe(3);
+    });
     test("chart context binds target symbol and publishes checked structured action", async () => {
         const d = db(() => ({ data: Array.from({length:40}, (_,i) => ({date:new Date(Date.UTC(2026,0,i+1)).toISOString().slice(0,10),open:100+i,high:102+i,low:99+i,close:101+i,volume:1000})), error:null }));
         const r = await run([{tool_calls:[call("apply_chart_strategy",{symbol:"COMI",strategy_id:"smc",chart_id:"panel-2"})]}, {content:"تم تطبيق SMC على شارت COMI؛ الرسومات تقريب لكسر نطاق سابق."}, verdict()], {db:d,options:{chartContext:{active_chart_id:"panel-2",charts:[{id:"panel-2",symbol:"COMI",timeframe:"1d"}]}}});
@@ -78,7 +98,7 @@ describe("Agentic architecture integration: current production path", () => {
     test("false reviewer approval cannot authorize fabricated price", async () => {
         const r=await run([{tool_calls:[call("get_stock_levels",{symbols:["COMI"]})]}, {content:"سعر COMI الحالي 9999 جنيه"},verdict(),
             {content:"سعر COMI الحالي 9999 جنيه"},verdict()],{db:stockDb()});
-        expect(r.done.publication_review.final_passed).toBe(false); expect(r.done.response).not.toContain("9999"); expect(r.done.response).toContain("100");
+        expect(r.done.publication_review.final_passed).toBe(false); expect(r.done.response).not.toContain("9999"); expect(r.done.response).not.toContain("| السهم |");
         expect(r.events.filter(e=>e.type === "token").every(e=>!String(e.data).includes("9999"))).toBe(true);
     });
     test("review rejection is repaired once and verified again", async () => {
