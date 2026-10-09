@@ -26,15 +26,17 @@ live("admin requests choose current symbols, bounded recent periods and natural 
         {prompt:"هات باكتيست ELEC لفترة قريبة من السوق دلوقتي، آخر 60 شمعة",symbol:"ELEC",tools:true},
         {prompt:"إيه ده",symbol:null,tools:false},
         {prompt:"إيه الخدمات والأدوات اللي بتستخدمها؟",symbol:null,tools:false},
-        {prompt:"قارن بين استراتيجية البرايس أكشن وتتبع الاتجاه وSMC على تاريخ سهم السويدي SWDY",symbol:"SWDY",tools:true}];
+        {prompt:"قارن بين استراتيجية البرايس أكشن وتتبع الاتجاه وSMC على تاريخ سهم السويدي SWDY",symbol:"SWDY",tools:true},
+        {prompt:"اختبره في استراتيجية من عندك",symbol:"AFMC",tools:true}];
     const native=global.fetch;let calls=0;global.fetch=(async(url:any,init:any)=>{
         if(url !== "https://api.deepseek.com/chat/completions" || ++calls>24)throw new Error("Replay provider budget");
         return native(url,{...init,signal:AbortSignal.any([init.signal,AbortSignal.timeout(25000)])});
     }) as any;
     const reports:any[]=[];
     try {for(const c of cases.slice(Number(process.env.REPLAY_START_CASE || 0))){const events:any[]=[];const start=Date.now();
-        const history=c.prompt === "إيه ده" ? [{role:"user",content:"معايا 10 تلاف اعمل بيهم ايه"},{role:"assistant",content:"تعذر إكمال الإجابة. ABUK إغلاقه 90."}] : [{role:"user",content:"حلل أبو قير"},{role:"assistant",content:"ABUK إغلاقه 90 بتاريخ 2026-10-07."}];
-        for await(const e of runAgenticPipelineStream(c.prompt,[],{current_symbol:"ABUK",last_symbols:["ABUK"],summary:null},{last_tool_evidence:[old],current_symbols:["ABUK"]} as any,history,db,[],"fixture-user","fixture-session","fixture-message"))events.push(e);
+        const selected=c.symbol === "AFMC" ? "AFMC" : "ABUK";
+        const history=c.prompt === "إيه ده" ? [{role:"user",content:"معايا 10 تلاف اعمل بيهم ايه"},{role:"assistant",content:"تعذر إكمال الإجابة. ABUK إغلاقه 90."}] : [{role:"user",content:c.symbol === "AFMC" ? "afmc" : "حلل أبو قير"},{role:"assistant",content:`${selected} إغلاقه 90 بتاريخ 2026-10-07.`}];
+        for await(const e of runAgenticPipelineStream(c.prompt,[],{current_symbol:selected,last_symbols:[selected],summary:null},{last_tool_evidence:c.symbol === "AFMC" ? [] : [old],current_symbols:[selected]} as any,history,db,[],"fixture-user","fixture-session","fixture-message"))events.push(e);
         const done=events.find(e=>e.type === "done")?.data;const evidence=events.filter(e=>e.type === "tools_data").at(-1)?.data.results||[];
         reports.push({prompt:c.prompt,latency_ms:Date.now()-start,response:done?.response,review:done?.publication_review,usage:done?.usage,tools:evidence.map((e:any)=>({tool:e.tool,args:e.arguments,availability:e.availability}))});
         expect(done?.publication_review.final_passed).toBe(true);expect(done?.response_origin).toBe("llm");
@@ -45,5 +47,6 @@ live("admin requests choose current symbols, bounded recent periods and natural 
         else expect(evidence).toHaveLength(0);
         if(c.prompt.includes("60"))expect(evidence.some((e:any)=>e.arguments.bar_limit === 60)).toBe(true);
         if(c.symbol === "SWDY")expect(evidence.find((e:any)=>e.tool === "compare_strategies_history")?.arguments.strategy_ids.sort()).toEqual(["price_action","smc","trend_macd"]);
+        if(c.symbol === "AFMC")expect(evidence.find((e:any)=>e.tool === "compare_strategies_history")?.arguments.strategy_ids).toHaveLength(1);
     }}finally{global.fetch=native;fs.writeFileSync(path.resolve(process.cwd(),"../scratch/admin-followup-repair-2026-10-09.json"),JSON.stringify({fixture:true,calls,reports,queries},null,2));console.log("ADMIN_FOLLOWUP_REPLAY "+JSON.stringify(reports));}
 },240000);

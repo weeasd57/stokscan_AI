@@ -32,6 +32,18 @@ test("COMI/TMGH comparison permits readable rounding without swapping signed ind
     expect(checkAgenticDraft(draft,e)).toEqual([]);
     expect(checkAgenticDraft(draft.replace("-3.07 | -2.50","-2.50 | -3.07"),e).length).toBeGreaterThan(0);
 });
+test("COMI/TMGH distance ranking uses percentages rather than narrative confidence",()=>{
+    const rows=[{symbol:"COMI",close:124.65,ema_50:133.146989,ema_200:126.925929,date:"2026-10-07"},{symbol:"TMGH",close:87.89,ema_50:94.053915,ema_200:88.343529,date:"2026-10-07"}];
+    const e=[toAgenticEvidence("get_comparison",{symbols:["COMI","TMGH"]},{comparison:rows})];
+    expect(checkAgenticDraft("COMI أقرب إلى EMA200.\nTMGH أبعد عن EMA200.",e)).toEqual(expect.arrayContaining(["average_distance_ranking_contradiction:COMI:ema_200","average_distance_ranking_contradiction:TMGH:ema_200"]));
+    expect(checkAgenticDraft("TMGH أقرب إلى EMA200.\nCOMI أبعد عن EMA200.",e)).toEqual([]);
+    expect(checkAgenticDraft("COMI أقرب إلى EMA200 منه إلى EMA50.",e)).toEqual([]);
+    expect(checkAgenticDraft("COMI: لو اقترب من EMA200 نراجع الوضع.",e)).toEqual([]);
+    const mixed=[toAgenticEvidence("get_comparison",{}, {comparison:[rows[0],{...rows[1],date:"2026-10-06"}]})];
+    expect(checkAgenticDraft("COMI أقرب إلى EMA200.",mixed)).toEqual([]);
+    const old=toAgenticEvidence("get_comparison",{}, {comparison:[{...rows[0],close:126.8},{...rows[1],close:80}]});
+    expect(checkAgenticDraft("TMGH أقرب إلى EMA200.",[old,...e])).toEqual([]);
+});
 test("apply and compare share one bounded projected in-flight history read", async () => {
     const d = fixtureDb(candles), cache = new Map();
     const [apply, compare] = await Promise.all([

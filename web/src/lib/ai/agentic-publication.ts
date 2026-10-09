@@ -212,6 +212,35 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
     const facts = agenticFacts(evidence);
     reasons.push(...checkStrategyClaims(reply, evidence));
     reasons.push(...checkAttribution(reply, facts));
+    // Verify comparative distance statements from the same dated comparison,
+    // independently of whether all quoted values themselves are grounded.
+    const latestComparisons=new Map<string,AgenticEvidence>();
+    for (const e of evidence.filter(e=>e.tool === "get_comparison" && e.availability !== "error"))
+        latestComparisons.set(evidenceRows(e.data).map(r=>r.symbol).filter(Boolean).sort().join("/"),e);
+    for (const e of latestComparisons.values()) {
+        const quotes=evidenceRows(e.data).filter(r=>r.symbol && r.close != null);
+        if (quotes.length < 2) continue;
+        const dates=quotes.map(r=>String(r.date || r.as_of || e.data_time || "").slice(0,10));
+        if (!dates[0] || dates.some(d=>d !== dates[0])) continue;
+        for (const raw of reply.split("\n")) {
+            const line=raw.replace(/[*_`]/g, "");
+            const named=quotes.filter(r=>new RegExp(`\\b${r.symbol}\\b`,"i").test(line));
+            if (named.length !== 1 || /إذا|اذا|لو|أمس|امس|سابق/.test(line)) continue;
+            const periods=[...line.matchAll(/EMA\s*(50|200)/gi)].map(m=>m[1]);
+            if (new Set(periods).size !== 1) continue;
+            const relation=line.match(/أقرب|اقرب|أبعد|ابعد/);
+            if (!relation || /(?:ليس|مش|غير)\s*$/.test(line.slice(0,relation.index))) continue;
+            const field=`ema_${periods[0]}`;
+            const distances=quotes.map(r=>({symbol:r.symbol,average:Number(r[field]),close:Number(r.close)}))
+                .filter(r=>Number.isFinite(r.average) && r.average > 0 && Number.isFinite(r.close))
+                .map(r=>({...r,distance:Math.abs(r.close-r.average)/r.average}));
+            const subject=distances.find(r=>r.symbol === named[0].symbol);
+            if (!subject || distances.length !== quotes.length) continue;
+            const closer=/أقرب|اقرب/.test(relation[0]);
+            if (distances.some(r=>r.symbol !== subject.symbol && (closer ? r.distance < subject.distance-0.0001 : r.distance > subject.distance+0.0001)))
+                reasons.push(`average_distance_ranking_contradiction:${subject.symbol}:${field}`);
+        }
+    }
     // Compare claimed above/below relations to the actual quote, not merely whether both numbers exist.
     let owner: string | null = null;
     const rows = evidence.flatMap(e => evidenceRows(e.data));
