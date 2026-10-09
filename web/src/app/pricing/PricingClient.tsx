@@ -389,10 +389,15 @@ export default function PricingClient() {
   const proPrice = selectedPlanDetails?.amount_egp ?? 1000;
   const freeLimits = localConfig.limits?.free || { signal_delay_days: 15, chat_messages_per_month: 50, portfolio_stocks: 5 };
   const proLimits = localConfig.limits?.pro || { chat_messages_per_month: 350, portfolio_stocks: 10 };
+  const chartFeatures = [
+    { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? "معمل الشارت: حتى 8 نوافذ، مؤشرات واستراتيجيات ومقارنة تاريخية" : "Chart workspace: up to 8 panels, indicators, strategies and historical comparison", included: true },
+    { icon: <Sparkles className="w-4 h-4" />, text: isAr ? "تحليل AI من الشارت حسب السهم والاستراتيجيات والمؤشرات المختارة — ضمن حصة رسائل خطتك" : "AI chart analysis based on your selected stock, strategies and indicators — within your plan's chat allowance", included: true },
+  ];
   const freeFeatures = [
     { icon: <Zap className="w-4 h-4" />, text: isAr ? `تأخير الإشارات المتوسطة ${freeLimits.signal_delay_days} يوماً` : `Medium swings delayed ${freeLimits.signal_delay_days} days`, included: true },
     { icon: <Zap className="w-4 h-4" />, text: isAr ? "الصفقات القصيرة ⚡ PRO (متاحة بأرشيف متأخر 15 يوماً فقط)" : "Short Swings ⚡ PRO (15-day delayed archive only)", included: false },
     { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? "5 رسائل شات بوت يومياً" : "5 chatbot messages / day", included: true },
+    ...chartFeatures,
     { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? `حتى ${freeLimits.portfolio_stocks} أسهم في المحفظة` : `Up to ${freeLimits.portfolio_stocks} portfolio stocks`, included: true },
     { icon: <Activity className="w-4 h-4" />, text: isAr ? "النشاط غير الطبيعي (أسهم ارتفع حجمها بشكل غير طبيعي)" : "Unusual Activity (volume spike detection)", included: false },
     { icon: <ShieldCheck className="w-4 h-4" />, text: isAr ? "قناة VIP على تليجرام (إشارات وتوصيات يومية فورية)" : "VIP Telegram Channel (instant daily signals)", included: false },
@@ -402,6 +407,7 @@ export default function PricingClient() {
     { icon: <ShieldCheck className="w-4 h-4" />, text: isAr ? "قناة VIP على تليجرام (إشارات وتوصيات يومية فور صدورها بدون تأخير)" : "VIP Telegram Channel (instant daily signals without delay)", included: true },
     { icon: <Zap className="w-4 h-4" />, text: isAr ? "الصفقات القصيرة ⚡ PRO — صفقات زخم، وقف صارم 4%، وتتبع أرباح EMA10 بدون تشفير" : "Short Swings ⚡ PRO — momentum trades, tight 4% stop, and EMA10 runners unmasked", included: true },
     { icon: <MessageSquare className="w-4 h-4" />, text: isAr ? `${proLimits.chat_messages_per_month} رسالة شات بوت ذكي شهرياً` : `${proLimits.chat_messages_per_month} smart chatbot messages / month`, included: true },
+    ...chartFeatures,
     { icon: <BarChart3 className="w-4 h-4" />, text: isAr ? `حتى ${proLimits.portfolio_stocks} أسهم نشطة في المحفظة` : `Up to ${proLimits.portfolio_stocks} active portfolio stocks`, included: true },
     { icon: <Activity className="w-4 h-4" />, text: isAr ? "النشاط غير الطبيعي — أسهم بحجم تداول غير طبيعي + تقييم AI" : "Unusual Activity — volume spikes + AI scoring", included: true },
   ];
@@ -411,6 +417,7 @@ export default function PricingClient() {
     { icon: <ShieldCheck className="w-4 h-4 text-emerald-500" />, text: isAr ? "قناة VIP على تليجرام (إشارات وتوصيات يومية فورية للأبد)" : "VIP Telegram Channel forever", included: true },
     { icon: <Zap className="w-4 h-4 text-emerald-500" />, text: isAr ? "الصفقات القصيرة ⚡ PRO ومتابعة الأرباح كاملة بدون تشفير" : "Short Swings ⚡ PRO momentum trades unmasked", included: true },
     { icon: <MessageSquare className="w-4 h-4 text-emerald-500" />, text: isAr ? `${proLimits.chat_messages_per_month} استشارة شات بوت شهرياً تتجدد تلقائياً للأبد` : `${proLimits.chat_messages_per_month} AI chat messages refreshed monthly for life`, included: true },
+    ...chartFeatures,
     { icon: <Activity className="w-4 h-4 text-emerald-500" />, text: isAr ? "النشاط غير الطبيعي للأسهم + المحفظة الموسعة (10 أسهم)" : "Unusual Activity + 10 portfolio stock slots", included: true },
     { icon: <Sparkles className="w-4 h-4 text-yellow-500" />, text: isAr ? "أولوية قصوى لكافة التحديثات والميزات المستقبلية" : "VIP priority for all future updates", included: true },
   ];
