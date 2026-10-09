@@ -25,6 +25,13 @@ test("catalog is available without database reads or invented win rates", async 
     expect(data.strategies).toHaveLength(10); expect(d.queries).toHaveLength(0);
     expect(toAgenticEvidence("list_chart_strategies", {}, data).availability).toBe("available");
 });
+test("COMI/TMGH comparison permits readable rounding without swapping signed indicators",()=>{
+    const rows=[{symbol:"COMI",close:124.65,macd:-3.073135,macd_signal:-2.707889,macd_histogram:-.365246,ema_50:133.146989,date:"2026-10-07"},{symbol:"TMGH",close:87.89,macd:-2.504034,macd_signal:-2.234424,macd_histogram:-.26961,ema_50:94.053915,date:"2026-10-07"}];
+    const e=[toAgenticEvidence("get_comparison",{symbols:["COMI","TMGH"]},{comparison:rows})];
+    const draft="| البند | COMI | TMGH |\n|---|---|---|\n| الإغلاق | 124.65 | 87.89 |\n| MACD | -3.07 | -2.50 |\n| MACD Signal | -2.71 | -2.23 |\n| MACD Histogram | -0.365 | -0.270 |\n| EMA50 | 133.15 | 94.05 |";
+    expect(checkAgenticDraft(draft,e)).toEqual([]);
+    expect(checkAgenticDraft(draft.replace("-3.07 | -2.50","-2.50 | -3.07"),e).length).toBeGreaterThan(0);
+});
 test("apply and compare share one bounded projected in-flight history read", async () => {
     const d = fixtureDb(candles), cache = new Map();
     const [apply, compare] = await Promise.all([
