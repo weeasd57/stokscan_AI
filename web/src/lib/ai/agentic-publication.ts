@@ -378,6 +378,9 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[]): s
 
 export function safeAgenticFallback(evidence: AgenticEvidence[], reason: string): string {
     const lines = ["تعذر إكمال إجابة متحقَّق منها لكل أجزاء طلبك. " + reason];
+    // Evidence passed here should already be scoped to the current request. Keep
+    // the first available rows only as a bounded fallback and never resurrect
+    // unrelated symbols from an older turn.
     const rows = evidence.filter(e => e.availability !== "error").flatMap(e => evidenceRows(e.data));
     const quotes = new Map<string, any>();
     for (const row of rows) if (row.symbol && (row.close != null || row.current_price != null)) quotes.set(row.symbol, row);

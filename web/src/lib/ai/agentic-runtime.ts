@@ -187,7 +187,16 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[]): Async
         yield emitData();
     }
     yield { type: "status", data: { status: "review", message: "مراجعة إتمام الطلب والأرقام والسياق قبل عرض الإجابة..." } };
-    const verificationEvidence = () => [...previousEvidence, ...evidence];
+    // Keep the current request authoritative. Older session evidence is useful for
+    // genuine follow-ups, but must not contaminate a new symbol/backtest request.
+    const verificationEvidence = () => {
+        if (!evidence.length) return previousEvidence;
+        const currentSymbols = new Set(evidence.flatMap(e => e.symbols || []).map(s => String(s).toUpperCase()));
+        const relevantPrevious = currentSymbols.size
+            ? previousEvidence.filter(e => (e.symbols || []).some(s => currentSymbols.has(String(s).toUpperCase())))
+            : [];
+        return [...relevantPrevious, ...evidence];
+    };
     const reviewPayload = (reply: string) => ({ request: userMessage, draft_to_review:reply,
         evidence:evidence.map(compactEvidence), previous_evidence:previousEvidence.filter(e => !usedSymbols.length || e.symbols.some(s => usedSymbols.includes(s))),
         dialogue:recentHistory.slice(-2), context:{state:context.state,summary:context.summary,vision:context.vision,current_time_cairo:context.current_time_cairo} });
