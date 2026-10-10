@@ -78,6 +78,12 @@ describe("Agentic architecture integration: current production path", () => {
         expect(checkAgenticDraft(allocation+"\n\n"+stress,[evidence])).toEqual([]);
         const signedStress = stress.replace("| 5 |", "| −5% |").replace("| 10 |", "| −10% |");
         expect(checkAgenticDraft(allocation+"\n\n"+signedStress,[evidence])).toEqual([]);
+        const scenarioLabel = signedStress.replace("هبوط المحفظة %", "السيناريو");
+        expect(checkAgenticDraft(allocation+"\n\n"+scenarioLabel,[evidence])).toEqual([]);
+        expect(checkAgenticDraft(allocation+"\n\n"+scenarioLabel.replace("5000", "7000"),[evidence])).toContain("table_value_not_grounded:PORTFOLIO:7000");
+        const withSector = allocation.replace("المبلغ بالجنيه", "المبلغ بالجنيه | القطاع") + "\n| **الإجمالي** | **100%** | **100000** | |";
+        expect(checkAgenticDraft(withSector,[evidence])).toEqual([]);
+
         expect(checkAgenticDraft(allocation+"\n\n"+signedStress.replace("95000", "98000"),[evidence])).toContain("table_value_not_grounded:PORTFOLIO:98000");
 
         expect(checkAgenticDraft(allocation+"\n\n"+stress.replace("95000","98000"),[evidence])).toContain("table_value_not_grounded:PORTFOLIO:98000");

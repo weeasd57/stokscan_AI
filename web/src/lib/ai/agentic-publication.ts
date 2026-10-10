@@ -227,13 +227,15 @@ function scenarioTableRow(evidence: AgenticEvidence[], cells: string[], symbols:
         && e.availability !== "error" && e.data?.status === "success" && e.data?.mode === "scenario");
     if (!scenario) return null;
     const clean = (text: string) => text.replace(/[*_`]/g, "").trim().toLowerCase();
-    if (symbols.length === 0 && headers.some(h => /خسار|loss|متبقي|متبقية|بعد (?:الهبوط|الانخفاض|التراجع)|remaining|after.*drop/i.test(h)) && headers.some(h => /هبوط|انخفاض|تراجع|drop/i.test(h))) {
-        const declineIndex = headers.findIndex(h => /هبوط|انخفاض|تراجع|drop/i.test(h) && !/متبقي|متبقية|بعد (?:الهبوط|الانخفاض|التراجع)|remaining|after.*drop/i.test(h));
+    if (symbols.length === 0 && headers.some(h => /خسار|loss|متبقي|متبقية|بعد (?:الهبوط|الانخفاض|التراجع)|remaining|after.*drop/i.test(h)) && headers.some(h => /هبوط|انخفاض|تراجع|drop|السيناريو|scenario/i.test(h))) {
+        const declineIndex = headers.findIndex(h => /هبوط|انخفاض|تراجع|drop|السيناريو|scenario/i.test(h) && !/متبقي|متبقية|بعد (?:الهبوط|الانخفاض|التراجع)|remaining|after.*drop/i.test(h));
         if (declineIndex < 0) return null;
         const decline = Number(cleanCellText(cells[declineIndex] || "").replace(/[%٪\s]/g, ""));
         const stress = scenario.data.stress_scenarios_not_forecasts?.find((row: any) => Math.abs(row.change_pct) === Math.abs(decline));
         if (stress) return { symbol: "PORTFOLIO", scenario_loss_pct: stress.change_pct, scenario_loss_amount: -stress.loss, allocated_capital: scenario.data.capital - stress.loss };
     }
+    if (!symbols.length && cells.some(cell => /^(?:الإجمالي|إجمالي|المجموع|مجموع|total)$/i.test(clean(cell))))
+        return { symbol: "PORTFOLIO", allocation_pct: 100, allocated_capital: scenario.data.capital };
     const groupTable = headers.some(h => /قطاع|صناع|sector|industry/i.test(h));
     const groups = [...(scenario.data.sector_exposure || []), ...(scenario.data.industry_exposure || [])];
     if (groupTable) {
@@ -256,7 +258,7 @@ function scenarioTableRow(evidence: AgenticEvidence[], cells: string[], symbols:
 
 function scenarioMetricFields(label: string): FactRecord["field"][] | undefined {
     if (/متبقي|متبقية|بعد (?:الهبوط|الانخفاض|التراجع)|remaining|after.*drop/i.test(label)) return ["value"];
-    if (/هبوط|انخفاض|تراجع|drop/i.test(label)) return ["scenario_loss_pct"];
+    if (/هبوط|انخفاض|تراجع|drop|السيناريو|scenario/i.test(label)) return ["scenario_loss_pct"];
     if (/خسار|loss/i.test(label)) return /%|٪|نسب|percent|pct/i.test(label) ? ["scenario_loss_pct"] : ["scenario_loss_amount"];
     if (/توزيع|وزن|نسب|تركيز|allocation|weight/i.test(label)) return ["position_pct"];
     if (/مبلغ|قيمة|رأس.*مال|جنيه|capital|amount/i.test(label)) return ["value"];
