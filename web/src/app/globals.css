@@ -2,6 +2,84 @@
 @tailwind components;
 @tailwind utilities;
 
+.artoro-brand-mark {
+  position: relative;
+  isolation: isolate;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  padding: 2px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #ffe600 0%, #38bdf8 42%, #6366f1 72%, #fbbf24 100%);
+  background-size: 240% 240%;
+  animation: artoro-gradient-drift 9s ease-in-out infinite;
+  box-shadow: 0 6px 18px rgba(56, 189, 248, 0.18);
+}
+
+.artoro-brand-mark::before {
+  position: absolute;
+  z-index: -1;
+  inset: -4px;
+  border-radius: inherit;
+  background: inherit;
+  content: "";
+  filter: blur(9px);
+  opacity: 0.32;
+}
+
+.artoro-brand-mark__core {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: inherit;
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.97), rgba(5, 8, 22, 0.95));
+  padding: 5px;
+}
+
+.artoro-brand-mark--header {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+}
+
+.artoro-brand-mark--launcher {
+  width: 50px;
+  height: 50px;
+  border-radius: 17px;
+}
+
+.artoro-brand-mark--hero {
+  width: 68px;
+  height: 68px;
+  border-radius: 22px;
+}
+
+.artoro-brand-mark__version {
+  position: absolute;
+  right: -7px;
+  bottom: -5px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 999px;
+  background: #0f172a;
+  padding: 2px 5px;
+  color: white;
+  font: 800 8px/1.1 system-ui, sans-serif;
+  letter-spacing: 0.06em;
+  box-shadow: 0 2px 8px rgba(2, 6, 23, 0.25);
+}
+
+@keyframes artoro-gradient-drift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .artoro-brand-mark { animation: none; background-position: 50% 50%; }
+}
+
 @layer base {
   body {
     font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;

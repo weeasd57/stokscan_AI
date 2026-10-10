@@ -13,6 +13,17 @@ import { FormattedChatMessage } from "@/components/chat/FormattedChatMessage";
 import { isChatAdminEmail } from "@/lib/chat-sharing";
 import { toast } from "sonner";
 
+function ArtoroBrandMark({ size = "header" }: { size?: "header" | "launcher" | "hero" }) {
+    return (
+        <span className={`artoro-brand-mark artoro-brand-mark--${size}`} role="img" aria-label="ARTORO V3">
+            <span className="artoro-brand-mark__core">
+                <NextImage src="/favicon_io/apple-touch-icon.png" alt="" width={48} height={48} className="h-full w-full object-contain" priority />
+            </span>
+            {size !== "header" && <span className="artoro-brand-mark__version" aria-hidden="true">V3</span>}
+        </span>
+    );
+}
+
 export default function ChatWidget() {
     const { 
         isOpen, 
@@ -289,10 +300,11 @@ export default function ChatWidget() {
         return (
             <button
                 onClick={() => setIsOpen(true)}
-                className="fixed bottom-5 right-5 h-16 w-16 bg-[#FFE600] hover:bg-[#ffef5c] border-4 border-black dark:border-white text-black flex items-center justify-center shadow-[6px_6px_0_0_#000] dark:shadow-[6px_6px_0_0_#fff] transition-all hover:-translate-x-1 hover:-translate-y-1 hover:shadow-[9px_9px_0_0_#000] dark:hover:shadow-[9px_9px_0_0_#fff] active:translate-x-1 active:translate-y-1 active:shadow-none z-[9999] animate-in fade-in zoom-in duration-300 p-2"
-                title="ARTORO"
+                className="fixed bottom-5 right-5 z-[9999] flex h-[72px] w-[72px] items-center justify-center rounded-[24px] border border-white/70 bg-white/85 p-2 shadow-[0_12px_34px_rgba(2,6,23,0.24)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_18px_42px_rgba(2,6,23,0.32)] active:translate-y-0 animate-in fade-in zoom-in"
+                title="افتح ARTORO V3"
+                aria-label="افتح ARTORO V3"
             >
-                <NextImage src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={40} height={40} className="w-10 h-10 object-contain" priority />
+                <ArtoroBrandMark size="launcher" />
             </button>
         );
     }
@@ -300,12 +312,12 @@ export default function ChatWidget() {
     return (
         <div 
             className={`
-                fixed z-[9999] flex bg-[#fffdf2] dark:bg-[#09090b] border-4 border-black dark:border-white transition-all duration-300 overflow-hidden
-                max-md:inset-0 max-md:w-full max-md:h-[100dvh] max-md:rounded-none max-md:pt-[env(safe-area-inset-top,0px)] max-md:pb-[env(safe-area-inset-bottom,0px)]
-                md:rounded-none md:min-w-[400px] md:min-h-[320px] md:max-w-[100vw] md:max-h-[100vh]
+                fixed z-[9999] flex gap-1 bg-transparent transition-all duration-300
+                max-md:inset-0 max-md:w-full max-md:h-[100dvh] max-md:gap-0 max-md:p-0 max-md:pt-[env(safe-area-inset-top,0px)] max-md:pb-[env(safe-area-inset-bottom,0px)]
+                md:rounded-[32px] md:p-3 md:min-w-[400px] md:min-h-[320px] md:max-w-[100vw] md:max-h-[100vh]
                 ${isExpanded 
-                    ? "md:top-4 md:bottom-4 md:left-4 md:right-4 md:w-[calc(100vw-2rem)] md:h-[calc(100vh-2rem)] md:shadow-[10px_10px_0_0_#000] dark:md:shadow-[10px_10px_0_0_#fff]"
-                    : "md:bottom-6 md:right-6 md:top-auto md:left-auto md:w-[700px] md:h-[680px] md:shadow-[10px_10px_0_0_#000] dark:md:shadow-[10px_10px_0_0_#fff]"
+                    ? "md:top-4 md:bottom-4 md:left-4 md:right-4 md:w-[calc(100vw-2rem)] md:h-[calc(100vh-2rem)]"
+                    : "md:bottom-6 md:right-6 md:top-auto md:left-auto md:w-[740px] md:h-[680px]"
                 }
             `}
         >
@@ -324,43 +336,45 @@ export default function ChatWidget() {
             )}
 
             {/* Main Chat Container */}
-            <div className="flex-1 flex flex-col h-full min-h-0 min-w-0 overflow-hidden">
+            <div className="flex-1 flex flex-col h-full min-h-0 min-w-0 overflow-hidden rounded-none border-0 bg-[#fffdf2] shadow-none dark:bg-[#09090b] md:rounded-[24px] md:border md:border-slate-200/80 md:shadow-[0_18px_55px_rgba(2,6,23,0.26)] dark:md:border-white/10 dark:md:shadow-[0_22px_60px_rgba(0,0,0,0.42)]">
                 {/* Header */}
-                <div className="flex items-center justify-between px-3 py-1.5 border-b-2 border-black dark:border-white bg-[#FFE600] shrink-0">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200/80 dark:border-white/10 bg-white/75 dark:bg-slate-950/65 shrink-0">
                     <div className="flex items-center gap-2 text-black font-black uppercase tracking-tight">
-                        {user && (
+                        {user && !isSidebarOpen && (
                             <button
                                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                                className="p-1.5 bg-white text-black border-2 border-black shadow-[2px_2px_0_0_#000] hover:bg-amber-400 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
-                                title="سجل المحادثات"
+                                className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 active:scale-95 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                                title="فتح سجل المحادثات"
+                                aria-label="فتح سجل المحادثات"
                             >
-                                <PanelLeft className="h-4 w-4 stroke-[2.5]" />
+                                <PanelLeft className="h-[18px] w-[18px]" />
                             </button>
                         )}
-                        <div className="h-7 w-7 border-2 border-black bg-white flex items-center justify-center shadow-[2px_2px_0_0_#000] p-1 shrink-0">
-                            <NextImage src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={28} height={28} className="w-6 h-6 object-contain" />
-                        </div>
-                        <span>ARTORO</span>
+                        <ArtoroBrandMark size="header" />
+                        <span className="text-[15px] font-extrabold tracking-[0.12em] text-slate-800 dark:text-slate-100">ARTORO</span>
+                        <span className="rounded-md bg-gradient-to-r from-amber-300 via-sky-300 to-indigo-300 px-1.5 py-0.5 text-[9px] font-black tracking-wider text-slate-900 shadow-sm">V3</span>
                     </div>
                     <div className="flex items-center gap-2">
                         {user && (
-                            <div className="text-[10px] font-black px-2.5 py-1.5 bg-white text-black border-2 border-black uppercase shadow-[2px_2px_0_0_#000]">
+                            <div className="text-[10px] font-bold px-2.5 py-1.5 rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 uppercase">
                                 {remainingQuota >= 99 ? "Unlimited ♾️" : `${remainingQuota}/5 Left`}
                             </div>
                         )}
                         <button
                             onClick={() => setIsExpanded(!isExpanded)}
-                            className="hidden md:flex p-1.5 bg-white text-black border-2 border-black shadow-[2px_2px_0_0_#000] hover:bg-amber-400 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                            className="hidden md:grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 active:scale-95 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                             title={isExpanded ? "تعديل الحجم الافتراضي" : "تكبير النافذة"}
+                            aria-label={isExpanded ? "استعادة حجم النافذة" : "تكبير النافذة"}
                         >
-                            {isExpanded ? <Minimize2 className="h-4 w-4 stroke-[2.5]" /> : <Maximize2 className="h-4 w-4 stroke-[2.5]" />}
+                            {isExpanded ? <Minimize2 className="h-[18px] w-[18px]" /> : <Maximize2 className="h-[18px] w-[18px]" />}
                         </button>
                         <button
                             onClick={() => setIsOpen(false)}
-                            className="p-1.5 bg-white text-black border-2 border-black shadow-[2px_2px_0_0_#000] hover:bg-rose-400 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center justify-center"
+                            className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600 active:scale-95 dark:border-white/10 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-rose-950/40"
                             title="إغلاق"
+                            aria-label="إغلاق الشات"
                         >
-                            <X className="h-4 w-4 stroke-[2.5]" />
+                            <X className="h-[18px] w-[18px]" />
                         </button>
                     </div>
                 </div>
@@ -440,13 +454,12 @@ export default function ChatWidget() {
                                     {/* Header & Logo */}
                                     <div className="flex flex-col items-center text-center space-y-2.5">
                                         <div className="relative">
-                                            <div className="h-16 w-16 border-4 border-black dark:border-white bg-[#FFE600] text-black flex items-center justify-center shadow-[5px_5px_0_0_#000] dark:shadow-[5px_5px_0_0_#fff] rotate-[-2deg] p-2">
-                                                <NextImage src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={48} height={48} className="w-11 h-11 object-contain" />
-                                            </div>
-                                            <span className="absolute -bottom-2 -right-2 px-1.5 py-0.5 bg-[#00FF66] text-black text-[9px] font-black uppercase border-2 border-black tracking-wider">
+                                            <ArtoroBrandMark size="hero" />
+                                            <span className="absolute -bottom-1.5 -right-3 rounded-full border border-white/70 bg-white px-2 py-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-700 shadow-sm dark:border-white/15 dark:bg-slate-800 dark:text-slate-100">
                                                 AI PRO
                                             </span>
                                         </div>
+                                        <span className="text-[11px] font-extrabold tracking-[0.22em] text-slate-500 dark:text-slate-400">ARTORO V3</span>
                                         <h3 className="font-black text-xl sm:text-2xl text-black dark:text-white tracking-tight">
                                             اسأل السوق أو حلل محفظتك بالذكاء الاصطناعي
                                         </h3>
