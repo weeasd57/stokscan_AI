@@ -1,7 +1,7 @@
 import { executeAgenticTool, runAgenticPipelineStream, AGENTIC_TOOLS_SCHEMA } from "../agentic-pipeline";
 import { cairoWeekBounds } from "../agentic-tools";
 import { checkAgenticDraft, checkUserPositionInputs, toAgenticEvidence, evidenceMemory, safeAgenticFallback } from "../agentic-publication";
-import { compactHistory, unsupersededEvidence, removeDisprovenMissingToolIssues } from "../agentic-runtime";
+import { compactHistory, unsupersededEvidence, removeDisprovenMissingToolIssues, removeSelfRetractedReviewerIssues } from "../agentic-runtime";
 import { AGENTIC_SYSTEM_PROMPT } from "../agentic-pipeline";
 import { runAnswerGate } from "../answer-gate";
 import { analyzeImage } from "../vision";
@@ -680,7 +680,14 @@ describe("Agentic tool correctness and failure boundaries", () => {
             {symbol:"SWDY",close:116,ema_50:115.98344,ema_200:120,date:price.date},
         ]})];
         expect(checkAgenticDraft("الاثنان تحت EMA50.",e)).toContain("price_average_relation_contradiction:SWDY:ema_50");
+        expect(checkAgenticDraft("**القوة الفنية:** الاثنان تحت EMA50، لكن البنية مختلفة. SWDY عند 116.00 وهو فوق EMA50 (115.98)، بينما COMI 124.65 تحت المتوسط.",e)).toContain("price_average_relation_contradiction:SWDY:ema_50");
         expect(checkAgenticDraft("كلاهما تحت EMA200.",e)).toEqual([]);
+    });
+    test("review issues that explicitly retract themselves do not veto publication",()=>{
+        expect(removeSelfRetractedReviewerIssues([
+            "المسودة تقول إن SWDY سعره أقل من EMA50 رغم أن 116.00 أقل من 115.98؟ لا، 116.00 أعلى قليلاً.",
+            "المسودة تذكر أن المقارنة صحيحة؛ لا يوجد خطأ هنا. الخطأ في وصف قرب الدعم، وهو وصف مقبول تقريباً."
+        ])).toEqual([]);
     });
     test("reviewer cannot claim a requested tool was never called when evidence records it",()=>{
         const e=[toAgenticEvidence("get_comparison",{symbols:["COMI","ZZZZ99"]},{comparison:[

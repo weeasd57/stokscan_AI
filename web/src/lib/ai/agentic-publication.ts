@@ -321,7 +321,10 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
             // the sentence omits tickers (for example, "both are below EMA50").
             const blanket = /(?:الاثنان|الاثنين|كلاهما|كلا السهمين|both|all\s+(?:stocks|shares))/i.test(line);
             const blanketRelation = line.match(/(فوق|أعلى من|اعلى من|تحت|أسفل|اسفل|above|below)\s*(?:الـ\s*)?EMA\s*(50|200)/i);
-            if (blanket && blanketRelation && !/(?:إذا|اذا|لو|أمس|امس|سابق|ليس|مش|غير|(?:^|\s)لا(?:\s|$))/i.test(line)) {
+            const beforeRelation = line.slice(Math.max(0, blanketRelation ? blanketRelation.index! - 35 : 0), blanketRelation?.index || 0);
+            const hypotheticalOrNegated = /إذا|اذا|لو|أمس|امس|سابق|\bif\b/i.test(beforeRelation)
+                || /(?:ليس|مش|غير|(?:^|\s)لا(?:\s|$))\s*(?:كان|يكون|هو|were|was|is|are)?\s*$/i.test(beforeRelation.slice(-18));
+            if (blanket && blanketRelation && !hypotheticalOrNegated) {
                 const above = /فوق|أعلى|اعلى|above/i.test(blanketRelation[1]);
                 for (const row of quotes) {
                     const close = Number(row.close), average = Number(row[`ema_${blanketRelation[2]}`]);
