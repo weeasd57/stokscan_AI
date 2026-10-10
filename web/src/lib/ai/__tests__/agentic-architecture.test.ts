@@ -1,7 +1,7 @@
 import { executeAgenticTool, runAgenticPipelineStream, AGENTIC_TOOLS_SCHEMA } from "../agentic-pipeline";
 import { cairoWeekBounds } from "../agentic-tools";
 import { checkAgenticDraft, checkUserPositionInputs, toAgenticEvidence, evidenceMemory, safeAgenticFallback } from "../agentic-publication";
-import { compactHistory, unsupersededEvidence, removeDisprovenMissingToolIssues, removeSelfRetractedReviewerIssues } from "../agentic-runtime";
+import { groundedReviewerIssues, compactHistory, unsupersededEvidence, removeDisprovenMissingToolIssues, removeSelfRetractedReviewerIssues } from "../agentic-runtime";
 import { AGENTIC_SYSTEM_PROMPT } from "../agentic-pipeline";
 import { runAnswerGate } from "../answer-gate";
 import { analyzeImage } from "../vision";
@@ -37,6 +37,15 @@ async function run(messages: any[], overrides: any = {}) {
 const stockDb = () => db(q => ({ data: q.table === "stock_prices" ? [price] : q.table === "stocks" ? { symbol:"COMI",name:"Commercial Bank" } : [], error:null }));
 
 describe("Agentic architecture integration: current production path", () => {
+    test("an invented reviewer quote is rechecked without rewriting the valid draft", async () => {
+        const invalid = {content:JSON.stringify({passed:false,issues:[{message:"عرض أهدافاً",kind:"claim",draft_quote:"take_profit_1"}]})};
+        const result = await run([{content:"لا يتوفر صافي شراء المؤسسات اليوم؛ المتاح مؤشرات فنية مؤرخة فقط."}, invalid,
+            {content:JSON.stringify({passed:true,issues:[],notes:[]})}]);
+        expect(result.done.publication_review).toMatchObject({final_passed:true,repaired:false});
+        expect(result.done.response_origin).toBe("llm");
+        expect(result.done.usage.calls.map((c:any)=>c.stage)).toEqual(["chat","review","review"]);
+    });
+
     test("diagnostic capture observes the real provider messages without changing execution", async () => {
         const captures: any[] = [];
         const result = await run([{content:"حدد أفق الاستثمار قبل اختيار سهم."}, verdict()], {options:{diagnosticCapture:(type: string,data: any)=>captures.push({type,data:JSON.parse(JSON.stringify(data))})}});
@@ -177,7 +186,7 @@ describe("Agentic architecture integration: current production path", () => {
     });
     test("specialized screens and scenarios remain LLM selected", () => {
         const names=new Set(AGENTIC_TOOLS_SCHEMA.map(t=>t.function.name));
-        expect(names.size).toBe(14); expect(names.has("screen_stocks")).toBe(true); expect(names.has("analyze_portfolio_risk")).toBe(true);
+        expect(names.size).toBe(15); expect(names.has("calculate_position")).toBe(true); expect(names.has("screen_stocks")).toBe(true); expect(names.has("analyze_portfolio_risk")).toBe(true);
     });
     test("reviewer prompt distinguishes requested scenario holdings from saved positions",async()=>{
         const r=await run([{content:"تم تحليل السيناريو"},verdict()],{userMessage:"معايا 100 ألف ومحفظتي فيها COMI وSWDY"});
@@ -323,7 +332,7 @@ describe("Agentic architecture integration: current production path", () => {
         expect(r.done.publication_review.final_passed).toBe(true);expect(r.fetchMock).toHaveBeenCalledTimes(2);expect(r.done.response_origin).toBe("llm");
     });
     test("canonical issues still reject a contradictory passed=true verdict",async()=>{
-        const bad={content:JSON.stringify({passed:true,issues:["المطلوب لم ينفذ"],notes:[]})};
+        const bad={content:JSON.stringify({passed:true,issues:[{message:"المطلوب لم ينفذ",kind:"omission",draft_quote:null}],notes:[]})};
         const r=await run([{content:"مسودة ناقصة"},bad,{content:"مسودة ناقصة"},bad]);expect(r.done.publication_review.final_passed).toBe(false);
     });
     test("spaces and promotional link cannot become a reviewed answer",async()=>{
@@ -403,7 +412,7 @@ describe("Agentic architecture integration: current production path", () => {
 });
 
 describe("Agentic tool correctness and failure boundaries", () => {
-    test.each(AGENTIC_TOOLS_SCHEMA.map(t=>t.function.name).filter(name => !["list_chart_strategies", "apply_chart_strategy", "compare_strategies_history", "screen_stocks", "analyze_portfolio_risk"].includes(name)))("existing data tools: %s reads healthy bounded fixtures",async tool=>{
+    test.each(AGENTIC_TOOLS_SCHEMA.map(t=>t.function.name).filter(name => !["list_chart_strategies", "apply_chart_strategy", "compare_strategies_history", "screen_stocks", "analyze_portfolio_risk", "calculate_position"].includes(name)))("existing data tools: %s reads healthy bounded fixtures",async tool=>{
         const d=db(q=>({data:q.table === "stocks" ? [{id:1,symbol:"COMI",name:"Commercial Bank"}] : q.table === "stock_prices" ? [price]
             : q.table === "market_cache" ? {payload:{egx30:[{close:100,date:"2026-10-07"},{close:101,date:price.date}],regime:"sideways"}}
             : q.table === "stock_technical_indicators" ? [{symbol:"COMI",...price,change_pct:1,r_vol:2,rsi_14:55,macd:1,macd_signal:.5,macd_histogram:.5}]

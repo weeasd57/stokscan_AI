@@ -68,7 +68,7 @@ export function toAgenticEvidence(tool: string, args: any, data: any): AgenticEv
         && Array.isArray(data.stocks) && typeof data.scan_complete === "boolean";
     return { tool, arguments: args, data, source: tool === "list_chart_strategies" ? "deterministic:strategy-catalog" : "supabase:" + ({ get_stock: "stock_technical_indicators+stocks+stock_scans_summary", get_stock_levels: "stock_prices",
         apply_chart_strategy: "stock_prices+deterministic-strategy-engine", compare_strategies_history: "stock_prices+deterministic-backtest", list_chart_strategies: "strategy-catalog",
-        manage_portfolio: "positions+stock_technical_indicators", get_market: "market_cache+stock_technical_indicators", get_news: "stock_news_sentiment+stocks",
+        calculate_position: "stock_technical_indicators+position-calculation", manage_portfolio: "positions+stock_technical_indicators", get_market: "market_cache+stock_technical_indicators", get_news: "stock_news_sentiment+stocks",
         get_recommendations: "scan_results+stock_technical_indicators", get_accumulation_stocks: "stock_scans_summary", get_comparison: "stock_technical_indicators",
         get_technical_scan: args.preset === "smart_money_flow" ? "stock_scans_summary" : "stock_technical_indicators",
         screen_stocks: "stock_technical_indicators+stock_prices", analyze_portfolio_risk: "positions+stock_fundamentals+scenario-calculation" } as any)[tool],
@@ -110,7 +110,7 @@ export function agenticFacts(evidence: AgenticEvidence[]): FactRecord[] {
                 for (const [level, field] of [["support", "distance_from_support_pct"], ["resistance", "distance_from_resistance_pct"]] as const) {
                     if (Number.isFinite(row[level]) && row[level] > 0 && row[field] == null)
                         facts.push({ id: `${row.symbol}:${field}:close`, symbol: row.symbol, field,
-                            value: Math.abs(row.close - row[level]) / row.close * 100, unit: "percent",
+                            value: (row[level] - row.close) / row.close * 100, unit: "percent",
                             as_of: row.date ?? null, source: e.source, tool: e.tool, fetched_at: new Date().toISOString() });
                 }
             }
@@ -161,6 +161,8 @@ function cleanCellText(text: string): string {
 /** Metric labels describe generated evidence, never user intent routing. */
 function tableMetricFields(label: string): FactRecord["field"][] | undefined {
     const text = label.replace(/[*_]/g, "");
+    if (/ربح|خسار/i.test(text) && /%|٪|نسب/i.test(text)) return ["profit_pct"];
+    if (/ربح|خسار/i.test(text) && /جنيه|بالجنيه/i.test(text)) return ["profit_value"];
     if (/EMA\s*50/i.test(text) && /EMA\s*200/i.test(text)) return ["ema_50","ema_200"];
     const labels: Array<[RegExp, FactRecord["field"][]]> = [
         [/^(?!.*سعر).*(?:إشارات.*شراء|buy.*signals|(?:إشارات|صفقات)\s*شراء|^شراء$)/i,["chart_buy_signal_count"]], [/^(?!.*سعر).*(?:إشارات.*بيع|sell.*signals|(?:إشارات|صفقات)\s*بيع|^بيع$)/i,["chart_sell_signal_count"]], [/(?:عدد|إجمالي|مجموع|كل)?\s*إشارات|signal.*count|إشارات/i,["chart_signal_count"]],
@@ -168,8 +170,8 @@ function tableMetricFields(label: string): FactRecord["field"][] | undefined {
         [/RSI|القوة النسبية/i,["rsi"]], [/هيست|hist/i,["macd_hist"]], [/MACD.*(?:signal|إشار|اشار)|(?:signal|إشار|اشار).*MACD/i,["macd_signal"]], [/MACD/i,["macd","macd_signal","macd_hist"]],
         [/EMA\s*50/i,["ema_50"]], [/EMA\s*200/i,["ema_200"]], [/حجم.*نسبي|الحجم النسبي|r_vol|vol_ratio/i,["vol_ratio"]],
         [/KING/i,["king_ai_score"]], [/EGX.*AI/i,["egx_ai_score"]], [/تجميع/i,["acc_score"]], [/تصريف/i,["dist_score"]],
-        [/سعر.*(?:شراء|دخول)|الدخول/i,["entry_price","cost_basis"]], [/وقف/i,["stop_loss"]], [/هدف|مستهدف/i,["target_price"]], [/مسافة.*دعم|بعد.*دعم|القرب.*دعم/i,["distance_from_support_pct"]], [/دعم/i,["support"]], [/مسافة.*مقاوم|بعد.*مقاوم|القرب.*مقاوم/i,["distance_from_resistance_pct"]], [/مقاوم/i,["resistance"]],
-        [/تكلف/i,["cost_basis"]], [/توزيع|وزن|نسبة.*المحفظة|تركيز.*قطاع/i,["position_pct"]], [/مبلغ.*مخصص|قيمة.*مخصصة|رأس.*مال.*موزع/i,["value"]], [/قيمة.*سوق|القيمة السوقية/i,["market_value"]], [/ربح|خسار|عائد|النسبة/i,["profit_pct","profit_value","backtest_return_pct"]],
+        [/متوسط.*شراء|سعر.*(?:شراء|دخول)|الدخول/i,["entry_price"]], [/وقف/i,["stop_loss"]], [/هدف|مستهدف/i,["target_price"]], [/مسافة.*دعم|بعد.*دعم|القرب.*دعم/i,["distance_from_support_pct"]], [/دعم/i,["support"]], [/مسافة.*مقاوم|بعد.*مقاوم|القرب.*مقاوم/i,["distance_from_resistance_pct"]], [/مقاوم/i,["resistance"]],
+        [/تكلف/i,["cost_basis"]], [/توزيع|وزن|نسبة.*المحفظة|تركيز.*قطاع/i,["position_pct"]], [/مبلغ.*مخصص|قيمة.*مخصصة|رأس.*مال.*موزع/i,["value"]], [/قيمة.*(?:سوق|مركز)|القيمة السوقية/i,["market_value"]], [/ربح|خسار|عائد|النسبة/i,["profit_pct","profit_value","backtest_return_pct"]],
         [/خسارة.*افتراضية|خسارة.*سيناريو|هبوط.*مفترض/i,["scenario_loss_amount","scenario_loss_pct"]], [/رأس.*مال|إجمالي.*رأس المال/i,["scenario_capital"]],
         [/تغير|التغيّر/i,["change_pct"]], [/كمية|الكمية|عدد|مراكز/i,["quantity"]], [/إغلاق|اغلاق|السعر|سعر|price|close/i,["price","close"]],
     ];
@@ -289,18 +291,22 @@ function checkResistanceRelations(reply: string, evidence: AgenticEvidence[]): s
     return [...new Set(reasons)];
 }
 
-/** Explicit position inputs in the current request are part of the answer contract. */
-export function checkUserPositionInputs(reply: string, request: string): string[] {
+function explicitPositionInputs(request: string) {
     const normalizedRequest = normalizeDigitsAndNumberFormatting(request);
-    const normalizedReply = normalizeDigitsAndNumberFormatting(reply);
-    const reasons: string[] = [];
-    const average = normalizedRequest.match(/(?:متوسطي|متوسط(?:ي)?(?:\s+(?:الشراء|سعر\s+الشراء))?|سعر\s+شرائي|اشتريت(?:ه)?\s+بسعر)\s*(?:(?:هو|فيه|عند)\s*)?[:=]?\s*(\d+(?:\.\d+)?)/i);
+    const average = normalizedRequest.match(/(?:متوسطي|متوسط(?:ي)?(?:\s+(?:(?:ال)?شراء|سعر\s+(?:ال)?شراء))?|سعر\s+شرائي|اشتريت(?:ه)?\s+بسعر)\s*(?:(?:هو|فيه|عند)\s*)?[:=]?\s*(\d+(?:\.\d+)?)/i);
     const quantity = normalizedRequest.match(/(?:معايا|معي|عندي)\s*(\d+(?:\.\d+)?)\s*(?:سهم|أسهم|اسهم)(?=\s|$|[،,.!?])/i)
         || normalizedRequest.match(/(?:كمية(?:\s+الأسهم)?|عدد\s+الأسهم)\s*(?:هي\s*)?[:=]?\s*(\d+(?:\.\d+)?)/i);
-    if (average && !new RegExp(`(?<![\\d.])${average[1].replace(".", "\\.")}(?![\\d.])`).test(normalizedReply))
-        reasons.push(`user_position_average_omitted:${average[1]}`);
-    if (quantity && !new RegExp(`(?<![\\d.])${quantity[1].replace(".", "\\.")}(?![\\d.])`).test(normalizedReply))
-        reasons.push(`user_position_quantity_omitted:${quantity[1]}`);
+    return { average: average?.[1], quantity: quantity?.[1] };
+}
+
+/** Explicit position inputs in the current request are part of the answer contract. */
+export function checkUserPositionInputs(reply: string, request: string): string[] {
+    const normalizedReply = normalizeDigitsAndNumberFormatting(reply);
+    const reasons: string[] = [];
+    const { average, quantity } = explicitPositionInputs(request);
+    const numbers = [...normalizedReply.matchAll(/\d+(?:\.\d+)?/g)].map(match => Number(match[0]));
+    if (average && !numbers.includes(Number(average))) reasons.push(`user_position_average_omitted:${average}`);
+    if (quantity && !numbers.includes(Number(quantity))) reasons.push(`user_position_quantity_omitted:${quantity}`);
     return reasons;
 }
 
@@ -308,7 +314,7 @@ export function checkUserPositionInputs(reply: string, request: string): string[
 export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], request = ""): string[] {
     const reasons: string[] = [];
     if (!reply.trim()) reasons.push("empty_response");
-    if (/\b(?:get_stock(?:_levels)?|get_market|get_comparison|get_news|get_recommendations|get_technical_scan|get_accumulation_stocks|manage_portfolio|screen_stocks|analyze_portfolio_risk|list_chart_strategies|apply_chart_strategy|compare_strategies_history|stock_prices|stock_technical_indicators|stock_scans_summary|ai_chat_sessions|ai_chat_messages)\b/.test(reply)) reasons.push("internal_implementation_names_in_response");
+    if (/\b(?:get_stock(?:_levels)?|get_market|get_comparison|get_news|get_recommendations|get_technical_scan|get_accumulation_stocks|calculate_position|manage_portfolio|screen_stocks|analyze_portfolio_risk|list_chart_strategies|apply_chart_strategy|compare_strategies_history|stock_prices|stock_technical_indicators|stock_scans_summary|ai_chat_sessions|ai_chat_messages)\b/.test(reply)) reasons.push("internal_implementation_names_in_response");
     const substantive = reply.replace(/\[[^\]]*\]\(https?:\/\/[^)]*\)/g, "").replace(/https?:\/\/\S+/g, "")
         .replace(/✅ تحليل EGX Bots[^\n]*/g, "").replace(/📢[^\n]*/g, "");
     if (!/[\p{L}]{2}/u.test(substantive)) reasons.push("response_has_no_substantive_answer");
@@ -318,6 +324,13 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
     reasons.push(...checkStrategyClaims(reply, evidence));
     reasons.push(...checkAttribution(reply, facts));
     if (request) reasons.push(...checkUserPositionInputs(reply, request));
+    const supplied = explicitPositionInputs(request);
+    for (const e of evidence.filter(e => e.tool === "calculate_position" && e.availability !== "error")) {
+        for (const r of evidenceRows(e.data)) {
+            if (supplied.quantity && r.quantity !== Number(supplied.quantity)) reasons.push("position_quantity_differs_from_request");
+            if (supplied.average && r.entry_price !== Number(supplied.average)) reasons.push("position_average_differs_from_request");
+        }
+    }
     if (request && /(?:أخبار|اخبار|خبر|news)/i.test(request)) {
         const requestedNewsSymbols = [...new Set(evidence.filter(e=>e.tool === "get_news" && e.availability !== "error")
             .flatMap(e=>Array.isArray(e.arguments?.symbols) ? e.arguments.symbols : []).map((s:any)=>String(s).toUpperCase()))];
@@ -404,12 +417,13 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
     let isComparisonTable = false;
     let headers: string[] = [];
 
-    const matchesFact = (val: number, targetFacts: FactRecord[]): boolean => {
+    const matchesFact = (val: number, targetFacts: FactRecord[], precision?: number): boolean => {
         const candidateFacts = targetFacts;
         return candidateFacts.some(f => {
             const fractionalScreenPrice = f.tool === "screen_stocks" && Math.abs(f.value) < 1
                 && ["price", "close", "resistance"].includes(f.field);
-            const tol = fractionalScreenPrice ? Math.max(0.00005, Math.abs(f.value) * 0.0005) : Math.max(0.02, Math.abs(f.value) * 0.005);
+            const distancePrecision = precision != null && ["distance_from_support_pct", "distance_from_resistance_pct"].includes(f.field);
+            const tol = distancePrecision ? Math.max(0.02, 0.5 * 10 ** -precision! + 1e-8) : fractionalScreenPrice ? Math.max(0.00005, Math.abs(f.value) * 0.0005) : Math.max(0.02, Math.abs(f.value) * 0.005);
             if (Math.abs(val - f.value) <= tol) return true;
             // If the recorded fact is negative (e.g. loss or drop), reporting the positive magnitude is standard in financial tables/prose.
             if (f.value < 0 && Math.abs(val - Math.abs(f.value)) <= tol) return true;
@@ -497,7 +511,8 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
         }
 
         let symbol: string | null = null;
-        if (isSummaryRow) {
+        const stockQuantityRow = currentSymbol && !tableHadStockRow && /عدد\s*(?:الأسهم|المراكز|الصفقات)|المراكز/i.test(cells[0]);
+        if (isSummaryRow && !stockQuantityRow) {
             symbol = "PORTFOLIO";
         } else if (lineSymbols.length === 1) {
             symbol = lineSymbols[0];
@@ -521,8 +536,12 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
 
         for (let idx = 0; idx < cells.length; idx++) {
             if (idx === rankColIdx || cells[idx].includes(symbol)) continue;
-            const fields = (scenarioRow ? scenarioMetricFields(headers[idx]) : tableMetricFields(headers[idx]))
-                || (currentSymbol ? tableMetricFields(cells[0]) : undefined);
+            const distanceColumn = /مساف|الموقع.*(?:إغلاق|اغلاق)|بعد.*(?:إغلاق|اغلاق)/i.test(headers[idx] || "");
+            const levelField: FactRecord["field"] | undefined = /دعم/.test(cells[0]) ? "distance_from_support_pct"
+                : /مقاوم/.test(cells[0]) ? "distance_from_resistance_pct" : undefined;
+            const fields = distanceColumn && levelField ? [levelField]
+                : (scenarioRow ? scenarioMetricFields(headers[idx]) : tableMetricFields(headers[idx]))
+                    || (currentSymbol ? tableMetricFields(cells[0]) : undefined);
             const allocationFacts = scenarioRow ? buildFactRecords([{ tool: "analyze_portfolio_risk", source: "scenario-calculation",
                 data: [{ symbol, position_pct: scenarioRow.allocation_pct, value: scenarioRow.allocated_capital,
                     scenario_loss_pct: scenarioRow.scenario_loss_pct, scenario_loss_amount: scenarioRow.scenario_loss_amount }] }]) : [];
@@ -542,7 +561,7 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
             const clean = cleanCellText(cells[idx]);
             for (const match of clean.matchAll(/[-+]?\d+(?:\.\d+)?/g)) {
                 const n = Number(match[0]);
-                if (!matchesFact(n, targetFacts) || (match[0].startsWith("+") && targetFacts.some(f => f.value < 0 && Math.abs(n + f.value) < 0.02)))
+                if (!matchesFact(n, targetFacts, match[0].includes(".") ? match[0].split(".")[1].length : undefined) || (match[0].startsWith("+") && matchesFact(-n, targetFacts.filter(f => f.value < 0), match[0].includes(".") ? match[0].split(".")[1].length : undefined)))
                     reasons.push(`table_value_not_grounded:${symbol}:${n}`);
             }
         }
@@ -568,6 +587,13 @@ export function safeAgenticFallback(evidence: AgenticEvidence[], reason: string)
                 lines.push("المساوي للمقاومة عندها، والأقل تحتها؛ أعلى 20 جلسة يشمل جلسة اللقطة، فلا يثبت قرب السعر أو مساواته اختراق مقاومة سابقة.");
                 if(d.scan_complete===false) lines.push("المسح جزئي: بعض المرشحين تجاوزوا حد الفحص أو لا يتوفر لهم تاريخ 20 جلسة.");
             } else lines.push("لا تتوفر لقطة مؤرخة لإتمام المسح الفني حالياً.");
+        }
+        if (e.tool === "calculate_position" && e.data?.status === "success") {
+            for (const r of e.data.positions || []) {
+                lines.push(`\nحساب مؤقت للسهم ${r.symbol} دون حفظ: ${r.quantity} سهم بمتوسط شراء ${r.entry_price} جنيه، التكلفة ${r.cost} جنيه.`);
+                if (r.market_value != null) lines.push(`على إغلاق ${r.close} بتاريخ ${r.date}: قيمة المركز ${r.market_value} جنيه، الربح/الخسارة ${r.profit_loss_val} جنيه (${r.profit_loss_pct}%). لا يشمل العمولات.`);
+                else lines.push("لا يتوفر إغلاق مؤرخ لحساب القيمة والربح/الخسارة.");
+            }
         }
         if (e.tool === "analyze_portfolio_risk" && e.data?.mode === "scenario") {
             const d=e.data;

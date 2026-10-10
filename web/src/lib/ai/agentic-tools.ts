@@ -63,6 +63,30 @@ async function executeRawTool(
     userId: string
 ): Promise<any> {
     try {
+        if (toolName === "calculate_position") {
+            if (!args.symbol) throw new Error("رمز السهم مطلوب لحساب المركز");
+            const symbol = normalizeSymbol(args.symbol);
+            const quantity = positive(args.quantity), entry_price = positive(args.entry_price);
+            const cost = quantity * entry_price;
+            if (!Number.isFinite(cost)) throw new Error("قيمة المركز تتجاوز حدود الحساب");
+            const { data } = await supabase.from("stock_technical_indicators")
+                .select("date,close").eq("exchange", "EGX").eq("symbol", symbol)
+                .order("date", { ascending: false }).limit(1);
+            const quote = data?.[0];
+            const close = finite(quote?.close);
+            const priced = close != null && close > 0 && Boolean(quote?.date);
+            const marketValue = priced ? quantity * close! : null;
+            const profit = marketValue == null ? null : marketValue - cost;
+            if (marketValue != null && !Number.isFinite(marketValue)) throw new Error("قيمة المركز تتجاوز حدود الحساب");
+            return { status: "success", mode: "temporary_position", persisted: false,
+                valuation_complete: priced, fees_included: false,
+                positions: [{ symbol, quantity, entry_price, cost: round(cost),
+                    close: priced ? close : null, date: priced ? quote.date : null,
+                    market_value: round(marketValue), profit_loss_val: round(profit),
+                    profit_loss_pct: profit == null ? null : round(profit / cost * 100) }],
+                formulas: { cost: "quantity * entry_price", market_value: "quantity * close",
+                    profit_loss_val: "market_value - cost", profit_loss_pct: "profit_loss_val / cost * 100" } };
+        }
         if (toolName === "get_stock") {
             const symbols: string[] = Array.isArray(args.symbols)
                 ? args.symbols.map(normalizeSymbol)
@@ -178,6 +202,9 @@ async function executeRawTool(
                         close,
                         support,
                         resistance,
+                        distance_from_support_pct: close != null && close > 0 && support != null ? (support - close) / close * 100 : null,
+                        distance_from_resistance_pct: close != null && close > 0 && resistance != null ? (resistance - close) / close * 100 : null,
+                        distance_basis: "(level - close) / close * 100; negative=below close; positive=above close; absolute value for proximity",
                         entry_zone: entryZone,
                         stop_loss: stopLoss,
                         take_profit_1: target1,
@@ -650,7 +677,7 @@ async function executeRawTool(
 
         return { status: "error", message: `Tool ${toolName} not recognized` };
     } catch (e: any) {
-        return { status: "error", message: e.message || String(e) };
+        return { status: "error", availability: "error", persisted: false, message: e.message || String(e) };
     }
 }
 

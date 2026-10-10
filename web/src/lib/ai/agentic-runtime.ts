@@ -32,11 +32,32 @@ export function removeDisprovenMissingToolIssues(issues: string[], evidence: Age
 export function removeSelfRetractedReviewerIssues(issues: string[]) {
     return issues.filter(issue => !/(?:\d+(?:\.\d+)?\s+أقل\s+من\s+\d+(?:\.\d+)?\s*[؟?]\s*لا[،,]?\s*\d+(?:\.\d+)?\s+أعلى(?:\s+من)?(?:\s+قليلاً)?|لا يوجد خطأ هنا.{0,160}(?:الوصف مقبول|صحيح تقريباً|مقبول تقريباً))/i.test(issue));
 }
+/** A claim rejection must point to text actually published, never tool-only fields. */
+export function groundedReviewerIssues(verdict: any, draft: string): string[] {
+    const issues = verdict.issues ?? verdict.reasons;
+    if (typeof verdict.passed !== "boolean" || !Array.isArray(issues)) throw new Error("INVALID_REVIEW_SCHEMA");
+    // Retain the legacy reasons protocol for stored/mocked integrations.
+    if (verdict.issues === undefined) {
+        if (issues.some((issue: any) => typeof issue !== "string")) throw new Error("INVALID_REVIEW_SCHEMA");
+        return verdict.passed ? [] : issues;
+    }
+    const normalize = (text: string) => text.replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
+    return issues.map((issue: any) => {
+        if (!issue || typeof issue.message !== "string" || !issue.message.trim()
+            || !["claim", "omission"].includes(issue.kind)) throw new Error("INVALID_REVIEW_SCHEMA");
+        if (issue.kind === "claim") {
+            if (typeof issue.draft_quote !== "string" || normalize(issue.draft_quote).length < 3
+                || !normalize(draft).includes(normalize(issue.draft_quote))) throw new Error("REVIEW_QUOTE_NOT_IN_DRAFT");
+        } else if (issue.draft_quote !== null) throw new Error("INVALID_REVIEW_SCHEMA");
+        return issue.message;
+    });
+}
 function fallbackEvidence(evidence: AgenticEvidence[]) {
     return evidence.filter(e => e.data?.persisted === true || (e.data?.status === "success"
-        && ["screen_stocks", "analyze_portfolio_risk"].includes(e.tool) && e.availability !== "error"));
+        && ["screen_stocks", "analyze_portfolio_risk", "calculate_position"].includes(e.tool) && e.availability !== "error"));
 }
-const reviewInstruction = `راجع المسودة الحالية فقط، وفق طلب المستخدم الحالي وأدلته. الحوار السابق لحل الإشارات وليس إجابة تقوم بمراجعتها. تجاهل سلامة الرد السابق عند الحكم على المسودة الحالية. أخرج JSON: {"passed":boolean,"issues":string[],"notes":string[]}.
+const reviewInstruction = `راجع المسودة الحالية فقط، وفق طلب المستخدم الحالي وأدلته. الحوار السابق لحل الإشارات وليس إجابة تقوم بمراجعتها. تجاهل سلامة الرد السابق عند الحكم على المسودة الحالية. أخرج JSON: {"passed":boolean,"issues":[{"message":string,"kind":"claim"|"omission","draft_quote":string|null}],"notes":string[]}.
+كل اعتراض على كلام موجود نوعه claim ويحتاج draft_quote اقتباساً حرفياً من draft_to_review يثبت أن المسودة قالت الكلام المعترض عليه. بيانات evidence ليست كلام المسودة؛ وجود entry_zone/stop_loss/take_profit في الأداة لا يعني عرضها في الرد. للاعتراض على جزء مطلوب غائب فقط استخدم omission وdraft_quote=null، ولا تستخدم omission لوصف كلام تزعم وجوده. لا ترفض بسبب اقتباس لا تجده في المسودة.
 افحص قائمة الأدوات المتاحة وسجل استدعاءات الأدوات ووسائط كل استدعاء قبل كتابة issues. لا تقل إن أداة لم تُستدعَ إذا كان سجل evidence يثبت استدعاءها، حتى لو أعادت نتيجة جزئية أو رمزاً غير موجود؛ اقبل توضيح النقص كما هو. لا تطلب أداة غير موجودة في available_tools. تحقق حسابياً من العلاقات؛ 116.00 أعلى من 115.98، فلا تصفه بالأقل منه. إذا تعارض حكم جماعي (كلا السهمين فوق/تحت EMA) مع أي صف في مقارنة اليوم نفسه فاطلب تصحيح الجملة. إذا اقتصر الطلب على دعم/مقاومة، اقبل عرض مستويات هاتين الفئتين، وارفض فقط التوصية/الشراء/وقف الخسارة/الأهداف الإضافية غير المطلوبة. لا تضع في issues نقطة تقول في الجملة نفسها إنه لا يوجد خطأ أو إن الوصف مقبول؛ issues للأخطاء القائمة فقط.
 لا توسع طلب المتابعة من تلقاء نفسك: الطلب الحالي يحدد الأجزاء المطلوبة، والحوار السابق يحل الرموز والمبالغ فقط. إضافة رمز لمقارنة الدعم لا تطلب أخباراً لهذا الرمز لمجرد أن دوراً سابقاً طلب أخباراً. غياب بيانات رمز لا يمنع إكمال مقارنة الرموز المعروفة، ولا يبرر استبداله.
 إذا طلب أحدث خبر لكل سهم في الطلب الحالي، تحقق من أن قسم الأخبار يذكر كل رمز مطلوب أو يوضح صراحة عدم وجود خبر موثق له؛ لا يكفي ظهور الرمز في جدول المقارنة أو قسم آخر.
@@ -291,12 +312,22 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[], accoun
         if (message.incomplete && providerCalls < AGENTIC_BUDGET.providerCalls && remainingExecutionMs() > 3000)
             message = await request({ ...reviewBody, max_tokens: 1600 }, "review");
         if (message.incomplete) throw new Error("INCOMPLETE_REVIEW_RESPONSE");
-        let verdict: any;
-        try { verdict = JSON.parse(message.content); } catch { throw new Error("INVALID_REVIEW_JSON"); }
-        const issues = verdict.issues ?? verdict.reasons;
-        if (typeof verdict.passed !== "boolean" || !Array.isArray(issues) || issues.some((r:any) => typeof r !== "string")) throw new Error("INVALID_REVIEW_SCHEMA");
-        // Legacy positive explanations in reasons must not veto passed=true.
-        const failures = removeDisprovenMissingToolIssues(removeSelfRetractedReviewerIssues(verdict.issues !== undefined ? issues : (verdict.passed ? [] : issues)), evidence);
+        let verdict: any, issues: string[];
+        const parseReview = () => {
+            try { verdict = JSON.parse(message.content); } catch { throw new Error("INVALID_REVIEW_JSON"); }
+            return groundedReviewerIssues(verdict, reply);
+        };
+        try { issues = parseReview(); }
+        catch (error) {
+            // Recheck an invalid review; do not rewrite a draft based on an invented quotation.
+            if (!(error instanceof Error) || !["REVIEW_QUOTE_NOT_IN_DRAFT", "INVALID_REVIEW_SCHEMA"].includes(error.message)
+                || providerCalls >= AGENTIC_BUDGET.providerCalls || remainingExecutionMs() <= 3000) throw error;
+            message = await request({ ...reviewBody, messages: [...reviewBody.messages,
+                {role: "user", content: "المراجعة السابقة غير صالحة: " + (error instanceof Error ? error.message : "invalid") + ". أعد الحكم على draft_to_review؛ issues كائنات، واقتباسات claim من نص المسودة حصراً، وإلا احذف الاعتراض. لا تقتبس بيانات الأداة."}], max_tokens: 1200 }, "review");
+            if (message.incomplete) throw new Error("INCOMPLETE_REVIEW_RESPONSE");
+            issues = parseReview();
+        }
+        const failures = removeDisprovenMissingToolIssues(removeSelfRetractedReviewerIssues(issues), evidence);
         const reasons = [...deterministic, ...failures];
         const rejectionWasFullyDisproven = !verdict.passed && issues.length > 0 && failures.length === 0;
         if (!verdict.passed && !reasons.length && !rejectionWasFullyDisproven) reasons.push("review_rejected_without_reason");
