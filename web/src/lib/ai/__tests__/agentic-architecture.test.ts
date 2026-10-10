@@ -1,6 +1,6 @@
 import { executeAgenticTool, runAgenticPipelineStream, AGENTIC_TOOLS_SCHEMA } from "../agentic-pipeline";
 import { cairoWeekBounds } from "../agentic-tools";
-import { checkAgenticDraft, checkUserPositionInputs, toAgenticEvidence, evidenceMemory, safeAgenticFallback } from "../agentic-publication";
+import { checkAgenticDraft, checkUserPositionInputs, toAgenticEvidence, evidenceMemory, safeAgenticFallback, agenticFacts } from "../agentic-publication";
 import { groundedReviewerIssues, compactHistory, unsupersededEvidence, removeDisprovenMissingToolIssues, removeSelfRetractedReviewerIssues } from "../agentic-runtime";
 import { AGENTIC_SYSTEM_PROMPT } from "../agentic-pipeline";
 import { runAnswerGate } from "../answer-gate";
@@ -302,6 +302,30 @@ describe("Agentic architecture integration: current production path", () => {
         expect(r.events.filter(e=>e.type==="tools_data")).toHaveLength(0);
         expect(r.queries.some((q: Query)=>["positions","stock_prices","stock_technical_indicators"].includes(q.table))).toBe(false);
         expect(r.done.publication_review.final_passed).toBe(true);
+    });
+    test("portfolio image evidence grounds visible quantity, average cost and return without turning them into quote data", async () => {
+        const imageEvidence:any={tool:"image_vision",arguments:{image_type:"portfolio"},source:"image-derived:vision-model",data_time:null,
+            symbols:["HRHO"],availability:"available",data_type:"historical",
+            data:{positions:[{symbol:"HRHO",quantity:1046,entry_price:27.32,profit_loss_pct:-2.74}]}};
+        const reply="| السهم | الكمية | متوسط الشراء | العائد % |\n|---|---:|---:|---:|\n| HRHO | 1046 | 27.32 | -2.74 |";
+        expect(agenticFacts([imageEvidence]).map(f=>[f.symbol,f.field,f.value])).toEqual(expect.arrayContaining([
+            ["HRHO","quantity",1046],["HRHO","entry_price",27.32],["HRHO","profit_pct",-2.74]]));
+        expect(checkAgenticDraft(reply,[imageEvidence],"اقرأ صورة المحفظة")).toEqual([]);
+        expect(checkAgenticDraft(reply.replace("27.32","999.00"),[imageEvidence],"اقرأ صورة المحفظة"))
+            .toContain("table_value_not_grounded:HRHO:999");
+    });
+    test("portfolio image review receives typed evidence and a semantic tool-capability contract", async () => {
+        const vision={image_type:"portfolio",symbols:[{symbol:"HRHO",visible_values:{quantity:1046,average_price:27.32,return_pct:-2.74}}],confidence:.98,
+            uncertainties:[],technical_observations:[],market_depth:{},user_relevant_summary:"مركز HRHO ظاهر بالصورة"};
+        const r=await run([{content:"HRHO يمثل مركزاً واحداً؛ الكمية 1046 ومتوسط الشراء 27.32 والعائد -2.74%. لا تكفي الصورة وحدها لتقرير إضافة صندوق نشط."},verdict()],{
+            userMessage:"حلل المحفظه و أخبرني ايه الي ناقصها وادخل صناديق اداره نشطه ولا اعمل ايه؟",images:["fixture"],
+            options:{mockVisionResult:vision}});
+        expect(r.done.publication_review).toMatchObject({passed:true,repaired:false,final_passed:true});
+        expect(r.done.response_origin).toBe("llm");
+        const reviewRequest=JSON.parse(r.fetchMock.mock.calls[1][1].body);
+        expect(reviewRequest.messages[0].content).toContain("لا تطلب أداة سيناريو رأس مال أو أداة مسح أسهم كشرط للإجابة");
+        expect(reviewRequest.messages[1].content).toContain("image-derived:vision-model");
+        expect(reviewRequest.messages[1].content).toContain('"profit_loss_pct":-2.74');
     });
     test("an image without explicit units and average price cannot authorize portfolio registration", async () => {
         const vision={image_type:"portfolio",symbols:[{symbol:"ETEL",visible_values:{quantity:null,price:null,change_pct:73.26}}],confidence:.95,

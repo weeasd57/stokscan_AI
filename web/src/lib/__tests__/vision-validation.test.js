@@ -17,6 +17,12 @@ describe('vision output validation', () => {
     expect(vision.symbols[0].visible_values.price).toBeCloseTo(181.5, 2);
   });
 
+  it('keeps portfolio average cost, return and quantity as separately typed evidence', () => {
+    const parsed = extractJsonFromResponse('{"image_type":"portfolio","symbols":[{"symbol":"HRHO","name":"","visible_values":{"price":null,"average_price":27.32,"change_pct":null,"return_pct":-2.74,"quantity":1046,"market_value":null,"cost_basis":null,"profit_loss":null}}],"technical_observations":[],"market_depth":{},"user_relevant_summary":"","uncertainties":[],"confidence":0.98}');
+    const vision = validateVisionOutput(parsed);
+    expect(vision.symbols[0].visible_values).toMatchObject({price:null,average_price:27.32,return_pct:-2.74,quantity:1046});
+  });
+
   it('recovers symbols when the model returns a plain string array', () => {
     const parsed = extractJsonFromResponse('{"image_type":"financial","symbols":["AMER"],"technical_observations":[],"confidence":0.5}');
     const vision = validateVisionOutput(parsed);
@@ -57,5 +63,14 @@ describe('vision market reconciliation', () => {
     expect(result.symbols[0].visible_values.price).toBeNull();
     expect(result.symbols[1].visible_values.price).toBe(311.63);
     expect(result.uncertainties.length).toBeGreaterThan(0);
+  });
+
+  it('does not compare portfolio average purchase price against the current quote', async () => {
+    const vision = { image_type:'portfolio', symbols:[{symbol:'HRHO',name:'',visible_values:{price:null,average_price:27.32,change_pct:null,return_pct:-2.74,quantity:1046}}],
+      technical_observations:[], market_depth:{total_bid:null,total_ask:null,spread:null}, user_relevant_summary:'', uncertainties:[], confidence:.98 };
+    const supabase={from:()=>({select:()=>({in:()=>({eq:()=>({order:()=>({limit:async()=>({data:[{symbol:'HRHO',close:25,date:'2026-10-08'}]})})})})})})};
+    const result=await reconcileVisionWithMarket(vision,supabase);
+    expect(result.symbols[0].visible_values.average_price).toBe(27.32);
+    expect(result.symbols[0].visible_values.return_pct).toBe(-2.74);
   });
 });

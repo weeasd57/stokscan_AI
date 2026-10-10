@@ -21,6 +21,11 @@ export interface VisionContext {
             price: number | null;
             change_pct: number | null;
             quantity: number | null;
+            average_price?: number | null;
+            market_value?: number | null;
+            cost_basis?: number | null;
+            profit_loss?: number | null;
+            return_pct?: number | null;
         };
     }>;
     technical_observations: Array<{

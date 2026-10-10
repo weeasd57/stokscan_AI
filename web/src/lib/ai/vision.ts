@@ -12,16 +12,17 @@ Do not copy this instruction, do not return a schema, and do not use placeholder
 
 Rules:
 - image_type: write exactly one word — portfolio (if it shows broker holdings/positions), chart (candlestick/line), table (price table), market_depth (bid/ask ladder), or unknown.
-- symbols: for each visible stock ticker (2-6 uppercase English letters such as COMI, ADIB, INEG, MCRO), add an entry: {"symbol":"TICKER","name":"Company name or empty","visible_values":{"price":null,"change_pct":null,"quantity":null}}. Fill in numbers you can read; use null for values you cannot read. Write numbers without commas (50000 not 50,000). Preserve decimal points exactly (181.50 must be 181.5, never 18150).
+- symbols: for each visible stock ticker (2-6 uppercase English letters such as COMI, ADIB, INEG, MCRO), add an entry: {"symbol":"TICKER","name":"Company name or empty","visible_values":{"price":null,"average_price":null,"change_pct":null,"return_pct":null,"quantity":null,"market_value":null,"cost_basis":null,"profit_loss":null}}. Fill only fields whose column labels are visible; use null otherwise. Write numbers without commas (50000 not 50,000). Preserve decimal points exactly (181.50 must be 181.5, never 18150).
 - Arabic column mapping (very important):
   * "الوحدات" or "الكمية" = number of shares → quantity.
-  * "متوسط سعر الوحدات" or "متوسط الشراء" = average purchase price → price.
-  * "القيمة السوقية" (market value) and "القيمة الشرائية" (purchase value) and "المكسب/الخسارة" (profit/loss in money) are NOT price and NOT quantity — ignore them.
-  * "العائد %" (return %) is NOT quantity — put it in change_pct only if it is a small percentage, never in quantity.
+  * "متوسط سعر الوحدات" or "متوسط الشراء" = average purchase price → average_price, never current price.
+  * "السعر" / "سعر الإغلاق" = visible current/closing price → price.
+  * "القيمة السوقية" = market_value; "القيمة الشرائية" = cost_basis; "المكسب/الخسارة" = profit_loss. These are distinct from price and quantity.
+  * "العائد %" (return %) = return_pct, never daily change_pct or quantity. Preserve its sign and decimal exactly.
 - A number beside a ticker is not a share quantity unless a quantity/units heading is visibly attached to that column. A number beside "العائد %" is commonly the position value or cash gain; never copy it into quantity or price.
 - Preserve the sign and decimal of every percentage exactly as shown. Do not drop a visible minus sign or relabel "العائد %" as daily change.
-- If the screen lists holdings with only market value and return % (no share count and no average price), return the symbols with price and quantity set to null. Never fill quantity from a percentage.
-- If the screen is a single-stock position detail, use the units as quantity and the average unit price as price.
+- If the screen lists holdings with only market value and return % (no share count and no average price), preserve those in market_value and return_pct; leave price, average_price, and quantity null. Never infer missing fields.
+- If the screen is a single-stock position detail, use units as quantity and average unit price as average_price.
 - Return each ticker at most once.
 - Never invent a ticker, price, or quantity. If the image text is unreadable, return unknown image_type and empty symbols array.
 - confidence: a number from 0 to 1 reflecting how clearly you could read the image.
@@ -97,7 +98,7 @@ export function extractJsonFromResponse(raw: string): any {
             symbols: symbols.map(symbol => ({
                 symbol,
                 name: "",
-                visible_values: { price: null, change_pct: null, quantity: null },
+                visible_values: { price: null, average_price: null, change_pct: null, return_pct: null, quantity: null, market_value: null, cost_basis: null, profit_loss: null },
             })),
             technical_observations: [],
             market_depth: { total_bid: null, total_ask: null, spread: null },
@@ -117,7 +118,7 @@ export function extractJsonFromResponse(raw: string): any {
     if (keyedSymbols.length > 0) {
         return {
             image_type: /portfolio|holding|position|محفظ|سهم|shares/i.test(trimmed) ? "portfolio" : "table",
-            symbols: keyedSymbols.map(symbol => ({ symbol, name: "", visible_values: { price: null, change_pct: null, quantity: null } })),
+            symbols: keyedSymbols.map(symbol => ({ symbol, name: "", visible_values: { price: null, average_price: null, change_pct: null, return_pct: null, quantity: null, market_value: null, cost_basis: null, profit_loss: null } })),
             technical_observations: [],
             market_depth: { total_bid: null, total_ask: null, spread: null },
             user_relevant_summary: "تم استخراج رموز الأسهم فقط من رد Vision غير المكتمل؛ القيم الرقمية تحتاج تأكيداً.",
@@ -190,7 +191,8 @@ function hasValidVisionContract(data: any): boolean {
         && symbol.visible_values && typeof symbol.visible_values === "object"
         && isNumberOrNull(symbol.visible_values.price)
         && isNumberOrNull(symbol.visible_values.change_pct)
-        && isNumberOrNull(symbol.visible_values.quantity))
+        && isNumberOrNull(symbol.visible_values.quantity)
+        && ["average_price", "return_pct", "market_value", "cost_basis", "profit_loss"].every(key => isNumberOrNull(symbol.visible_values[key])))
         && data.technical_observations.every((observation: any) => observation
             && typeof observation.symbol === "string"
             && /^[A-Z]{2,6}$/.test(observation.symbol)
@@ -227,7 +229,7 @@ export function validateVisionOutput(data: any): VisionContext | null {
     const uniqueSymbols: Array<{
         symbol: string;
         name: string;
-        visible_values: { price: number | null; change_pct: number | null; quantity: number | null };
+        visible_values: { price: number | null; change_pct: number | null; quantity: number | null; average_price?: number | null; return_pct?: number | null; market_value?: number | null; cost_basis?: number | null; profit_loss?: number | null };
     }> = [];
 
     const stockMappings = getSyncStockMappings();
@@ -251,6 +253,11 @@ export function validateVisionOutput(data: any): VisionContext | null {
         const rawQuantity = numericOrNull(s.visible_values?.quantity ?? s.quantity);
         const quantity = !columnsUntrustworthy && rawQuantity !== null && rawQuantity > 0 ? rawQuantity : null;
         const price = normalizeVisiblePrice(s.visible_values?.price ?? s.price, String(data.image_type || "unknown"));
+        const averagePrice = normalizeVisiblePrice(s.visible_values?.average_price ?? s.average_price, String(data.image_type || "unknown"));
+        const returnPct = numericOrNull(s.visible_values?.return_pct ?? s.return_pct);
+        const marketValue = numericOrNull(s.visible_values?.market_value ?? s.market_value);
+        const costBasis = numericOrNull(s.visible_values?.cost_basis ?? s.cost_basis);
+        const profitLoss = numericOrNull(s.visible_values?.profit_loss ?? s.profit_loss);
 
         const existing = uniqueSymbols.find((entry) => entry.symbol === sym);
         if (existing) {
@@ -260,13 +267,18 @@ export function validateVisionOutput(data: any): VisionContext | null {
             if (existing.visible_values.quantity === null && quantity !== null) existing.visible_values.quantity = quantity;
             if (existing.visible_values.price === null && price !== null) existing.visible_values.price = price;
             if (existing.visible_values.change_pct === null && changePct !== null) existing.visible_values.change_pct = changePct;
+            if (existing.visible_values.average_price == null && averagePrice !== null) existing.visible_values.average_price = averagePrice;
+            if (existing.visible_values.return_pct == null && returnPct !== null) existing.visible_values.return_pct = returnPct;
+            if (existing.visible_values.market_value == null && marketValue !== null) existing.visible_values.market_value = marketValue;
+            if (existing.visible_values.cost_basis == null && costBasis !== null) existing.visible_values.cost_basis = costBasis;
+            if (existing.visible_values.profit_loss == null && profitLoss !== null) existing.visible_values.profit_loss = profitLoss;
             continue;
         }
         seenSymbols.add(sym);
         uniqueSymbols.push({
             symbol: sym,
             name: String(s.name || ""),
-            visible_values: { price, change_pct: changePct, quantity }
+            visible_values: { price, average_price: averagePrice, change_pct: changePct, return_pct: returnPct, quantity, market_value: marketValue, cost_basis: costBasis, profit_loss: profitLoss }
         });
     }
 
@@ -517,8 +529,13 @@ export async function analyzeImage(
                 .filter(Boolean) as VisionContext["symbols"];
             const visible = symbol.visible_values;
             visible.price = matchingSymbols.some(match => valuesAgree(visible.price, match.visible_values.price)) ? visible.price : null;
+            visible.average_price = matchingSymbols.some(match => valuesAgree(visible.average_price ?? null, match.visible_values.average_price ?? null)) ? visible.average_price : null;
             visible.change_pct = matchingSymbols.some(match => valuesAgree(visible.change_pct, match.visible_values.change_pct, 0.02, 0.1)) ? visible.change_pct : null;
+            visible.return_pct = matchingSymbols.some(match => valuesAgree(visible.return_pct ?? null, match.visible_values.return_pct ?? null, 0.02, 0.1)) ? visible.return_pct : null;
             visible.quantity = matchingSymbols.some(match => valuesAgree(visible.quantity, match.visible_values.quantity, 0.05, 1)) ? visible.quantity : null;
+            visible.market_value = matchingSymbols.some(match => valuesAgree(visible.market_value ?? null, match.visible_values.market_value ?? null)) ? visible.market_value : null;
+            visible.cost_basis = matchingSymbols.some(match => valuesAgree(visible.cost_basis ?? null, match.visible_values.cost_basis ?? null)) ? visible.cost_basis : null;
+            visible.profit_loss = matchingSymbols.some(match => valuesAgree(visible.profit_loss ?? null, match.visible_values.profit_loss ?? null)) ? visible.profit_loss : null;
 
             const primaryObservations = primary.technical_observations.filter(observation => observation.symbol === symbol.symbol && observation.value != null);
             for (const observation of primaryObservations) {

@@ -328,28 +328,53 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[], accoun
     yield { type: "status", data: { status: "review", message: "مراجعة إتمام الطلب والأرقام والسياق قبل عرض الإجابة..." } };
     // Keep the current request authoritative. Older session evidence is useful for
     // genuine follow-ups, but must not contaminate a new symbol/backtest request.
+    // Image-derived facts are first-party evidence for what is visibly printed,
+    // but are explicitly typed separately from market-data tool results.
+    const currentImageEvidence = (): AgenticEvidence | null => {
+        if (!vision || !vision.symbols?.length) return null;
+        const portfolioImage = vision.image_type === "portfolio";
+        const positions = vision.symbols.map(({ symbol, visible_values: value }) => ({
+            symbol,
+            // Backward compatibility: the old portfolio-image contract put average
+            // purchase price in `price`. New reads use `average_price` explicitly.
+            current_price: portfolioImage ? null : value.price,
+            entry_price: value.average_price ?? (portfolioImage ? value.price : null),
+            quantity: value.quantity,
+            market_value: value.market_value ?? null,
+            cost_basis: value.cost_basis ?? null,
+            profit_value: value.profit_loss ?? null,
+            profit_loss_pct: value.return_pct ?? (portfolioImage ? value.change_pct : null),
+            change_pct: portfolioImage ? null : value.change_pct,
+        }));
+        return { tool: "image_vision", arguments: { image_type: vision.image_type },
+            data: { positions }, source: "image-derived:vision-model", data_time: null,
+            symbols: positions.map(row => row.symbol), availability: "available", data_type: "image-derived" };
+    };
     const verificationEvidence = () => {
+        const imageEvidence = currentImageEvidence();
         if (!evidence.length) {
             const mentioned = new Set((userMessage.match(/\b[A-Z]{2,6}\b/g) || []).map(s => s.toUpperCase()).filter(s => s !== "RSI"));
             const visionSyms = (vision?.symbols || sessionSummary?.last_vision_context?.symbols || sessionSummary?.last_image_symbols || []).map((s: any) => String(s.symbol || s).toUpperCase());
             const active = new Set([...visionSyms, ...(sessionState.last_symbols || []), ...(sessionSummary?.current_symbols || [])].map((s:any) => String(s).toUpperCase()));
             const scope = mentioned.size ? mentioned : active;
-            return scope.size ? previousEvidence.filter(e => (e.symbols || []).some(s => scope.has(String(s).toUpperCase()))) : [];
+            const prior = scope.size ? previousEvidence.filter(e => (e.symbols || []).some(s => scope.has(String(s).toUpperCase()))) : [];
+            return [...prior, ...(imageEvidence ? [imageEvidence] : [])];
         }
         const currentSymbols = new Set(evidence.flatMap(e => e.symbols || []).map(s => String(s).toUpperCase()));
         const relevantPrevious = currentSymbols.size
             ? unsupersededEvidence(previousEvidence, evidence).filter(e => (e.symbols || []).some(s => currentSymbols.has(String(s).toUpperCase())))
             : [];
-        return [...relevantPrevious, ...evidence];
+        return [...relevantPrevious, ...evidence, ...(imageEvidence ? [imageEvidence] : [])];
     };
     const reviewPayload = (reply: string) => ({ request: userMessage, draft_to_review:reply,
         available_tools:input.toolsSchema.map((tool:any)=>tool.function?.name).filter(Boolean),
-        evidence:evidence.map(compactEvidence), previous_evidence:unsupersededEvidence(previousEvidence, evidence).filter(e => !usedSymbols.length || e.symbols.some(s => usedSymbols.includes(s))),
+        evidence:verificationEvidence().map(compactEvidence), previous_evidence:unsupersededEvidence(previousEvidence, evidence).filter(e => !usedSymbols.length || e.symbols.some(s => usedSymbols.includes(s))),
         dialogue:recentHistory.slice(-6), context:{platform:ARTORO_PLATFORM_CONTEXT,state:context.state,summary:context.summary,vision:context.vision,current_time_cairo:context.current_time_cairo} });
     const review = async (reply: string) => {
         const deterministic = checkAgenticDraft(reply, verificationEvidence(), userMessage);
         options.diagnosticCapture?.("deterministic_review", {draft: reply, reasons: deterministic});
-        const reviewBody = { messages: [{ role: "system", content: reviewInstruction },
+        const imageReviewGuidance = vision ? "\nقيم الصورة من الأدلة المرئية المرتبطة بها: أرقام image_vision دليل للصورة وليس سعراً حديثاً من السوق. افصل quantity وentry_price وprofit_pct عن price وchange_pct. في الرأي النوعي على صورة محفظة، لا تطلب أداة سيناريو رأس مال أو أداة مسح أسهم كشرط للإجابة؛ لا تطلبها إلا إذا كان هذا هو الطلب الصريح. أدوات مسح الأسهم لا تمثل قاعدة بيانات صناديق الاستثمار المُدارة." : "";
+        const reviewBody = { messages: [{ role: "system", content: reviewInstruction + imageReviewGuidance },
             { role: "user", content: JSON.stringify(reviewPayload(reply)) }], response_format: { type: "json_object" } };
         let message = await request({ ...reviewBody, max_tokens: 1200 }, "review");
         // A cut-off review is not a rejected answer. Retry that review once,
