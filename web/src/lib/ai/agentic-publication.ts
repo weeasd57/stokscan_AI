@@ -309,8 +309,10 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
         const requestedNewsSymbols = [...new Set(evidence.filter(e=>e.tool === "get_news" && e.availability !== "error")
             .flatMap(e=>Array.isArray(e.arguments?.symbols) ? e.arguments.symbols : []).map((s:any)=>String(s).toUpperCase()))];
         const plain = reply.replace(/[*_`]/g, "");
-        const heading = plain.search(/(?:^|\n)\s*(?:#{1,6}\s*)?(?:أحدث\s+)?(?:الأخبار?|خبر\s+متاح|news)\s*[:：]?/im);
-        const newsText = heading >= 0 ? plain.slice(heading).split(/\n\s*(?:#{1,6}\s+|\*\*[^\n]{2,50}\*\*)/)[0] : plain;
+        const heading = /(?:^|\n)\s*(?:#{1,6}\s*)?(?:أحدث\s+(?:الأخبار?|خبر\s+متاح)|الأخبار?|خبر\s+متاح|news)\s*[:：]?/im.exec(plain);
+        const newsText = heading
+            ? plain.slice(heading.index + heading[0].length).split(/\n\s*(?:#{1,6}\s+|(?:السعر اللحظي|الخلاصة|المتاح وغير المتاح)\s*[:：]?)/i)[0]
+            : plain;
         for (const symbol of requestedNewsSymbols)
             if (!new RegExp(`(?<![A-Z0-9])${symbol}(?![A-Z0-9])`, "i").test(newsText)) reasons.push(`requested_news_symbol_omitted:${symbol}`);
     }

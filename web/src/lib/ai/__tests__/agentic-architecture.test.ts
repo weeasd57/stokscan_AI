@@ -695,8 +695,8 @@ describe("Agentic tool correctness and failure boundaries", () => {
             {symbol:"SWDY",date:price.date,headlines:["El Sewedy reports growth"]},
         ]})];
         const request="هات أحدث خبر لكل واحد من COMI وSWDY";
-        expect(checkAgenticDraft("## أحدث خبر متاح\n• COMI: خبر عن اتفاقية.\n## السعر اللحظي\nغير متاح.",e,request)).toContain("requested_news_symbol_omitted:SWDY");
-        expect(checkAgenticDraft("## أحدث خبر متاح\n• COMI: خبر عن اتفاقية.\n• SWDY: خبر عن نمو الأرباح.\n## السعر اللحظي\nغير متاح.",e,request)).toEqual([]);
+        expect(checkAgenticDraft("جدول المقارنة COMI وSWDY.\n## أحدث خبر متاح\n• COMI: خبر عن اتفاقية.\n## السعر اللحظي\nغير متاح.",e,request)).toContain("requested_news_symbol_omitted:SWDY");
+        expect(checkAgenticDraft("جدول المقارنة COMI وSWDY.\n## أحدث خبر متاح\n• COMI: خبر عن اتفاقية.\n• SWDY: خبر عن نمو الأرباح.\n## السعر اللحظي\nغير متاح.",e,request)).toEqual([]);
     });
     test("reviewer cannot claim a requested tool was never called when evidence records it",()=>{
         const e=[toAgenticEvidence("get_comparison",{symbols:["COMI","ZZZZ99"]},{comparison:[
