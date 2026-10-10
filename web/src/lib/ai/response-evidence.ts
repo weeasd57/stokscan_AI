@@ -308,10 +308,14 @@ export function safeEvidenceResponse(message: string, results: ToolResult[], pla
     const news = asksNews ? results.filter(r => ["get_news", "search_web"].includes(r.tool)) : [];
     if (todayNews || (asksNews && news.length > 0)) {
         const selected = todayNews ? newsSummary.today_articles : newsSummary.articles;
-        if (selected.length) sections.push(selected.slice(0, 5).map(a => `- ${a.title} (تاريخ النشر ${a.event_date || "غير موثق"})`).join("\n"));
+        if (selected.length) sections.push(selected.slice(0, 5).map(a => a.event_date
+            ? `- ${a.title} (تاريخ النشر الموثق ${a.event_date})`
+            : a.record_date
+                ? `- ${a.title} (موجود في سجل تجميع بتاريخ ${a.record_date}؛ تاريخ النشر غير موثق)`
+                : `- ${a.title} (تاريخ النشر غير موثق)`).join("\n"));
         else if (todayNews) {
             const older = newsSummary.articles.filter(a => a.event_date && a.event_date < newsSummary.today).sort((a, b) => b.event_date!.localeCompare(a.event_date!)).slice(0, 3);
-            if (older.length) sections.push(["أحدث أخبار أقدم من اليوم في المصادر المتاحة:", ...older.map(a => `- ${a.title} (تاريخ النشر ${a.event_date})`)].join("\n"));
+            if (older.length) sections.push(["أحدث أخبار أقدم من اليوم في المصادر المتاحة:", ...older.map(a => `- ${a.title} (تاريخ النشر الموثق ${a.event_date})`)].join("\n"));
         } else sections.push("لم أجد خبراً موثقاً في المصادر المتاحة للفترة المطلوبة؛ هذا لا يؤكد عدم صدور أخبار.");
     }
     for (const r of results.filter(r => !decision && r.tool === "get_stock" && !r.error)) {

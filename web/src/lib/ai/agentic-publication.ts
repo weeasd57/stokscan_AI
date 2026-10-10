@@ -1,6 +1,7 @@
 import { checkAttribution } from "./answer-gate";
 import { buildFactRecords, FactRecord } from "./facts";
 import { ToolResult } from "./types";
+import { newsEventDate } from "./news-evidence";
 
 export interface AgenticEvidence {
     tool: string;
@@ -20,6 +21,12 @@ memoryTools.add("screen_stocks"); memoryTools.add("analyze_portfolio_risk");
 /** Remove duplicate aliases/payload text, without removing source, dates, identity or unknown values. */
 export function compactEvidence(record: AgenticEvidence): AgenticEvidence {
     const data = { ...record.data };
+    if (record.tool === "get_news" && Array.isArray(data.news)) {
+        data.news = data.news.map((row: any) => ({ ...row, date_kind: "aggregation", record_date: row.record_date || row.date || null,
+            event_date: newsEventDate({ ...row, date_kind: "aggregation" }) }));
+        const publishedDates = [...new Set<string>(data.news.map((r: any) => r.event_date).filter(Boolean))];
+        return { ...record, data, data_time: publishedDates.length === 1 ? publishedDates[0] : null };
+    }
     if (data.comparison) delete data.comparisons;
     if (data.stocks) delete data.accumulation_stocks;
     if (data.analysis) data.analysis = { strategyId: data.analysis.strategyId, warnings: data.analysis.warnings,
@@ -62,7 +69,9 @@ export function toAgenticEvidence(tool: string, args: any, data: any): AgenticEv
     const rows = evidenceRows(data);
     const symbols = [...new Set<string>(rows.map(r => r.symbol).filter(Boolean))];
     // A scan's output symbols (not its empty input) are the ordered reference for follow-ups.
-    const dates = [...new Set<string>(rows.map(r => r.date || r.scan_date || r.current_date || r.signal_date || r.published_at).filter(Boolean))];
+    const dates = [...new Set<string>(rows.map(r => tool === "get_news"
+        ? r.event_date || r.published_at || r.publication_date
+        : r.date || r.scan_date || r.current_date || r.signal_date || r.published_at).filter(Boolean))];
     const missing = rows.some(r => r.error || r.availability === "missing");
     const verifiedEmptyScreen = tool === "screen_stocks" && data?.status === "success" && Boolean(data.date)
         && Array.isArray(data.stocks) && typeof data.scan_complete === "boolean";
@@ -300,6 +309,20 @@ function checkSnapshotInterpretations(reply: string, evidence: AgenticEvidence[]
     for (const raw of reply.replace(/[*_`]/g, "").split(/\n|[.!؟؛]\s+/)) {
         const named = symbols.filter(symbol => new RegExp(`\\b${symbol}\\b`, "i").test(raw));
         if (named.length === 1) owner = named[0];
+        const easing = /(?:تخفيف|انحسار|تراجع)\s+ضغط\s+البيع|ضغط\s+البيع\s+(?:يخف|يقل|يتراجع|يتباطأ)/.exec(raw);
+        if (easing && /RSI|مؤشر\s+القوة\s+النسبية/i.test(raw)) {
+            const prefix = raw.slice(Math.max(0, easing.index - 45), easing.index);
+            const blanket = /كلا\s+السهمين|كلاهما|السهمان|السهمين|both/i.test(raw);
+            const targets = named.length ? named : blanket ? symbols : owner ? [owner] : [];
+            if (!/لا يثبت|لا يعني|لا يكفي|لا يمكن|(?:ليس|غير|لا)\s*$/.test(prefix)) {
+                for (const symbol of targets) {
+                    const dates = new Set(rows.filter(r => r.symbol === symbol && Number.isFinite(r.rsi_14)
+                        && /^\d{4}-\d{2}-\d{2}/.test(r.date || "")).map(r => r.date.slice(0, 10)));
+                    if (dates.size < 2) reasons.push(`rsi_snapshot_does_not_prove_trend:${symbol}`);
+                }
+            }
+            continue;
+        }
         if (!owner || named.length > 1 || raw.trim().startsWith("|") || /إذا|اذا|(?:^|\s)لو(?:\s|$)/.test(raw)) continue;
         const stockRows = rows.filter(r => r.symbol === owner);
         const levels = [...stockRows].reverse().find(r => Number.isFinite(r.close) && r.close > 0 && Number.isFinite(r.support) && Number.isFinite(r.resistance));
@@ -313,7 +336,7 @@ function checkSnapshotInterpretations(reply: string, evidence: AgenticEvidence[]
             if (larger ? first <= second + 1e-9 : first >= second - 1e-9) reasons.push(`level_distance_ranking_contradiction:${owner}`);
         }
         // A histogram sign is a relation to the signal, not proof of improvement over time.
-        const temporal = raw.match(/(?:الزخم\s+(يتحسن|يتعافى|يتراجع|يتدهور)|ضغط\s+البيع\s+(يتراجع|يتباطأ))/);
+        const temporal = raw.match(/(?:(?:الزخم\s+(يتحسن|يتعافى|يتراجع|يتدهور)|(?:تحسن|تعافي|تراجع|تباطؤ).{0,45}(?:الزخم|العلاقة\s+بين\s+MACD))|ضغط\s+البيع\s+(يتراجع|يتباطأ|يخف|يقل)|(?:يخف|يقل|يتراجع|تخفيف|تراجع|انحسار)\s+ضغط\s+البيع)/);
         if (!temporal) continue;
         const prefix = raw.slice(Math.max(0,temporal.index!-35),temporal.index);
         if (/(?:لا|ليس|مش|غير|قد|يمكن أن)\s*$|لا يثبت|لا يمكن|لا يعني|لا يكفي/.test(prefix)) continue;
@@ -323,10 +346,13 @@ function checkSnapshotInterpretations(reply: string, evidence: AgenticEvidence[]
             if (typeof hist === "number" && Number.isFinite(hist) && /^\d{4}-\d{2}-\d{2}/.test(row.date || "")) snapshots.set(row.date.slice(0,10),hist);
         }
         const ordered = [...snapshots.entries()].sort(([a],[b]) => a.localeCompare(b));
+        const pressureClaim = /ضغط\s+البيع/.test(raw);
         if (ordered.length < 2) reasons.push(`temporal_momentum_without_series:${owner}`);
         else {
             const change = ordered.at(-1)![1] - ordered.at(-2)![1];
-            const improving = Boolean(temporal[2]) || /يتحسن|يتعافى/.test(temporal[1]);
+            const improving = pressureClaim
+                ? /يتراجع|يتباطأ|يخف|يقل/.test(temporal[0])
+                : /يتحسن|يتعافى/.test(temporal[0]);
             if (improving ? change <= 0 : change >= 0) reasons.push(`temporal_momentum_direction_contradiction:${owner}`);
         }
     }
@@ -338,7 +364,9 @@ function explicitPositionInputs(request: string) {
     const average = normalizedRequest.match(/(?:متوسطي|متوسط(?:ي)?(?:\s+(?:(?:ال)?شراء|سعر\s+(?:ال)?شراء))?|سعر\s+شرائي|اشتريت(?:ه)?\s+بسعر)\s*(?:(?:هو|فيه|عند)\s*)?[:=]?\s*(\d+(?:\.\d+)?)/i);
     const quantity = normalizedRequest.match(/(?:معايا|معي|عندي)\s*(\d+(?:\.\d+)?)\s*(?:سهم|أسهم|اسهم)(?=\s|$|[،,.!?])/i)
         || normalizedRequest.match(/(?:كمية(?:\s+الأسهم)?|عدد\s+الأسهم)\s*(?:هي\s*)?[:=]?\s*(\d+(?:\.\d+)?)/i);
-    return { average: average?.[1], quantity: quantity?.[1] };
+    const totalCost = normalizedRequest.match(/(?:بتكلفة|التكلفة\s+الإجمالية|تكلفة\s+إجمالية)\s*(\d+(?:\.\d+)?)\s*(ألف|مليون)?/i);
+    const multiplier = totalCost?.[2] === "مليون" ? 1_000_000 : totalCost?.[2] === "ألف" ? 1_000 : 1;
+    return { average: average?.[1], quantity: quantity?.[1], totalCost: totalCost ? String(Number(totalCost[1]) * multiplier) : undefined };
 }
 
 /** Explicit position inputs in the current request are part of the answer contract. */
@@ -349,6 +377,9 @@ export function checkUserPositionInputs(reply: string, request: string): string[
     const numbers = [...normalizedReply.matchAll(/\d+(?:\.\d+)?/g)].map(match => Number(match[0]));
     if (average && !numbers.includes(Number(average))) reasons.push(`user_position_average_omitted:${average}`);
     if (quantity && !numbers.includes(Number(quantity))) reasons.push(`user_position_quantity_omitted:${quantity}`);
+    const { totalCost } = explicitPositionInputs(request);
+    if (totalCost && !/الكمية\s*\(أو\s+متوسط|الكمية\s+أو\s+متوسط/.test(normalizedReply) && /(?:متوسط|سعر\s+الشراء).{0,45}(?:ابعت|أرسل|اذكر|محتاج|مطلوب|ناقص)|(?:ابعت|أرسل|اذكر).{0,45}(?:متوسط|سعر\s+الشراء)/i.test(normalizedReply))
+        reasons.push("unneeded_average_requested_when_total_cost_known");
     return reasons;
 }
 
@@ -361,10 +392,60 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
         .replace(/✅ تحليل EGX Bots[^\n]*/g, "").replace(/📢[^\n]*/g, "");
     if (!/[\p{L}]{2}/u.test(substantive)) reasons.push("response_has_no_substantive_answer");
     if (/DSML|<\/?tool_call|<\/?function_call/i.test(reply)) reasons.push("internal_tool_protocol_in_response");
+    evidence = evidence.map(compactEvidence);
     const facts = agenticFacts(evidence);
+    const inputs = explicitPositionInputs(request);
+    const requestSymbols = [...new Set((request.match(/\b[A-Z]{2,6}\b/g) || []).filter(symbol => symbol !== "RSI"))];
+    const positionSymbol = requestSymbols.length === 1 ? requestSymbols[0] : null;
+    if (positionSymbol && inputs.totalCost) facts.push({id:`${positionSymbol}:user_cost`,symbol:positionSymbol,
+        field:"cost_basis",value:Number(inputs.totalCost),unit:"egp",as_of:null,source:"user_request",tool:"user_input",fetched_at:new Date().toISOString()});
     reasons.push(...checkResistanceRelations(reply, evidence));
     reasons.push(...checkSnapshotInterpretations(reply, evidence));
     reasons.push(...checkStrategyClaims(reply, evidence));
+    for (const line of reply.replace(/[*_`]/g, "").split(/\n|[.!؟؛]\s+/)) {
+        if (!/نشاط|حجم\s+نسبي/.test(line) || !/أقل\s+من\s+متوسط|دون\s+المتوسط|أعلى\s+من\s+متوسط/.test(line)) continue;
+        const names = evidence.flatMap(e => e.symbols).filter(symbol => new RegExp(`\\b${symbol}\\b`, "i").test(line));
+        const blanket = /كل|كلا|الثلاثة|الجميع/.test(line);
+        for (const row of evidence.flatMap(e => evidenceRows(e.data))) {
+            const volume = row.r_vol ?? row.relative_volume ?? row.vol_ratio;
+            if (!Number.isFinite(volume) || (!names.includes(row.symbol) && !blanket)) continue;
+            const below = /أقل\s+من\s+متوسط|دون\s+المتوسط/.test(line);
+            if (below ? volume >= 1 : volume <= 1) reasons.push(`relative_volume_baseline_contradiction:${row.symbol}`);
+        }
+    }
+    if (inputs.totalCost && !inputs.quantity && !inputs.average && /(?:التكلفة|تكلفة).{0,100}(?:تعني\s+كمية|تحدد\s+كمية|أقل\s+من\s+\d+\s+سهم)/.test(reply.replace(/\n/g," ")))
+        reasons.push("historical_cost_does_not_determine_quantity_at_current_close");
+    const newsRows = evidence.filter(e => e.tool === "get_news" && e.availability !== "error")
+        .flatMap(e => evidenceRows(e.data));
+    if (newsRows.some(r => r.date_kind === "aggregation") && !newsRows.some(r => r.event_date || r.published_at || r.publication_date)) {
+        for (const line of reply.replace(/[*_`]/g, "").split(/\n|[.!؟؛]\s+/)) {
+            if (/(?:أحدث\s+خبر|الأحدث\s+فعلي[ًاا]*|تاريخ\s+(?:النشر|نشره)|يوم\s+صدور|نُشر|خبر.{0,30}بتاريخ).{0,140}\b20\d{2}-\d{2}-\d{2}\b/.test(line)
+                && !/رصد|سجل|تجميع|غير موثق|غير متحقق|لا يثبت|لا يمكن/.test(line))
+                reasons.push("news_record_date_is_not_publication_date");
+        }
+    }
+    const screen = evidence.filter(e => e.tool === "screen_stocks" && e.data?.status === "success").at(-1);
+    const methodology = String(screen?.data?.methodology || "");
+    const numerator = "\\(\\s*(?:المقاومة|resistance)\\s*[-−]\\s*(?:الإغلاق|close)\\s*\\)\\s*[÷/]\\s*";
+    if ((methodology.includes("distance=(resistance-close)/close*100") && new RegExp(numerator + "(?:المقاومة|resistance)", "i").test(reply))
+        || (methodology.includes("distance=(resistance-close)/resistance*100") && new RegExp(numerator + "(?:الإغلاق|close)", "i").test(reply)))
+        reasons.push("screen_distance_formula_contradiction");
+    if (screen) {
+        for (const line of reply.replace(/[*_`]/g, "").split(/\n|[.!؟؛]\s+/)) {
+            if (/^(?:هل|\*?هل)\s/.test(line.trim()) || line.trim().endsWith("؟")) continue;
+            const positiveRows = evidenceRows(screen.data).filter(row => Number.isFinite(row.close) && row.close > 0 && row.resistance >= row.close);
+            const reversal = /(?:ينقلب|يتغير|يختلف|تنقلب|قد\s+يظهر\s+اختلاف).{0,30}(?:ترتيب|ترتيبهما)|(?:ترتيب|ترتيبهما).{0,30}(?:ينقلب|يتغير|يختلف|تنقلب)/.exec(line);
+            if (positiveRows.length >= 2 && reversal && !/(?:لا|لن|ليس|مش|غير)\s*$/.test(line.slice(0,reversal.index)))
+                reasons.push("screen_distance_order_monotonicity_contradiction");
+            const equality = /(?:متطابق(?:ة|تان|تين|ان)?|متساوي(?:ة|تان|تين|ان)?|نفس\s+(?:النسبة|النسب|القيمة|القيم))/.exec(line);
+            if (/ترتيب|الترتيب|ranking|order/i.test(line) && !/النسب|النسبة|القيم|القيمة|percent|value/i.test(line)) continue;
+            if (!equality || !/الإغلاق|الاغلاق|close/i.test(line) || !/المقاومة|resistance/i.test(line)) continue;
+            if (/(?:ليس|ليست|ليسا|مش|غير|لا)\s*$/.test(line.slice(0, equality.index))) continue;
+            const unequal = evidenceRows(screen.data).some(row => Number.isFinite(row.close) && row.close > 0
+                && Number.isFinite(row.resistance) && row.resistance > 0 && Math.abs(row.resistance - row.close) > 1e-9);
+            if (unequal) reasons.push("screen_distance_denominators_not_equivalent");
+        }
+    }
     reasons.push(...checkAttribution(reply, facts));
     if (request) reasons.push(...checkUserPositionInputs(reply, request));
     const supplied = explicitPositionInputs(request);
@@ -579,6 +660,31 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
 
         for (let idx = 0; idx < cells.length; idx++) {
             if (idx === rankColIdx || cells[idx].includes(symbol)) continue;
+            const screenRow = evidence.filter(e => e.tool === "screen_stocks").flatMap(e => evidenceRows(e.data)).find(row => row.symbol === symbol);
+            const header = headers[idx] || "";
+            const explicitDenominator = /(?:أساس|على|مقام)/.test(header) && /الإغلاق|الاغلاق|المقاومة/.test(header)
+                ? /الإغلاق|الاغلاق/.test(header) ? "close" : "resistance" : null;
+            const formula = normalizeDigitsAndNumberFormatting(cells[idx].replace(/[*_`]/g, "")).match(/^\s*\(\s*(\d+(?:\.\d+)?)\s*[-−]\s*(\d+(?:\.\d+)?)\s*\)\s*[÷/]\s*(\d+(?:\.\d+)?)\s*[×*]\s*(\d+(?:\.\d+)?)(?:\s*=\s*([-+]?\d+(?:\.\d+)?)\s*[%٪]?)?\s*$/);
+            if (screenRow && formula) {
+                const [a,b,denom,factor,result] = formula.slice(1).map(Number);
+                const expectedDenom = explicitDenominator ? screenRow[explicitDenominator]
+                    : /\/resistance\*100/.test(String(screen?.data.methodology)) ? screenRow.resistance : screenRow.close;
+                const exact = (value:number,expected:number) => Math.abs(value-expected) <= Math.max(1e-6,Math.abs(expected)*1e-7);
+                const computed = (a-b)/denom*factor;
+                if (!exact(a,screenRow.resistance) || !exact(b,screenRow.close) || !exact(denom,expectedDenom) || factor !== 100
+                    || (formula[5] != null && Math.abs(result-computed) > 0.5*10**-(formula[5].split(".")[1]?.length || 0)+1e-8))
+                    reasons.push(`table_distance_formula_not_grounded:${symbol}`);
+                continue;
+            }
+            if (screenRow && explicitDenominator && Number.isFinite(screenRow.close) && screenRow.close > 0 && screenRow.resistance > 0) {
+                const expected = (screenRow.resistance-screenRow.close)/screenRow[explicitDenominator]*100;
+                const cell = normalizeDigitsAndNumberFormatting(cleanCellText(cells[idx])).match(/^([-+]?\d+(?:\.\d+)?)\s*[%٪]?$/);
+                if (cell) {
+                    const precision = cell[1].split(".")[1]?.length || 0;
+                    if (Math.abs(Number(cell[1])-expected) > 0.5*10**-precision+1e-8) reasons.push(`table_value_not_grounded:${symbol}:${Number(cell[1])}`);
+                    continue;
+                }
+            }
             const distanceColumn = /مساف|الموقع.*(?:إغلاق|اغلاق)|بعد.*(?:إغلاق|اغلاق)/i.test(headers[idx] || "");
             const levelField: FactRecord["field"] | undefined = /دعم/.test(cells[0]) ? "distance_from_support_pct"
                 : /مقاوم/.test(cells[0]) ? "distance_from_resistance_pct" : undefined;
@@ -633,7 +739,11 @@ export function safeAgenticFallback(evidence: AgenticEvidence[], reason: string)
         }
         if (e.tool === "calculate_position" && e.data?.status === "success") {
             for (const r of e.data.positions || []) {
-                lines.push(`\nحساب مؤقت للسهم ${r.symbol} دون حفظ: ${r.quantity} سهم بمتوسط شراء ${r.entry_price} جنيه، التكلفة ${r.cost} جنيه.`);
+                if (r.quantity == null) {
+                    lines.push(`\nحساب مؤقت للسهم ${r.symbol} دون حفظ: التكلفة الإجمالية المعروفة ${r.cost} جنيه. الكمية غير معروفة؛ ابعت عدد الأسهم لإكمال حساب القيمة والربح.`);
+                    continue;
+                }
+                lines.push(`\nحساب مؤقت للسهم ${r.symbol} دون حفظ: ${r.quantity} سهم بمتوسط شراء ${r.entry_price ?? "مشتق من التكلفة والكمية"} جنيه، التكلفة ${r.cost} جنيه.`);
                 if (r.market_value != null) lines.push(`على إغلاق ${r.close} بتاريخ ${r.date}: قيمة المركز ${r.market_value} جنيه، الربح/الخسارة ${r.profit_loss_val} جنيه (${r.profit_loss_pct}%). لا يشمل العمولات.`);
                 else lines.push("لا يتوفر إغلاق مؤرخ لحساب القيمة والربح/الخسارة.");
             }

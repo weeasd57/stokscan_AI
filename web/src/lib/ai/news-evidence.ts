@@ -31,7 +31,11 @@ export function summarizeToolNewsEvidence(results: ToolResult[]) {
 
 /** Only publication/event dates count as news freshness, never retrieval time. */
 export function newsEventDate(row: any): string | null {
-    const value = row?.published_at || row?.publication_date || row?.date;
+    // stock_news_sentiment.date is the daily aggregation bucket, not a verified
+    // publication timestamp for each headline contained in that row.
+    const explicitPublicationDate = row?.published_at || row?.publication_date;
+    if (row?.date_kind === "aggregation" && !explicitPublicationDate) return null;
+    const value = explicitPublicationDate || row?.date;
     if (typeof value !== "string" || !value.trim()) return null;
     if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
         const parsed = new Date(`${value}T00:00:00Z`);
@@ -61,13 +65,17 @@ export function sanitizeNewsRows(rows: any[], companyNames: Map<string, string>)
         return [{ ...row, headlines, news_count: headlines.length,
             sentiment_score: sentimentSupported ? row.sentiment_score ?? null : null,
             sentiment_status: sentimentSupported && row.sentiment_score != null ? "supported" : "unavailable",
-            event_date: newsEventDate(row), record_type: "news_headlines" }];
+            record_date: row.record_date || row.date || null, date_kind: "aggregation",
+            event_date: newsEventDate({ ...row, date_kind: "aggregation" }), record_type: "news_headlines" }];
     });
 }
 
 export function summarizeNewsEvidence(data: unknown, today = newsEventDate({ published_at: new Date().toISOString() })!) {
     const rows: any[] = Array.isArray(data) ? data : [];
-    const articles = rows.flatMap(row => newsHeadlines(row).map(title => ({ title, symbol: row.symbol || null, event_date: newsEventDate(row) })));
+    const articles = rows.flatMap(row => newsHeadlines(row).map(title => ({
+        title, symbol: row.symbol || null, event_date: newsEventDate(row),
+        record_date: row.date_kind === "aggregation" ? row.record_date || null : null,
+    })));
     const todayArticles = articles.filter(article => article.event_date === today);
     const dated = articles.map(article => article.event_date).filter((date): date is string => Boolean(date));
     return { today, headline_count: articles.length, today_count: todayArticles.length,

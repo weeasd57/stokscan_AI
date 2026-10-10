@@ -19,7 +19,15 @@ describe("news evidence boundary", () => {
         const [row] = sanitizeNewsRows([input], names);
         expect(row.news_count).toBe(1);
         expect(row.sentiment_score).toBeNull();
+        expect(row.event_date).toBeNull();
+        expect(row.record_date).toBe("2026-09-29");
+        expect(summarizeNewsEvidence([row], "2026-09-29").today_count).toBe(0);
         expect(input.headlines).toHaveLength(2);
+    });
+    it("keeps an explicit publication timestamp distinct from an aggregation date", () => {
+        const [row] = sanitizeNewsRows([{symbol:"ORWE",date:"2026-09-29",published_at:"2026-09-27T10:00:00Z",headlines:["النساجون الشرقيون تعلن نتائج الأعمال"]}],names);
+        expect(row).toMatchObject({record_date:"2026-09-29",event_date:"2026-09-27"});
+        expect(summarizeNewsEvidence([row],"2026-09-29").today_count).toBe(0);
     });
     it("uses the Cairo publication day, never retrieval time or counts", () => {
         expect(newsEventDate({ published_at: "2026-09-28T22:30:00Z" })).toBe("2026-09-29");

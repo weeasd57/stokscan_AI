@@ -1,5 +1,5 @@
 import {executeAgenticTool} from '../agentic-tools';
-import {checkAgenticDraft,checkUserPositionInputs,toAgenticEvidence} from '../agentic-publication';
+import {checkAgenticDraft,checkUserPositionInputs,toAgenticEvidence,compactEvidence} from '../agentic-publication';
 import {groundedReviewerIssues} from '../agentic-runtime';
 jest.mock('../server-secrets',()=>({getDeepSeekApiKey:()=> 'offline-key'}));
 function db(rows:any[]=[]) {
@@ -48,6 +48,16 @@ test('missing quote retains cost but cannot fabricate valuation or profit',async
     expect(checkAgenticDraft('FWRY\n| البند | القيمة |\n|---|---|\n| الربح | 0 |',[e]).length).toBeGreaterThan(0);
     expect(await executeAgenticTool('calculate_position',{symbol:'FWRY',quantity:0,entry_price:14.8},d.client,'u')).toMatchObject({status:'error',persisted:false});
 });
+test('known total cost needs only quantity to complete a temporary position',async()=>{
+    const d=db([{date:'2026-10-07',close:877.02}]);
+    const costOnly=await executeAgenticTool('calculate_position',{symbol:'ORAS',total_cost:12000},d.client,'u');
+    expect(costOnly).toMatchObject({persisted:false,valuation_complete:false,positions:[{quantity:null,entry_price:null,cost:12000,close:877.02,market_value:null}]});
+    const complete=await executeAgenticTool('calculate_position',{symbol:'ORAS',quantity:12,total_cost:12000},d.client,'u');
+    expect(complete).toMatchObject({positions:[{quantity:12,entry_price:1000,cost:12000,market_value:10524.24,profit_loss_val:-1475.76}]});
+    const fromAverage=await executeAgenticTool('calculate_position',{symbol:'ORAS',entry_price:1000,total_cost:12000},d.client,'u');
+    expect(fromAverage.positions).toEqual(complete.positions);
+    expect(checkUserPositionInputs('التكلفة 12 ألف، ابعت متوسط الشراء والكمية', 'معايا أسهم بتكلفة إجمالية 12 ألف من غير كمية أو متوسط شراء')).toContain('unneeded_average_requested_when_total_cost_known');
+});
 test('reviewer objections require an actual draft quotation; omissions remain reviewable',()=>{
     const draft='EAST\n| الدعم | 27.91 |\n| المقاومة | 35.43 |';
     expect(()=>groundedReviewerIssues({passed:false,issues:[{message:'يعرض وقفاً غير مطلوب',kind:'claim',draft_quote:'stop_loss: 26.5'}]},draft)).toThrow('REVIEW_QUOTE_NOT_IN_DRAFT');
@@ -61,8 +71,53 @@ test('interpretations cannot reverse level distances or invent a momentum trend 
     expect(checkAgenticDraft('MASR\nالمقاومة أقرب من الدعم؛ الزخم يتحسن بشكل طفيف (هيستوجرام موجب).',[e])).toContain('temporal_momentum_without_series:MASR');
     expect(checkAgenticDraft('MASR\nالمقاومة أقرب من الدعم. لا يثبت أن الزخم يتحسن من لقطة واحدة.',[e])).toEqual([]);
     expect(checkAgenticDraft('MASR\nضغط البيع يتراجع نسبياً في هذه اللقطة.',[e])).toContain('temporal_momentum_without_series:MASR');
+    const rsi=toAgenticEvidence('get_stock',{}, {stocks:[{symbol:'MFPC',date:'2026-10-07',rsi_14:35.39}]});
+    expect(checkAgenticDraft('MFPC\nRSI عند 35.39 أقرب إلى تخفيف ضغط البيع.',[rsi])).toContain('rsi_snapshot_does_not_prove_trend:MFPC');
+    const comparison=toAgenticEvidence('get_comparison',{}, {comparison:[{symbol:'EFID',date:'2026-10-07',rsi_14:31.79},{symbol:'JUFO',date:'2026-10-07',rsi_14:30.54}]});
+    expect(checkAgenticDraft('كلا السهمين في منطقة قريبة من تخفيف ضغط البيع (RSI قرب 30).',[comparison])).toEqual(expect.arrayContaining(['rsi_snapshot_does_not_prove_trend:EFID','rsi_snapshot_does_not_prove_trend:JUFO']));
+    expect(checkAgenticDraft('كلا السهمين قرب 30 على RSI؛ لا يثبت تخفيف ضغط البيع.',[comparison])).toEqual([]);
     expect(checkAgenticDraft('MASR\nالدعم أقل من المقاومة؛ المقاومة ليست أبعد من الدعم.',[e])).toEqual([]);
     const earlier=toAgenticEvidence('get_stock',{}, {stocks:[{symbol:'MASR',date:'2026-10-06',macd_histogram:0.01}]});
     expect(checkAgenticDraft('MASR\nالزخم يتحسن.',[earlier,e])).toEqual([]);
     expect(checkAgenticDraft('MASR\nالزخم يتراجع.',[earlier,e])).toContain('temporal_momentum_direction_contradiction:MASR');
+});
+test('an aggregate headline date cannot become a publication date',()=>{
+    const e=toAgenticEvidence('get_news',{symbols:['COMI']},{news:[{symbol:'COMI',date:'2026-10-08',record_date:'2026-10-08',date_kind:'aggregation',event_date:null,headlines:['CIB يوقع اتفاقية استثمار']}]});
+    expect(e.data_time).toBeNull();
+    const old=toAgenticEvidence('get_news',{}, {news:[{symbol:'COMI',date:'2026-10-08',event_date:'2026-10-08',headlines:['CIB يوقع اتفاقية استثمار']}]});
+    expect(compactEvidence(old).data.news[0]).toMatchObject({event_date:null,record_date:'2026-10-08',date_kind:'aggregation'});
+    expect(checkAgenticDraft('أحدث خبر عن COMI بتاريخ 2026-10-08 هو اتفاقية استثمار.',[e])).toContain('news_record_date_is_not_publication_date');
+    expect(checkAgenticDraft('COMI: العنوان موجود في سجل تجميع بتاريخ 2026-10-08؛ تاريخ النشر غير موثق.',[e])).toEqual([]);
+});
+
+const replay = require('./fixtures/oct10-user-three-questions.json');
+const screenReplay = () => toAgenticEvidence('screen_stocks',{}, {status:'success',date:'2026-10-07',
+    methodology:'distance=(resistance-close)/close*100',stocks:[
+        {symbol:'EOSB',date:'2026-10-07',close:1.64,resistance:1.64,distance_from_resistance_pct:0,r_vol:1.5385},
+        {symbol:'ORAS',date:'2026-10-07',close:877.02,resistance:894,distance_from_resistance_pct:1.94,r_vol:2.4427},
+        {symbol:'FWRY',date:'2026-10-07',close:19.06,resistance:19.44,distance_from_resistance_pct:1.99,r_vol:3.0732}]});
+test('actual cost-only clarification is not a market-price claim',()=>{
+    const request='معايا أوراسكوم ORAS بتكلفة إجمالية ١٢ ألف جنيه، ومش عارف متوسط الشراء. إيه أقل معلومة ناقصة؟';
+    expect(checkAgenticDraft(replay.cost,[],request)).toEqual([]);
+    const quote=toAgenticEvidence('get_stock',{}, {stocks:[{symbol:'ORAS',date:'2026-10-07',close:877.02}]});
+    expect(checkAgenticDraft('ORAS: التكلفة الإجمالية 12,000 جنيه. آخر إغلاق بسعر 877.02 جنيه. ابعت الكمية فقط.',[quote],request)).toEqual([]);
+    expect(checkAgenticDraft('ORAS: سعر الإغلاق 12000 جنيه.',[quote],request).length).toBeGreaterThan(0);
+    expect(checkAgenticDraft('ORAS: التكلفة الإجمالية 13000 جنيه.',[quote],request).length).toBeGreaterThan(0);
+    expect(checkAgenticDraft('ORAS: التكلفة الإجمالية 12000 جنيه تعني كمية أقل من 14 سهم عند إغلاق اليوم.',[quote],request)).toContain('historical_cost_does_not_determine_quantity_at_current_close');
+});
+test('actual combined comparison catches temporal and baseline claims plus old news provenance',()=>{
+    const evidence=replay.evidence.map((e:any)=>toAgenticEvidence(e.tool,e.arguments,e.data));
+    const reasons=checkAgenticDraft(replay.comparison,evidence);
+    expect(reasons).toEqual(expect.arrayContaining(['temporal_momentum_without_series:EFID','relative_volume_baseline_contradiction:JUFO','news_record_date_is_not_publication_date']));
+    const corrected='MFPC وEFID وJUFO: لقطة واحدة لا تثبت تحسن الزخم أو تراجع ضغط البيع.\nJUFO نشاطه أعلى من متوسط السهم.\nأخبار COMI موجودة في سجل تجميع بتاريخ 2026-10-08؛ تاريخ نشر العناوين غير متحقق.';
+    expect(checkAgenticDraft(corrected,evidence)).toEqual([]);
+});
+test('real numeric distance formulas verify operands, denominator and conversion separately',()=>{
+    const e=screenReplay();
+    const draft=replay.screen.replace('لكن هذا ليس قاعدة عامة؛ لأن معامل التحويل بين المقامين يختلف من سهم لآخر (نسبة المقاومة إلى الإغلاق مختلفة)، فلو تقاربت المسافات بين سهمين قد ينقلب ترتيبهما عند تغيير المقام. هنا الفروق واضحة بما يكفي (0.00% ثم ~1.9% ثم ~2.0%) فيبقى الترتيب ثابتا.', 'الترتيب ثابت هنا لأن التحويل بين النسب متزايد رياضياً للسعر الموجب والمقاومة فوقه أو عنده.');
+    expect(checkAgenticDraft(draft,[e])).toEqual([]);
+    expect(checkAgenticDraft(draft.replace('× 100','× 1000'),[e])).toContain('table_distance_formula_not_grounded:EOSB');
+    expect(checkAgenticDraft(draft.replace('= 1.90%','= 1.94%'),[e])).toContain('table_distance_formula_not_grounded:ORAS');
+    expect(checkAgenticDraft(draft.replace('| ORAS | 1.94% |','| ORAS | 1.90% |'),[e])).toContain('table_value_not_grounded:ORAS:1.9');
+    expect(checkAgenticDraft(replay.screen,[e])).toContain('screen_distance_order_monotonicity_contradiction');
 });

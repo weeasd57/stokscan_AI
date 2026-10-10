@@ -434,7 +434,7 @@ describe("Agentic tool correctness and failure boundaries", () => {
             : q.table==="stock_prices" ? {data:[...history,...tooFar],error:null} : {data:[],error:null});
         const r=await executeAgenticTool("screen_stocks",{},d.client,"u");
         expect(r.status).toBe("success"); expect(r.stocks).toHaveLength(1);
-        expect(r.stocks[0]).toMatchObject({symbol:"COMI",resistance:100,distance_from_resistance_pct:1,resistance_sessions:20});
+        expect(r.stocks[0]).toMatchObject({symbol:"COMI",resistance:100,distance_from_resistance_pct:1.01,resistance_sessions:20});
         const scan=d.queries.find(q=>q.table==="stock_technical_indicators"&&q.ops.some(o=>o[0]==="select"&&String(o[1]).includes("r_vol")))!;
         expect(scan.ops).toContainEqual(["gte","rsi_14",40]); expect(scan.ops).toContainEqual(["lte","rsi_14",60]); expect(scan.ops).toContainEqual(["gt","r_vol",1]);
     });
@@ -450,14 +450,35 @@ describe("Agentic tool correctness and failure boundaries", () => {
             {symbol:"ARAB",date,close:.273,r_vol:1.48,rsi_14:57.94},{symbol:"COMI",date,close:97,r_vol:2,rsi_14:50}],error:null}
             :{data:Array.from({length:20},(_,i)=>[{symbol:"ARAB",date:`2026-09-${30-i}`,high:.278,close:.273},{symbol:"COMI",date:`2026-09-${30-i}`,high:100,close:97}]).flat(),error:null});
         const r=await executeAgenticTool("screen_stocks",{},d.client,"u");
-        expect(r.stocks).toHaveLength(1);expect(r.stocks[0]).toMatchObject({symbol:"ARAB",resistance:.278,distance_from_resistance_pct:1.8,resistance_relation:"below"});
+        expect(r.stocks).toHaveLength(1);expect(r.stocks[0]).toMatchObject({symbol:"ARAB",resistance:.278,distance_from_resistance_pct:1.83,resistance_relation:"below"});
+        expect(r.methodology).toContain("distance=(resistance-close)/close*100");
+        expect(d.queries.some(q=>q.ops.some(o=>o[0]==="gt"&&o[1]==="r_vol"&&o[2]===1))).toBe(true);
         const e=toAgenticEvidence("screen_stocks",{},r);
+        expect(checkAgenticDraft("المسافة محسوبة من الإغلاق: (المقاومة-الإغلاق)÷الإغلاق×100.",[e])).toEqual([]);
+        expect(checkAgenticDraft("المسافة محسوبة من الإغلاق: (المقاومة-الإغلاق)÷المقاومة×100.",[e])).toContain("screen_distance_formula_contradiction");
         const table="| السهم | الإغلاق | المقاومة |\n|---|---:|---:|\n| ARAB | 0.273 | 0.278 |";
         expect(checkAgenticDraft(table,[e])).toEqual([]);
         expect(checkAgenticDraft(table.replace("0.278","0.28"),[e])).toContain("table_value_not_grounded:ARAB:0.28");
-        const inclusive=await executeAgenticTool("screen_stocks",{relative_volume_min:2,resistance_distance_inclusive:true},d.client,"u");
+        const inclusive=await executeAgenticTool("screen_stocks",{relative_volume_min:2,max_resistance_distance_pct:3.1,resistance_distance_inclusive:true},d.client,"u");
         expect(inclusive.stocks.some((s:any)=>s.symbol === "COMI")).toBe(true);
-        expect(d.queries.some(q=>q.ops.some(o=>o[0]==="gte"&&o[1]==="r_vol"&&o[2]===2))).toBe(true);
+        expect(d.queries.some(q=>q.ops.some(o=>o[0]==="gt"&&o[1]==="r_vol"&&o[2]===2))).toBe(true);
+    });
+    test.each([false,true])("volume threshold 1.5 excludes equality unless explicitly inclusive (%s)", async inclusive => {
+        const date = "2026-10-08";
+        const candidates = [{symbol:"ORAS",date,close:98.1,r_vol:1.5,rsi_14:50},
+            {symbol:"FWRY",date,close:98.05,r_vol:1.51,rsi_14:50}];
+        const d = db(q => q.table === "stock_technical_indicators"
+            ? q.ops.some(o => o[0] === "select" && o[1] === "date") ? {data:[{date}],error:null}
+                : {data:candidates.filter(row => inclusive ? row.r_vol >= 1.5 : row.r_vol > 1.5),error:null}
+            : {data:Array.from({length:20},(_,i) => candidates.map(row => ({symbol:row.symbol,date:`2026-09-${30-i}`,high:100,close:row.close}))).flat(),error:null});
+        const result = await executeAgenticTool("screen_stocks",{relative_volume_min:1.5, ...(inclusive ? {relative_volume_inclusive:true} : {})},d.client,"u");
+        expect(d.queries.some(q => q.ops.some(o => o[0] === (inclusive ? "gte" : "gt") && o[1] === "r_vol" && o[2] === 1.5))).toBe(true);
+        expect(result.stocks.map((row:any) => row.symbol)).toEqual(inclusive ? ["ORAS","FWRY"] : ["FWRY"]);
+        expect(result.stocks.at(-1).distance_from_resistance_pct).toBe(1.99);
+        const e = toAgenticEvidence("screen_stocks",{},result);
+        expect(checkAgenticDraft("النسب على الإغلاق وعلى المقاومة متطابقة.",[e])).toContain("screen_distance_denominators_not_equivalent");
+        expect(checkAgenticDraft("النسب على الإغلاق وعلى المقاومة ليست متطابقة.",[e])).not.toContain("screen_distance_denominators_not_equivalent");
+        expect(checkAgenticDraft("ترتيب القرب من المقاومة متطابق عند استخدام الإغلاق كمقام.",[e])).not.toContain("screen_distance_denominators_not_equivalent");
     });
     test.each([false,true])("admin scenario tables publish stock and sector allocations (explicit=%s)",async explicit=>{
         const d=db(q=>q.table === "stock_fundamentals" ? {data:[

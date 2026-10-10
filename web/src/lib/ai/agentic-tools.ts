@@ -66,25 +66,33 @@ async function executeRawTool(
         if (toolName === "calculate_position") {
             if (!args.symbol) throw new Error("رمز السهم مطلوب لحساب المركز");
             const symbol = normalizeSymbol(args.symbol);
-            const quantity = positive(args.quantity), entry_price = positive(args.entry_price);
-            const cost = quantity * entry_price;
-            if (!Number.isFinite(cost)) throw new Error("قيمة المركز تتجاوز حدود الحساب");
+            let quantity = args.quantity == null ? null : positive(args.quantity);
+            const suppliedEntry = args.entry_price == null ? null : positive(args.entry_price);
+            const suppliedCost = args.total_cost == null ? null : positive(args.total_cost);
+            if (quantity == null && suppliedCost == null) throw new Error("أدخل الكمية ومتوسط الشراء، أو التكلفة الإجمالية المعروفة");
+            if (quantity != null && suppliedEntry == null && suppliedCost == null) throw new Error("مع الكمية، أدخل متوسط الشراء أو التكلفة الإجمالية المعروفة");
+            const cost = suppliedCost ?? (quantity! * suppliedEntry!);
+            if (quantity == null && suppliedCost != null && suppliedEntry != null) quantity = cost / suppliedEntry;
+            const entry_price = suppliedEntry ?? (quantity != null ? cost / quantity : null);
+            if (suppliedCost != null && quantity != null && suppliedEntry != null && Math.abs(quantity * suppliedEntry - suppliedCost) > 0.01)
+                throw new Error("التكلفة الإجمالية لا تطابق الكمية ومتوسط الشراء");
+            if (!Number.isFinite(cost) || (quantity != null && !Number.isFinite(quantity)) || (entry_price != null && !Number.isFinite(entry_price))) throw new Error("قيمة المركز تتجاوز حدود الحساب");
             const { data } = await supabase.from("stock_technical_indicators")
                 .select("date,close").eq("exchange", "EGX").eq("symbol", symbol)
                 .order("date", { ascending: false }).limit(1);
             const quote = data?.[0];
             const close = finite(quote?.close);
             const priced = close != null && close > 0 && Boolean(quote?.date);
-            const marketValue = priced ? quantity * close! : null;
+            const marketValue = priced && quantity != null ? quantity * close! : null;
             const profit = marketValue == null ? null : marketValue - cost;
             if (marketValue != null && !Number.isFinite(marketValue)) throw new Error("قيمة المركز تتجاوز حدود الحساب");
             return { status: "success", mode: "temporary_position", persisted: false,
-                valuation_complete: priced, fees_included: false,
+                valuation_complete: priced && quantity != null, fees_included: false,
                 positions: [{ symbol, quantity, entry_price, cost: round(cost),
                     close: priced ? close : null, date: priced ? quote.date : null,
                     market_value: round(marketValue), profit_loss_val: round(profit),
                     profit_loss_pct: profit == null ? null : round(profit / cost * 100) }],
-                formulas: { cost: "quantity * entry_price", market_value: "quantity * close",
+                formulas: { cost: suppliedCost != null ? "user_supplied_total_cost" : "quantity * entry_price", market_value: "quantity * close",
                     profit_loss_val: "market_value - cost", profit_loss_pct: "profit_loss_val / cost * 100" } };
         }
         if (toolName === "get_stock") {
@@ -520,7 +528,9 @@ async function executeRawTool(
             const rsiMin = finite(args.rsi_min) ?? 40, rsiMax = finite(args.rsi_max) ?? 60;
             const volumeMin = finite(args.relative_volume_min) ?? 1;
             const distanceMax = finite(args.max_resistance_distance_pct) ?? 3;
-            const volumeInclusive = typeof args.relative_volume_inclusive === "boolean" ? args.relative_volume_inclusive : volumeMin > 1;
+            // User wording like "أعلى من" is strict by default at every threshold.
+            // Inclusive thresholds must be requested explicitly ("على الأقل").
+            const volumeInclusive = typeof args.relative_volume_inclusive === "boolean" ? args.relative_volume_inclusive : false;
             const distanceInclusive = args.resistance_distance_inclusive === true;
             const maxResults = Math.trunc(finite(args.max_results) ?? 10);
             if (rsiMin < 0 || rsiMax > 100 || rsiMin >= rsiMax) throw new Error("نطاق RSI غير صالح");
@@ -559,7 +569,9 @@ async function executeRawTool(
                 const resistance = highs.length === 20 ? Math.max(...highs) : null;
                 const close=finite(row.close);
                 if (resistance == null || close == null || close > resistance) return [];
-                const distance = (resistance-close)/resistance*100;
+                // Express distance as a percentage of the observed close; this is
+                // the same denominator used by the publication validator.
+                const distance = (resistance-close)/close*100;
                 if (distanceInclusive ? distance > distanceMax : distance >= distanceMax) return [];
                 return [{ symbol:row.symbol, date:row.date, close, change_pct:finite(row.change_pct), r_vol:finite(row.r_vol),
                     rsi_14:finite(row.rsi_14), resistance:Number(resistance.toFixed(6)), distance_from_resistance_pct:round(distance),
@@ -569,7 +581,7 @@ async function executeRawTool(
             return { status:"success", date, filters:{rsi_min:rsiMin,rsi_max:rsiMax,relative_volume_min:volumeMin,
                 relative_volume_inclusive:volumeInclusive,max_resistance_distance_pct:distanceMax,resistance_distance_inclusive:distanceInclusive}, stocks, scan_complete:!truncated && insufficientHistory.length===0,
                 candidate_limit:250, candidates_checked:rows.length, truncated, insufficient_history_symbols:insufficientHistory,
-                methodology:`r_vol ${volumeInclusive ? ">=" : ">"} threshold; distance ${distanceInclusive ? "<=" : "<"} threshold; resistance is maximum high over latest 20 daily sessions including snapshot session; distance=(resistance-close)/resistance*100`,
+                methodology:`r_vol ${volumeInclusive ? ">=" : ">"} threshold; distance ${distanceInclusive ? "<=" : "<"} threshold; resistance is maximum high over latest 20 daily sessions including snapshot session; distance=(resistance-close)/close*100`,
                 breakout_assessment:"This rolling high includes the snapshot session; proximity or equality does not establish a breakout above prior resistance." };
         }
 
