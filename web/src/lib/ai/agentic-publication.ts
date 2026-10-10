@@ -309,11 +309,16 @@ function checkSnapshotInterpretations(reply: string, evidence: AgenticEvidence[]
     for (const raw of reply.replace(/[*_`]/g, "").split(/\n|[.!؟؛]\s+/)) {
         const named = symbols.filter(symbol => new RegExp(`\\b${symbol}\\b`, "i").test(raw));
         if (named.length === 1) owner = named[0];
-        if (owner && /(?:الأقرب|أقرب).{0,15}(?:للتشبع\s+البيعي|من\s+التشبع\s+البيعي)/.test(raw)) {
+        if (owner && /(?:الأقرب|أقرب).{0,30}(?:للتشبع\s+البيعي|(?:من|إلى|الى)\s+(?:منطقة\s+)?التشبع\s+البيعي)/.test(raw)) {
             const current = [...rows].reverse().find(row => row.symbol === owner && Number.isFinite(row.rsi_14));
             const peers = current ? rows.filter(row => row.date === current.date && Number.isFinite(row.rsi_14)) : [];
             if (current && peers.some(row => row.symbol !== owner && Math.abs(row.rsi_14-30) < Math.abs(current.rsi_14-30)-1e-6))
                 reasons.push(`rsi_oversold_proximity_ranking_contradiction:${owner}`);
+        }
+        if (owner && /(?:الأدنى|أدنى|الأقل|أقل)\s+(?:في\s+)?RSI.{0,30}بين\s+(?:الثلاثة|الأسهم|الاسهم)/i.test(raw)) {
+            const current = [...rows].reverse().find(row => row.symbol === owner && Number.isFinite(row.rsi_14));
+            if (current && rows.some(row => row.date === current.date && row.symbol !== owner && Number.isFinite(row.rsi_14) && row.rsi_14 < current.rsi_14-1e-6))
+                reasons.push(`rsi_minimum_ranking_contradiction:${owner}`);
         }
         const easing = /(?:تخفيف|انحسار|تراجع)\s+ضغط\s+البيع|ضغط\s+البيع\s+(?:يخف|يقل|يتراجع|يتباطأ)/.exec(raw);
         if (easing && /RSI|مؤشر\s+القوة\s+النسبية/i.test(raw)) {
@@ -452,7 +457,7 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
             if (/^(?:هل|\*?هل)\s/.test(line.trim()) || line.trim().endsWith("؟")) continue;
             const positiveRows = evidenceRows(screen.data).filter(row => Number.isFinite(row.close) && row.close > 0 && row.resistance >= row.close);
             const reversal = /(?:ينقلب|يتغير|يختلف|تنقلب|قد\s+يظهر\s+اختلاف).{0,30}(?:ترتيب|ترتيبهما)|(?:ترتيب|ترتيبهما).{0,30}(?:ينقلب|يتغير|يختلف|تنقلب)/.exec(line);
-            if (positiveRows.length >= 2 && reversal && !/(?:لا|لن|ليس|مش|غير)\s*$/.test(line.slice(0,reversal.index)) && !/(?:ترتيب|ترتيبهما)\s+(?:لا|لن)\s+(?:ينقلب|يتغير|يختلف)/.test(reversal[0]))
+            if (positiveRows.length >= 2 && reversal && !/(?:لا|لن|ليس|مش|غير)\s*$/.test(line.slice(0,reversal.index)) && !/(?:ترتيب|ترتيبهما)[\s:：،-]+(?:لا|لن)\s+(?:ينقلب|يتغير|يختلف)/.test(reversal[0]))
                 reasons.push("screen_distance_order_monotonicity_contradiction");
             const equality = /(?:متطابق(?:ة|تان|تين|ان)?|متساوي(?:ة|تان|تين|ان)?|نفس\s+(?:النسبة|النسب|القيمة|القيم))/.exec(line);
             if (/ترتيب|الترتيب|ranking|order/i.test(line) && !/النسب|النسبة|القيم|القيمة|percent|value/i.test(line)) continue;

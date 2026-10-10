@@ -14,6 +14,7 @@ test.each([
     const e=toAgenticEvidence('get_stock_levels',{symbols:[symbol]},{levels:[{symbol,close,support,resistance,date:'2026-10-07'}]});
     const draft=`**${symbol}**\n| البند | القيمة | المسافة من الإغلاق |\n|---|---:|---:|\n| الإغلاق | ${close} | — |\n| أقرب دعم | ${support} | ${below} |\n| أقرب مقاومة | ${resistance} | ${above} |`;
     expect(checkAgenticDraft(draft,[e])).toEqual([]);
+    expect(checkAgenticDraft(draft.replace('الترتيب لا يتغير','**الترتيب:** لا يتغير'),[e])).toEqual([]);
     expect(checkAgenticDraft(draft.replace(String(below),'-30%'),[e])).toContain(`table_value_not_grounded:${symbol}:-30`);
     expect(checkAgenticDraft(draft.replace(`| ${support} |`,`| ${close} |`),[e])).toContain(`table_value_not_grounded:${symbol}:${close}`);
     expect(checkAgenticDraft(draft.replace(String(below),String(below).replace('-','+')),[e]).length).toBeGreaterThan(0);
@@ -136,6 +137,8 @@ test('oversold proximity and internal news fields are checked in published prose
     const e=toAgenticEvidence('get_comparison',{}, {comparison:[{symbol:'EFID',date:'2026-10-07',rsi_14:31.79},{symbol:'JUFO',date:'2026-10-07',rsi_14:30.54}]});
     expect(checkAgenticDraft('EFID: RSI عند 31.79 (الأقرب للتشبع البيعي بين الثلاثة).',[e])).toContain('rsi_oversold_proximity_ranking_contradiction:EFID');
     expect(checkAgenticDraft('JUFO هو الأقرب للتشبع البيعي.',[e])).toEqual([]);
+    expect(checkAgenticDraft('**EFID:** الأدنى في RSI بين الثلاثة (31.79)، أي الأقرب إلى منطقة التشبع البيعي.',[e])).toEqual(expect.arrayContaining(['rsi_oversold_proximity_ranking_contradiction:EFID','rsi_minimum_ranking_contradiction:EFID']));
+    expect(checkAgenticDraft('**JUFO:** الأدنى في RSI بين الثلاثة (30.54)، أي الأقرب إلى منطقة التشبع البيعي.',[e])).toEqual([]);
     expect(checkAgenticDraft('تاريخ السجل ليس نشر الخبر (date_kind = aggregation، event_date فارغ).',[])).toContain('internal_implementation_names_in_response');
 });
 
