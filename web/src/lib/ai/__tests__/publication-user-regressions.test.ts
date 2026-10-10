@@ -191,6 +191,25 @@ test('comparison fallback keeps validated daily metrics instead of dropping them
     expect(fallback).toContain('ليست أسعاراً لحظية');
 });
 
+test.each(['ABUK,ADIB,CIEB','ABUK,CIEB,ADIB','ADIB,ABUK,CIEB','ADIB,CIEB,ABUK','CIEB,ABUK,ADIB','CIEB,ADIB,ABUK'])
+('production RSI claim keeps its subject regardless of table order: %s', order=>{
+    const rows = [
+        {symbol:'ABUK',date:'2026-10-07',close:90,rsi_14:43.87,ema_50:84.96},
+        {symbol:'ADIB',date:'2026-10-07',close:47.8,rsi_14:20.97,ema_50:50.99},
+        {symbol:'CIEB',date:'2026-10-07',close:24,rsi_14:30.87,ema_50:24.56},
+    ];
+    const e=toAgenticEvidence('get_comparison',{}, {status:'success',comparison:rows});
+    const table='| السهم | الإغلاق | RSI (14) | EMA50 | موقعه من EMA50 |\n|---|---|---|---|---|\n'
+        + order.split(',').map(symbol=>{ const row=rows.find(r=>r.symbol===symbol)!;
+            return `| ${row.symbol} | ${row.close} | ${row.rsi_14} | ${row.ema_50} | ${row.close>row.ema_50?'فوق':'تحت'} |`; }).join('\n');
+    const claim='**الأقل RSI:** ADIB عند 20.97 (أقرب للتشبع البيعي)، ثم CIEB عند 30.87، ثم ABUK عند 43.87.';
+    expect(checkAgenticDraft(table+'\n\n'+claim,[e])).toEqual([]);
+    const wrong='CIEB هو الأقرب للتشبع البيعي، ثم ADIB، ثم ABUK.';
+    expect(checkAgenticDraft(table+'\n\n'+wrong,[e])).toContain('rsi_oversold_proximity_ranking_contradiction:CIEB');
+    expect(checkAgenticDraft(table+'\n\nالأدنى في RSI بين الأسهم: CIEB، ثم ADIB، ثم ABUK.',[e]))
+        .toContain('rsi_minimum_ranking_contradiction:CIEB');
+});
+
 test('separate symbolic denominator explanations are checked independently',()=>{
     const e=screenReplay();
     const draft='القسمة على الإغلاق: (المقاومة − الإغلاق) ÷ الإغلاق.\nالقسمة على المقاومة: (المقاومة − الإغلاق) ÷ المقاومة.';

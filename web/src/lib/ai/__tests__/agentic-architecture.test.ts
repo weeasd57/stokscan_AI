@@ -49,6 +49,8 @@ describe("Agentic architecture integration: current production path", () => {
         expect(r.done.response).toContain("| البند | COMI | SWDY |");
         expect(r.done.response).toContain("| RSI(14) | 45 | 45 |");
         expect(r.done.response).not.toContain("TMGH");
+        const repair = JSON.parse(r.fetchMock.mock.calls[3][1].body);
+        expect(repair.messages.at(-1).content).toContain('"current_request":"قارن COMI وSWDY"');
     });
     test("an invented reviewer quote is rechecked without rewriting the valid draft", async () => {
         const invalid = {content:JSON.stringify({passed:false,issues:[{message:"عرض أهدافاً",kind:"claim",draft_quote:"take_profit_1"}]})};

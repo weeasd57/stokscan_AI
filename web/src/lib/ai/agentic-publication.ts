@@ -300,6 +300,17 @@ function checkResistanceRelations(reply: string, evidence: AgenticEvidence[]): s
     return [...new Set(reasons)];
 }
 
+/** A prose claim belongs to its own clause, never the last row of a preceding table. */
+function interpretationSubject(text: string, claimIndex: number, symbols: string[], inherited: string | null): string | null {
+    const before = text.slice(0, claimIndex).split(/[،؛]/).at(-1) || "";
+    const after = text.slice(claimIndex).split(/[،؛]/)[0];
+    const namesIn = (value: string) => symbols.filter(symbol => new RegExp(`\\b${symbol}\\b`, "i").test(value));
+    const local = namesIn(before + after);
+    if (local.length === 1) return local[0];
+    // Ambiguous multi-stock clauses are left to the contextual reviewer.
+    return local.length === 0 && namesIn(text).length <= 1 ? inherited : null;
+}
+
 /** Verify interpretations as relations, not just the presence of their individual numbers. */
 function checkSnapshotInterpretations(reply: string, evidence: AgenticEvidence[]): string[] {
     const allRows = evidence.filter(e => e.availability !== "error").flatMap(e => evidenceRows(e.data));
@@ -323,22 +334,27 @@ function checkSnapshotInterpretations(reply: string, evidence: AgenticEvidence[]
     for (const raw of reply.replace(/[*_`]/g, "").split(/\n|[.!؟؛]\s+/)) {
         const named = symbols.filter(symbol => new RegExp(`\\b${symbol}\\b`, "i").test(raw));
         if (named.length === 1) owner = named[0];
-        if (owner && (/(?:الأقرب|أقرب).{0,30}(?:للتشبع\s+البيعي|(?:من|إلى|الى)\s+(?:منطقة\s+)?التشبع\s+البيعي)/.test(raw)
-            || /(?:الأقرب|أقرب).{0,20}(?:حد\s*(?:RSI\s*)?30|RSI\s*30)|30.{0,15}(?:الأقرب|أقرب)/i.test(raw))) {
-            const current = currentRows.find(row => row.symbol === owner && Number.isFinite(row.rsi_14));
+        else if (named.length > 1) owner = null;
+        const proximity = /(?:الأقرب|أقرب).{0,30}(?:للتشبع\s+البيعي|(?:من|إلى|الى)\s+(?:منطقة\s+)?التشبع\s+البيعي)/.exec(raw)
+            || /(?:الأقرب|أقرب).{0,20}(?:حد\s*(?:RSI\s*)?30|RSI\s*30)|30.{0,15}(?:الأقرب|أقرب)/i.exec(raw);
+        const proximityOwner = proximity ? interpretationSubject(raw, proximity.index, symbols, owner) : null;
+        if (proximityOwner) {
+            const current = currentRows.find(row => row.symbol === proximityOwner && Number.isFinite(row.rsi_14));
             const peers = current ? currentRows.filter(row => row.date === current.date && Number.isFinite(row.rsi_14)) : [];
             // “Closer to the oversold zone” means lower RSI. Only an explicit
             // distance-to-30 claim is a geometric proximity comparison.
             const explicitThresholdDistance = /(?:المسافة|أقرب|أقربها).{0,20}(?:إلى|ل|من)?\s*(?:حد\s*)?30|30.{0,15}(?:أقرب|المسافة)/.test(raw);
-            if (current && peers.some(row => row.symbol !== owner && (explicitThresholdDistance
+            if (current && peers.some(row => row.symbol !== proximityOwner && (explicitThresholdDistance
                 ? Math.abs(row.rsi_14 - 30) < Math.abs(current.rsi_14 - 30) - 1e-6
                 : row.rsi_14 < current.rsi_14 - 1e-6)))
-                reasons.push(`rsi_oversold_proximity_ranking_contradiction:${owner}`);
+                reasons.push(`rsi_oversold_proximity_ranking_contradiction:${proximityOwner}`);
         }
-        if (owner && /(?:الأدنى|أدنى|الأقل|أقل)\s+(?:في\s+)?RSI.{0,30}بين\s+(?:الثلاثة|الأسهم|الاسهم)/i.test(raw)) {
-            const current = currentRows.find(row => row.symbol === owner && Number.isFinite(row.rsi_14));
-            if (current && currentRows.some(row => row.date === current.date && row.symbol !== owner && Number.isFinite(row.rsi_14) && row.rsi_14 < current.rsi_14-1e-6))
-                reasons.push(`rsi_minimum_ranking_contradiction:${owner}`);
+        const minimum = /(?:الأدنى|أدنى|الأقل|أقل)\s+(?:في\s+)?RSI.{0,30}بين\s+(?:الثلاثة|الأسهم|الاسهم)/i.exec(raw);
+        const minimumOwner = minimum ? interpretationSubject(raw, minimum.index, symbols, owner) : null;
+        if (minimumOwner) {
+            const current = currentRows.find(row => row.symbol === minimumOwner && Number.isFinite(row.rsi_14));
+            if (current && currentRows.some(row => row.date === current.date && row.symbol !== minimumOwner && Number.isFinite(row.rsi_14) && row.rsi_14 < current.rsi_14-1e-6))
+                reasons.push(`rsi_minimum_ranking_contradiction:${minimumOwner}`);
         }
         const easing = /(?:تخفيف|انحسار|تراجع)\s+ضغط\s+البيع|ضغط\s+البيع\s+(?:يخف|يقل|يتراجع|يتباطأ)/.exec(raw);
         if (easing && /RSI|مؤشر\s+القوة\s+النسبية/i.test(raw)) {

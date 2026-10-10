@@ -365,7 +365,7 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[], accoun
                 ...recentHistory.slice(-6),{role:"user",content:userMessage},{ role: "assistant", content: draft },
                 { role: "user", content: (needsCompletion
                     ? "المسودة ناقصة رغم وجود أدلة. اكتب الآن إجابة عربية مكتملة للطلب الحالي باستخدام الأدلة المتاحة، واذكر بوضوح أي جزء لم تنفذه أداة. لا تكرر اعتذاراً عاماً ولا تخترع أرقاماً."
-                    : "أعد كتابة إجابة نهائية كاملة لسؤال المستخدم بعد معالجة الأخطاء التالية. لا تعرض سجل التعديلات أو أسباب المراجعة أو تقول ما تم إصلاحه؛ المستخدم لم ير المسودة السابقة. احتفظ بالخلاصة المفيدة والتقريب الصحيح، ولا تطلب الدقة الكاملة بلا سبب. إذا تحتاج بيانات ناقصة اطلب أدواتها الآن، دون تكرار كتابة محفظة. لا تنفِ الأدلة السابقة:") + "\n" + JSON.stringify(reasons) }];
+                    : "أعد كتابة إجابة نهائية كاملة لسؤال المستخدم بعد معالجة الأخطاء التالية. لا تعرض سجل التعديلات أو أسباب المراجعة أو تقول ما تم إصلاحه؛ المستخدم لم ير المسودة السابقة. احتفظ بالخلاصة المفيدة والتقريب الصحيح، ولا تطلب الدقة الكاملة بلا سبب. إذا تحتاج بيانات ناقصة اطلب أدواتها الآن، دون تكرار كتابة محفظة. لا تنفِ الأدلة السابقة:") + "\n" + JSON.stringify({current_request:userMessage,issues:reasons}) }];
             let fixed = await request({ messages: repairMessages, ...answerBody }, "repair");
             if (fixed.tool_calls?.length) {
                 messages.splice(0,messages.length,...repairMessages,fixed);
