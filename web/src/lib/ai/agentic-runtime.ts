@@ -9,7 +9,7 @@ import { createExecutionScope, awaitExecution, executionFetch, executionSupabase
 import { executeAgenticTool } from "./agentic-tools";
 import { isUuid } from "./session";
 import { sanitizeChartContext, type ChartHistoryCache, type ChartAction } from "./chart-strategy-tools";
-import { AgenticEvidence, toAgenticEvidence, checkAgenticDraft, safeAgenticFallback, compactEvidence, evidenceMemory, evidenceRows, advisoryImageConsistency } from "./agentic-publication";
+import { AgenticEvidence, toAgenticEvidence, checkAgenticDraft, safeAgenticFallback, compactEvidence, evidenceMemory, evidenceRows, advisoryImageConsistency, advisoryTableRowCountConsistency } from "./agentic-publication";
 import { AGENTIC_PUBLICATION_CONTRACT } from "./agentic-contract";
 
 export const AGENTIC_BUDGET = { toolRounds: 3, toolCalls: 12, repairs: 1, providerCalls: 7 };
@@ -456,7 +456,7 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[], accoun
             // replace an answer with raw evidence/boilerplate. Only deterministic
             // evidence and safety checks can reject unsupported claims.
             options.diagnosticCapture?.("publication_review_advisory", {reviewer_passed:verdict.passed, issues:failures, deterministic});
-            return { passed: deterministic.length === 0, reasons: deterministic, advisoryIssues: [...failures, ...advisoryImageConsistency(reply, verificationEvidence())] };
+            return { passed: deterministic.length === 0, reasons: deterministic, advisoryIssues: [...failures, ...advisoryImageConsistency(reply, verificationEvidence()), ...advisoryTableRowCountConsistency(reply)] };
         }
 
     };

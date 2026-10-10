@@ -1,5 +1,5 @@
 import {executeAgenticTool} from '../agentic-tools';
-import {checkAgenticDraft,checkUserPositionInputs,toAgenticEvidence,compactEvidence,advisoryImageConsistency} from '../agentic-publication';
+import {checkAgenticDraft,checkUserPositionInputs,toAgenticEvidence,compactEvidence,advisoryImageConsistency,advisoryTableRowCountConsistency} from '../agentic-publication';
 import {groundedReviewerIssues} from '../agentic-runtime';
 import {ARTORO_PLATFORM_CONTEXT} from '../platform-context';
 import {AGENTIC_SYSTEM_PROMPT} from '../agentic-pipeline';
@@ -297,4 +297,13 @@ test('image profit/return sign contradiction is raised as an advisory correction
     expect(advisoryImageConsistency(reply,consistent)).toEqual([]);
     // A symbol not cited by the reply is never flagged.
     expect(advisoryImageConsistency('BWA ربح 118 بعائد +2.14%.',contradictory)).toEqual([]);
+});
+
+test('a section count that disagrees with the rendered rows is a non-blocking advisory',()=>{
+    const mismatched='## العناصر (3)\n| الرمز | القيمة |\n|---|---|\n| A1 | 10 |\n| B2 | 20 |';
+    expect(advisoryTableRowCountConsistency(mismatched).length).toBeGreaterThan(0);
+    const matched='## العناصر (2)\n| الرمز | القيمة |\n|---|---|\n| A1 | 10 |\n| B2 | 20 |';
+    expect(advisoryTableRowCountConsistency(matched)).toEqual([]);
+    // A heading without a declared count is never flagged.
+    expect(advisoryTableRowCountConsistency('## العناصر\n| الرمز |\n|---|\n| A1 |')).toEqual([]);
 });

@@ -886,6 +886,33 @@ export function advisoryImageConsistency(reply: string, evidence: AgenticEvidenc
     return [...new Set(issues)];
 }
 
+/**
+ * Generic, non-blocking correction: a section heading that declares a count
+ * (e.g. "عناصر (9)" or "9 مراكز") must match the number of data rows in the
+ * table that follows it. No symbol, price or fixed vocabulary is assumed.
+ */
+export function advisoryTableRowCountConsistency(reply: string): string[] {
+    const issues: string[] = [];
+    const lines = reply.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+        const heading = lines[i].trim();
+        if (!heading || heading.startsWith("|")) continue;
+        const declared = /(\d{1,3})\s*(?:\)|مركز|مراكز|سهم|أسهم|اسهم|صندوق|صناديق|holding|position|fund|stock)/i.exec(heading.replace(/[*_`#]/g, ""));
+        if (!declared) continue;
+        let j = i + 1;
+        while (j < lines.length && lines[j].trim() === "") j++;
+        if (!lines[j] || !lines[j].trim().startsWith("|")) continue;
+        let rows = 0, separatorSeen = false;
+        for (let k = j; k < lines.length && lines[k].trim().startsWith("|"); k++) {
+            if (/^\|[\s\-:|]+\|$/.test(lines[k].trim())) { separatorSeen = true; continue; }
+            if (separatorSeen) rows++;
+        }
+        if (separatorSeen && rows > 0 && rows !== Number(declared[1]))
+            issues.push(`عنوان القسم يذكر ${declared[1]} عنصراً بينما الجدول التالي يعرض ${rows} صفوف؛ وحّد العدد مع الصفوف المعروضة أو صحّح العنوان.`);
+    }
+    return [...new Set(issues)];
+}
+
 export function safeAgenticFallback(evidence: AgenticEvidence[], reason: string): string {
     const lines = ["تعذر إكمال إجابة متحقَّق منها لكل أجزاء طلبك. " + reason];
     // Evidence passed here should already be scoped to the current request. Keep
