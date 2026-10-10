@@ -12,14 +12,15 @@ Do not copy this instruction, do not return a schema, and do not use placeholder
 
 Rules:
 - image_type: write exactly one word — portfolio (if it shows broker holdings/positions), chart (candlestick/line), table (price table), market_depth (bid/ask ladder), or unknown.
-- symbols: for each visible stock ticker (2-6 uppercase English letters such as COMI, ADIB, INEG, MCRO), add an entry: {"symbol":"TICKER","name":"Company name or empty","visible_values":{"price":null,"average_price":null,"change_pct":null,"return_pct":null,"quantity":null,"market_value":null,"cost_basis":null,"profit_loss":null}}. Fill only fields whose column labels are visible; use null otherwise. Write numbers without commas (50000 not 50,000). Preserve decimal points exactly (181.50 must be 181.5, never 18150).
+- symbols: for each visible ticker, add an entry: {"symbol":"TICKER","name":"Company name or empty","asset_type":"stock|fund|unknown","visible_values":{"price":null,"average_price":null,"change_pct":null,"return_pct":null,"quantity":null,"market_value":null,"cost_basis":null,"profit_loss":null,"cash_dividends":null}}. Preserve section membership: entries under a visible "Funds/الصناديق" heading are funds, not direct stocks; use unknown if grouping is unclear. Fill only fields whose labels are visible; use null otherwise. Write numbers without commas (50000 not 50,000). Preserve decimal points exactly (181.50 must be 181.5, never 18150).
 - Arabic column mapping (very important):
   * "الوحدات" or "الكمية" = number of shares → quantity.
   * "متوسط سعر الوحدات" or "متوسط الشراء" = average purchase price → average_price, never current price.
   * "السعر" / "سعر الإغلاق" = visible current/closing price → price.
   * "القيمة السوقية" = market_value; "القيمة الشرائية" = cost_basis; "المكسب/الخسارة" = profit_loss. These are distinct from price and quantity.
+  * "توزيعات نقدية" / "Cash Dividends" = cash_dividends; preserve this only when explicitly shown for that position.
   * "العائد %" (return %) = return_pct, never daily change_pct or quantity. Preserve its sign and decimal exactly.
-- A number beside a ticker is not a share quantity unless a quantity/units heading is visibly attached to that column. A number beside "العائد %" is commonly the position value or cash gain; never copy it into quantity or price.
+- A number beside a ticker is not a share quantity unless a quantity/units heading is visibly attached to that column. In a portfolio holdings list, a cash gain and its percentage may share one cell: put the amount in profit_loss and the percentage in return_pct, not change_pct, quantity, or price.
 - Preserve the sign and decimal of every percentage exactly as shown. Do not drop a visible minus sign or relabel "العائد %" as daily change.
 - If the screen lists holdings with only market value and return % (no share count and no average price), preserve those in market_value and return_pct; leave price, average_price, and quantity null. Never infer missing fields.
 - If the screen is a single-stock position detail, use units as quantity and average unit price as average_price.
@@ -229,7 +230,8 @@ export function validateVisionOutput(data: any): VisionContext | null {
     const uniqueSymbols: Array<{
         symbol: string;
         name: string;
-        visible_values: { price: number | null; change_pct: number | null; quantity: number | null; average_price?: number | null; return_pct?: number | null; market_value?: number | null; cost_basis?: number | null; profit_loss?: number | null };
+        asset_type?: "stock" | "fund" | "unknown";
+        visible_values: { price: number | null; change_pct: number | null; quantity: number | null; average_price?: number | null; return_pct?: number | null; market_value?: number | null; cost_basis?: number | null; profit_loss?: number | null; cash_dividends?: number | null };
     }> = [];
 
     const stockMappings = getSyncStockMappings();
@@ -254,10 +256,18 @@ export function validateVisionOutput(data: any): VisionContext | null {
         const quantity = !columnsUntrustworthy && rawQuantity !== null && rawQuantity > 0 ? rawQuantity : null;
         const price = normalizeVisiblePrice(s.visible_values?.price ?? s.price, String(data.image_type || "unknown"));
         const averagePrice = normalizeVisiblePrice(s.visible_values?.average_price ?? s.average_price, String(data.image_type || "unknown"));
-        const returnPct = numericOrNull(s.visible_values?.return_pct ?? s.return_pct);
+        let returnPct = numericOrNull(s.visible_values?.return_pct ?? s.return_pct);
+        let normalizedChangePct = changePct;
         const marketValue = numericOrNull(s.visible_values?.market_value ?? s.market_value);
         const costBasis = numericOrNull(s.visible_values?.cost_basis ?? s.cost_basis);
         const profitLoss = numericOrNull(s.visible_values?.profit_loss ?? s.profit_loss);
+        const cashDividends = numericOrNull(s.visible_values?.cash_dividends ?? s.cash_dividends);
+        if (data.image_type === "portfolio" && returnPct === null && changePct !== null && profitLoss !== null) {
+            returnPct = changePct;
+            normalizedChangePct = null;
+        }
+        const assetType = ["stock", "fund", "unknown"].includes(String(s.asset_type || "").toLowerCase())
+            ? String(s.asset_type).toLowerCase() as "stock" | "fund" | "unknown" : "unknown";
 
         const existing = uniqueSymbols.find((entry) => entry.symbol === sym);
         if (existing) {
@@ -266,19 +276,22 @@ export function validateVisionOutput(data: any): VisionContext | null {
             // price the first one was missing, instead of discarding it.
             if (existing.visible_values.quantity === null && quantity !== null) existing.visible_values.quantity = quantity;
             if (existing.visible_values.price === null && price !== null) existing.visible_values.price = price;
-            if (existing.visible_values.change_pct === null && changePct !== null) existing.visible_values.change_pct = changePct;
+            if (existing.visible_values.change_pct === null && normalizedChangePct !== null) existing.visible_values.change_pct = normalizedChangePct;
             if (existing.visible_values.average_price == null && averagePrice !== null) existing.visible_values.average_price = averagePrice;
             if (existing.visible_values.return_pct == null && returnPct !== null) existing.visible_values.return_pct = returnPct;
             if (existing.visible_values.market_value == null && marketValue !== null) existing.visible_values.market_value = marketValue;
             if (existing.visible_values.cost_basis == null && costBasis !== null) existing.visible_values.cost_basis = costBasis;
             if (existing.visible_values.profit_loss == null && profitLoss !== null) existing.visible_values.profit_loss = profitLoss;
+            if (existing.visible_values.cash_dividends == null && cashDividends !== null) existing.visible_values.cash_dividends = cashDividends;
+            if (existing.asset_type === "unknown" && assetType !== "unknown") existing.asset_type = assetType;
             continue;
         }
         seenSymbols.add(sym);
         uniqueSymbols.push({
             symbol: sym,
             name: String(s.name || ""),
-            visible_values: { price, average_price: averagePrice, change_pct: changePct, return_pct: returnPct, quantity, market_value: marketValue, cost_basis: costBasis, profit_loss: profitLoss }
+            asset_type: assetType,
+            visible_values: { price, average_price: averagePrice, change_pct: normalizedChangePct, return_pct: returnPct, quantity, market_value: marketValue, cost_basis: costBasis, profit_loss: profitLoss, cash_dividends: cashDividends }
         });
     }
 
@@ -305,6 +318,7 @@ export function validateVisionOutput(data: any): VisionContext | null {
 // failure. The total budget stays under the 52s request deadline.
 const VISION_TIMEOUT_MS = 30000;
 const MAX_VISION_TOTAL_TIME_MS = 50000;
+const VISION_MAX_OUTPUT_TOKENS = 3000;
 
 /**
  * The vision model frequently reads a broker screenshot's quantity/total column
@@ -338,8 +352,7 @@ export async function reconcileVisionWithMarket(vision: VisionContext, supabase:
             if (close && price != null && Number.isFinite(price)) {
                 const ratio = price / close;
                 if (ratio > 3 || ratio < 0.33) {
-                    entry.visible_values.price = null;
-                    vision.uncertainties.push(`تم تجاهل السعر المقروء لـ ${entry.symbol} (${price}) لعدم تناسقه مع سعر السوق المسجل (${close}).`);
+                    vision.uncertainties.push(`السعر الظاهر بالصورة لـ ${entry.symbol} هو ${price}، ويختلف كثيراً عن آخر إغلاق مسجل (${close})؛ احتفظت بقراءة الصورة كما هي ولا أتعامل معها كسعر سوق حالي.`);
                 }
             }
         }
@@ -364,12 +377,37 @@ export async function analyzeImage(
     const visionModels = [...deepSeekVisionModels, ...nvidiaVisionModels];
 
     // System prompt goes in `system` role — putting it in the user message causes prose output.
+    const imageUrls = (Array.isArray(imageUrl) ? imageUrl : [imageUrl]).filter(Boolean);
+    // Analyze each attachment independently so a dense combined answer cannot
+    // truncate later images or lose the source of extracted values.
+    if (imageUrls.length > 1) {
+        const results = await Promise.all(imageUrls.map(async (url, index) => {
+            const result = await analyzeImage(url, `${userMessage}\n\nهذه الصورة رقم ${index + 1} من ${imageUrls.length}. اقرأ هذه الصورة وحدها، ولا تفترض محتوى الصور الأخرى.`, apiKeys, `${messageId}:image:${index + 1}`, onCall, diagnosticCapture);
+            if (result.vision) result.vision.symbols = result.vision.symbols.map(symbol => ({ ...symbol, source_image_index: index + 1 }));
+            return { ...result, index };
+        }));
+        const readable = results.flatMap(result => result.vision ? [result.vision] : []);
+        if (!readable.length) return { vision: null, error: results.find(result => result.error)?.error || "vision_unavailable" };
+        const combined: VisionContext = {
+            ...readable[0],
+            image_type: readable.every(result => result.image_type === readable[0].image_type) ? readable[0].image_type : "unknown",
+            symbols: readable.flatMap(result => result.symbols),
+            technical_observations: readable.flatMap(result => result.technical_observations),
+            uncertainties: Array.from(new Set(readable.flatMap(result => result.uncertainties).concat(
+                results.filter(result => !result.vision).map(result => `تعذر تحليل الصورة رقم ${result.index + 1}؛ واحتفظت بنتيجة كل صورة أخرى بشكل مستقل.`)
+            ))),
+            confidence: readable.reduce((sum, result) => sum + result.confidence, 0) / readable.length,
+            user_relevant_summary: results.map(result => result.vision ? `الصورة ${result.index + 1}: ${result.vision.user_relevant_summary}` : `الصورة ${result.index + 1}: تعذر استخراج بيانات مؤكدة.`).join("\n"),
+            analyzed_at: new Date().toISOString(),
+            message_id: messageId,
+        };
+        // Duplicate symbols can represent different accounts or dates. Keep
+        // separate rows with their source image instead of merging facts.
+        return { vision: combined, error: null };
+    }
     const userContent: Array<{ type: string; text?: string; image_url?: { url: string; detail?: string } }> = [];
-    const imageUrls = (Array.isArray(imageUrl) ? imageUrl : [imageUrl]).filter(Boolean).slice(0, 3);
-    // Keep every screenshot at its own resolution. `low` downsamples to 512px
-    // and can erase small labels and digits from dense broker screenshots.
-    userContent.push({ type: "text", text: `Analyze all ${imageUrls.length} attached image(s) and return one combined JSON result.` });
-    for (const url of imageUrls) userContent.push({ type: "image_url", image_url: { url, detail: "high" } });
+    userContent.push({ type: "text", text: "Analyze this attached image and return a JSON result containing all clearly visible, task-relevant data." });
+    if (imageUrls[0]) userContent.push({ type: "image_url", image_url: { url: imageUrls[0], detail: "high" } });
 
     const visionStartTime = Date.now();
     let lastFailure = "vision_unavailable";
@@ -397,7 +435,7 @@ export async function analyzeImage(
             const capture = onCall?.(provider, model);
             diagnosticCapture?.("vision_provider_request", {provider, model, system_prompt: VISION_SYSTEM_PROMPT,
                 user_message: userMessage, image_hashes: (Array.isArray(imageUrl) ? imageUrl : [imageUrl]).map(value => createHash("sha256").update(value).digest("hex")),
-                max_tokens: 1800, temperature: 0.05, response_format: {type: "json_object"}});
+                max_tokens: VISION_MAX_OUTPUT_TOKENS, temperature: 0.05, response_format: {type: "json_object"}});
             const endpoint = provider === "deepseek" ? AI_CONFIG.api.deepseekBaseUrl : AI_CONFIG.api.nvidiaBaseUrl;
             const res = await executionFetch(endpoint, {
                 method: "POST",
@@ -414,7 +452,7 @@ export async function analyzeImage(
                     ],
                     // Leave enough output budget for longer watchlists while
                     // staying bounded; incomplete JSON is retried/fails safely.
-                    max_tokens: 1800,
+                max_tokens: VISION_MAX_OUTPUT_TOKENS,
                     temperature: 0.05,
                     // NVIDIA's OpenAI-compatible endpoint supports JSON mode
                     // for this model. Without it the model sometimes returns

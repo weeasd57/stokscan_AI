@@ -455,9 +455,9 @@ export async function POST(req: NextRequest) {
         const maxImageBytes = 5 * 1024 * 1024;
         const imageList = rawImages.filter(img =>
             typeof img === "string" && allowedImageMime.test(img) && Buffer.from(img.split(",", 2)[1] || "", "base64").byteLength <= maxImageBytes
-        ).slice(0, 3);
-        if (rawImages.length > 3 || imageList.length !== rawImages.length) {
-            return NextResponse.json({ detail: "Images must be JPEG, PNG, or WebP and no larger than 5 MB each; maximum 3 images." }, { status: 400 });
+        ).slice(0, 4);
+        if (rawImages.length > 4 || imageList.length !== rawImages.length) {
+            return NextResponse.json({ detail: "Images must be JPEG, PNG, or WebP and no larger than 5 MB each; maximum 4 images." }, { status: 400 });
         }
         if (message.length > 4000) return NextResponse.json({ detail: "Message is too long" }, { status: 413 });
         const hasImages = imageList.length > 0;

@@ -82,19 +82,18 @@ describe("analyzeImage key retry", () => {
         expect(captures[1]).toHaveBeenCalledTimes(1);
     });
 
-    it("preserves separate screenshots and retries an explicitly truncated result", async () => {
-        const truncated = okResponse({ image_type: "table", symbols: [], technical_observations: [] }, "length");
-        const fetchMock = jest.fn().mockResolvedValueOnce(truncated).mockResolvedValueOnce(okResponse(VALID_VISION));
+    it("extracts every screenshot independently and preserves its source index", async () => {
+        const fetchMock = jest.fn().mockResolvedValueOnce(okResponse(VALID_VISION)).mockResolvedValueOnce(okResponse({ ...VALID_VISION, symbols: [{ ...VALID_VISION.symbols[0], symbol: "TMGH" }] }));
         global.fetch = fetchMock;
 
         const result = await analyzeImage(["data:image/jpeg;base64,AAAA", "data:image/jpeg;base64,BBBB"], "حلل الصورتين", ["key-one", "key-two"], "msg-4");
 
         const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body);
-        expect(firstBody.messages[1].content.filter(part => part.type === "image_url")).toHaveLength(2);
+        expect(firstBody.messages[1].content.filter(part => part.type === "image_url")).toHaveLength(1);
         expect(firstBody.messages[1].content.filter(part => part.type === "image_url").every(part => part.image_url.detail === "high")).toBe(true);
-        expect(firstBody.max_tokens).toBe(1800);
+        expect(firstBody.max_tokens).toBe(3000);
         expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(result.error).toBeNull();
-        expect(result.vision?.symbols.map(s => s.symbol)).toEqual(["COMI"]);
+        expect(result.vision?.symbols.map(s => [s.symbol, s.source_image_index])).toEqual([["COMI", 1], ["TMGH", 2]]);
     });
 });

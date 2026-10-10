@@ -37,6 +37,7 @@ describe("chat security guards", () => {
         expect(route).not.toContain("process.env.DEEPSEEK_API_KEY");
         expect(route).toContain("getDeepSeekApiKey()");
         expect(route).toContain("getNvidiaApiKeys()");
+        expect(route).toContain("maximum 4 images.");
         expect(adminRoute).not.toContain("api_key");
         expect(settingsRoute).not.toContain("api_key");
         expect(adminUi).not.toContain("api_key");

@@ -93,7 +93,7 @@ export function agenticFacts(evidence: AgenticEvidence[]): FactRecord[] {
         vol_ratio: row.relative_volume ?? row.r_vol ?? row.vol_ratio,
         acc_score: row.accumulation_score ?? row.acc_score, dist_score: row.distribution_score ?? row.dist_score,
         target_price: row.take_profit_1 ?? row.target_price, profit_pct: row.profit_loss_pct ?? row.realized_return_pct ?? row.unrealized_return_pct,
-        cost_basis: row.cost, profit_value: row.profit_loss_val,
+        cost_basis: row.cost ?? row.cost_basis, profit_value: row.profit_loss_val ?? row.profit_value,
         position_pct: row.allocation_pct, value: row.allocated_capital,
         close: row.close ?? row.current_price, price: row.current_price ?? row.close,
         macd_hist: row.macd_hist ?? row.macd_histogram,
@@ -180,7 +180,7 @@ function tableMetricFields(label: string): FactRecord["field"][] | undefined {
         [/EMA\s*50/i,["ema_50"]], [/EMA\s*200/i,["ema_200"]], [/حجم.*نسبي|الحجم النسبي|r_vol|vol_ratio/i,["vol_ratio"]],
         [/KING/i,["king_ai_score"]], [/EGX.*AI/i,["egx_ai_score"]], [/تجميع/i,["acc_score"]], [/تصريف/i,["dist_score"]],
         [/متوسط.*شراء|سعر.*(?:شراء|دخول)|الدخول/i,["entry_price"]], [/وقف/i,["stop_loss"]], [/هدف|مستهدف/i,["target_price"]], [/مسافة.*دعم|بعد.*دعم|القرب.*دعم/i,["distance_from_support_pct"]], [/دعم/i,["support"]], [/مسافة.*مقاوم|بعد.*مقاوم|القرب.*مقاوم/i,["distance_from_resistance_pct"]], [/مقاوم/i,["resistance"]],
-        [/تكلف/i,["cost_basis"]], [/توزيع|وزن|نسبة.*المحفظة|تركيز.*قطاع/i,["position_pct"]], [/مبلغ.*مخصص|قيمة.*مخصصة|رأس.*مال.*موزع/i,["value"]], [/قيمة.*(?:سوق|مركز)|القيمة السوقية/i,["market_value"]], [/ربح|خسار|عائد|النسبة/i,["profit_pct","profit_value","backtest_return_pct"]],
+        [/توزيعات\s*(?:نقدية)?|cash dividends/i,["cash_dividends"]], [/تكلف/i,["cost_basis"]], [/توزيع|وزن|نسبة.*المحفظة|تركيز.*قطاع/i,["position_pct"]], [/مبلغ.*مخصص|قيمة.*مخصصة|رأس.*مال.*موزع/i,["value"]], [/قيمة.*(?:سوق|مركز)|القيمة السوقية/i,["market_value"]], [/ربح|خسار|عائد|النسبة/i,["profit_pct","profit_value","backtest_return_pct"]],
         [/خسارة.*افتراضية|خسارة.*سيناريو|هبوط.*مفترض/i,["scenario_loss_amount","scenario_loss_pct"]], [/رأس.*مال|إجمالي.*رأس المال/i,["scenario_capital"]],
         [/تغير|التغيّر/i,["change_pct"]], [/كمية|الكمية|عدد|مراكز/i,["quantity"]], [/إغلاق|اغلاق|السعر|سعر|price|close/i,["price","close"]],
     ];
@@ -487,6 +487,9 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
     const substantive = reply.replace(/\[[^\]]*\]\(https?:\/\/[^)]*\)/g, "").replace(/https?:\/\/\S+/g, "")
         .replace(/✅ تحليل EGX Bots[^\n]*/g, "").replace(/📢[^\n]*/g, "");
     if (!/[\p{L}]{2}/u.test(substantive)) reasons.push("response_has_no_substantive_answer");
+    const deadEndOnly = substantive.replace(/[\s.!؟،,:;؛*_`-]+/g, " ").trim();
+    if (/^(?:غير مكتمل|مسودة ناقصة|رد بعيد عن السؤال|تعذر التحليل|لم ينجز الطلب|الرد ناقص|الرد غير مكتمل|الإجابة غير مكتملة|المسودة ناقصة|لم أتمكن من إكمال الإجابة|تعذر إكمال الإجابة|لم تكتمل الإجابة|لا أستطيع رؤية الصورة المرفقة)$/.test(deadEndOnly)
+        || /لم يكتمل التحقق من إجابة موثوقة/.test(substantive)) reasons.push("response_has_no_substantive_answer");
     if (/DSML|<\/?tool_call|<\/?function_call/i.test(reply)) reasons.push("internal_tool_protocol_in_response");
     evidence = evidence.map(compactEvidence);
     const facts = agenticFacts(evidence);
@@ -834,10 +837,22 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
             const namedStrategy = knownStrategies.find(m => line.includes(m.strategy_id) || (m.strategy_name && line.includes(m.strategy_name)));
             const strategyRelevant = namedStrategy ? relevant.filter(f => (!f.field.startsWith("backtest_") && !f.field.startsWith("chart_")) || f.id.includes(`:${namedStrategy.strategy_id}:`)) : relevant;
             const targetFacts = fields ? strategyRelevant.filter(f => fields.includes(f.field)) : strategyRelevant;
+            // Portfolio screenshots often place the cash gain/loss and its
+            // percentage together in one cell under a single "return" column
+            // (for example: "−784 EGP ▼2.74%"). The visible image evidence
+            // records those as two distinct facts. Let both ground that cell,
+            // while still requiring an exact matching fact for every number.
+            const combinedImageReturn = evidence.some(e => e.tool === "image_vision" && e.data_type === "image-derived")
+                && Boolean(fields?.includes("profit_pct"))
+                && /ربح|خسار|عائد|return|profit/i.test(headers[idx] || "")
+                && /[%٪]/.test(cells[idx]);
+            const cellFacts = combinedImageReturn
+                ? strategyRelevant.filter(f => fields?.includes(f.field) || f.field === "profit_value")
+                : targetFacts;
             const clean = cleanCellText(cells[idx]);
             for (const match of clean.matchAll(/[-+]?\d+(?:\.\d+)?/g)) {
                 const n = Number(match[0]);
-                if (!matchesFact(n, targetFacts, match[0].includes(".") ? match[0].split(".")[1].length : undefined) || (match[0].startsWith("+") && matchesFact(-n, targetFacts.filter(f => f.value < 0), match[0].includes(".") ? match[0].split(".")[1].length : undefined)))
+                if (!matchesFact(n, cellFacts, match[0].includes(".") ? match[0].split(".")[1].length : undefined) || (match[0].startsWith("+") && matchesFact(-n, cellFacts.filter(f => f.value < 0), match[0].includes(".") ? match[0].split(".")[1].length : undefined)))
                     reasons.push(`table_value_not_grounded:${symbol}:${n}`);
             }
         }

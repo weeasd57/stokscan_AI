@@ -17,6 +17,9 @@ export interface VisionContext {
     symbols: Array<{
         symbol: string;
         name: string;
+        /** 1-based image index when the request contains multiple attachments. */
+        source_image_index?: number;
+        asset_type?: "stock" | "fund" | "unknown";
         visible_values: {
             price: number | null;
             change_pct: number | null;
@@ -26,6 +29,7 @@ export interface VisionContext {
             cost_basis?: number | null;
             profit_loss?: number | null;
             return_pct?: number | null;
+            cash_dividends?: number | null;
         };
     }>;
     technical_observations: Array<{

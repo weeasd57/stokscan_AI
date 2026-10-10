@@ -23,6 +23,13 @@ describe('vision output validation', () => {
     expect(vision.symbols[0].visible_values).toMatchObject({price:null,average_price:27.32,return_pct:-2.74,quantity:1046});
   });
 
+  it('preserves portfolio fund grouping and normalizes combined P/L percentage and cash dividends', () => {
+    const parsed = extractJsonFromResponse('{"image_type":"portfolio","symbols":[{"symbol":"ZST","name":"","asset_type":"fund","visible_values":{"price":null,"average_price":null,"change_pct":-0.22,"return_pct":null,"quantity":null,"market_value":29696,"cost_basis":null,"profit_loss":-65.14,"cash_dividends":98.44}}],"technical_observations":[],"market_depth":{},"user_relevant_summary":"fund position","uncertainties":[],"confidence":0.95}');
+    const vision = validateVisionOutput(parsed);
+    expect(vision.symbols[0].asset_type).toBe('fund');
+    expect(vision.symbols[0].visible_values).toMatchObject({return_pct:-0.22,change_pct:null,profit_loss:-65.14,cash_dividends:98.44});
+  });
+
   it('recovers symbols when the model returns a plain string array', () => {
     const parsed = extractJsonFromResponse('{"image_type":"financial","symbols":["AMER"],"technical_observations":[],"confidence":0.5}');
     const vision = validateVisionOutput(parsed);
@@ -39,7 +46,7 @@ describe('vision output validation', () => {
 });
 
 describe('vision market reconciliation', () => {
-  it('clears an implausible extracted price and keeps a plausible one', async () => {
+  it('preserves the visible image price and warns when it differs from market data', async () => {
     const vision = {
       image_type: 'table',
       symbols: [
@@ -60,7 +67,8 @@ describe('vision market reconciliation', () => {
       }),
     };
     const result = await reconcileVisionWithMarket(vision, supabase);
-    expect(result.symbols[0].visible_values.price).toBeNull();
+    expect(result.symbols[0].visible_values.price).toBe(124569);
+    expect(result.uncertainties.join(' ')).toContain('احتفظت بقراءة الصورة كما هي');
     expect(result.symbols[1].visible_values.price).toBe(311.63);
     expect(result.uncertainties.length).toBeGreaterThan(0);
   });

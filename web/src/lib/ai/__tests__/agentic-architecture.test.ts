@@ -1,7 +1,7 @@
 import { executeAgenticTool, runAgenticPipelineStream, AGENTIC_TOOLS_SCHEMA } from "../agentic-pipeline";
 import { cairoWeekBounds } from "../agentic-tools";
 import { checkAgenticDraft, checkUserPositionInputs, toAgenticEvidence, evidenceMemory, safeAgenticFallback, agenticFacts } from "../agentic-publication";
-import { groundedReviewerIssues, compactHistory, unsupersededEvidence, removeDisprovenMissingToolIssues, removeSelfRetractedReviewerIssues } from "../agentic-runtime";
+import { groundedReviewerIssues, compactHistory, unsupersededEvidence, removeDisprovenMissingToolIssues, removeSelfRetractedReviewerIssues, safePortfolioImageReply } from "../agentic-runtime";
 import { AGENTIC_SYSTEM_PROMPT } from "../agentic-pipeline";
 import { runAnswerGate } from "../answer-gate";
 import { analyzeImage } from "../vision";
@@ -37,6 +37,61 @@ async function run(messages: any[], overrides: any = {}) {
 const stockDb = () => db(q => ({ data: q.table === "stock_prices" ? [price] : q.table === "stocks" ? { symbol:"COMI",name:"Commercial Bank" } : [], error:null }));
 
 describe("Agentic architecture integration: current production path", () => {
+    test("rejected portfolio image draft falls back to extracted facts instead of a generic image failure", () => {
+        const reply=safePortfolioImageReply({image_type:"portfolio",symbols:[
+            {symbol:"HRHO",name:"",asset_type:"stock",visible_values:{price:26.57,average_price:27.32,quantity:1046,market_value:27792.22,cost_basis:28576.72,profit_loss:-784.3,return_pct:-2.74,change_pct:null,cash_dividends:98.44}},
+            {symbol:"ZST",name:"",asset_type:"fund",visible_values:{price:null,average_price:null,quantity:null,market_value:29696,profit_loss:-65.14,return_pct:-0.22,change_pct:null,cash_dividends:null}},
+        ],technical_observations:[],market_depth:{total_bid:null,total_ask:null,spread:null},user_relevant_summary:"",uncertainties:[],confidence:.95,analyzed_at:"",message_id:""},
+        "حلل المحفظة وهل أضيف صناديق إدارة نشطة؟");
+        expect(reply).toContain("— | HRHO | سهم | 1,046 | 27.32 | 26.57 | 27,792.22");
+        expect(reply).toContain("ZST | صندوق");
+        expect(reply).toContain("الكمية أو متوسط الشراء غير ظاهرين");
+        expect(reply).toContain("لا تكفي الرموز وحدها لإثبات القطاعات");
+        expect(reply).not.toContain("جرّب إرسال صورة أوضح");
+        expect(reply).not.toContain("304,342");
+    });
+
+    test("reviewer objections can refine an image answer but cannot veto grounded reading", async () => {
+        const vision={image_type:"portfolio",symbols:[{symbol:"COMI",asset_type:"stock",visible_values:{price:50,average_price:null,quantity:10,change_pct:null,return_pct:null}}],
+            technical_observations:[],market_depth:{total_bid:null,total_ask:null,spread:null},user_relevant_summary:"مركز COMI ظاهر",uncertainties:[],confidence:.9,analyzed_at:"",message_id:""};
+        const useful="COMI: الكمية 10، والسعر الظاهر بالصورة 50 جنيه. لا تظهر بيانات كافية عن متوسط الشراء.";
+        const r=await run([{content:useful},verdict(false,["أضف توضيحاً لما لا يظهر بالصورة"]),{content:useful},verdict(false,["لا أوافق على عرض قراءة الصورة"] )],
+            {userMessage:"اقرأ الصورة",images:["fixture"],options:{mockVisionResult:vision}});
+        expect(r.done.response_origin).toBe("llm");
+        expect(r.done.publication_review.repaired).toBe(true);
+        expect(r.done.publication_review.final_passed).toBe(true);
+        expect(r.done.response).toContain("COMI");
+        expect(r.done.response).toContain("50");
+        expect(r.done.response).not.toContain("999");
+        expect(r.done.publication_review.reviewer).toBe("llm_advisory_deterministic_evidence_gate");
+        expect(r.fetchMock).toHaveBeenCalledTimes(4); // writer + advisory + one refinement + final evidence check
+    });
+
+    test("unsupported image numbers are removed while the extracted facts remain visible", async () => {
+        const vision={image_type:"portfolio",symbols:[{symbol:"COMI",asset_type:"stock",visible_values:{price:50,average_price:null,quantity:10,change_pct:null,return_pct:null}}],
+            technical_observations:[],market_depth:{total_bid:null,total_ask:null,spread:null},user_relevant_summary:"مركز COMI ظاهر",uncertainties:[],confidence:.9,analyzed_at:"",message_id:""};
+        const fabricated="COMI: الكمية 10 والسعر الظاهر 999 جنيه.";
+        const r=await run([{content:fabricated},verdict(false,["الرد غير صحيح"]),{content:fabricated},verdict(false,["الرد غير صحيح"] )],
+            {userMessage:"اقرأ الصورة",images:["fixture"],options:{mockVisionResult:vision}});
+        expect(r.done.response_origin).toBe("safe_fallback");
+        expect(r.done.response).toContain("COMI");
+        expect(r.done.response).toContain("50");
+        expect(r.done.response).not.toContain("999");
+        expect(r.fetchMock).toHaveBeenCalledTimes(4);
+    });
+
+    test("reviewer is advisory on ordinary text answers too", async () => {
+        const answer="المؤشر الحالي ضعيف، فراقب تأكيد الاتجاه قبل اتخاذ قرارك.";
+        const r=await run([{content:answer},verdict(false,["أضف تنبيهاً عاماً لا يغير الإجابة"]),{content:answer},verdict(false,["ما زلت أرفض الإجابة"] )],
+            {userMessage:"كيف أقرأ ضعف المؤشر؟"});
+        expect(r.done.response_origin).toBe("llm");
+        expect(r.done.publication_review.repaired).toBe(true);
+        expect(r.done.publication_review.final_passed).toBe(true);
+        expect(r.done.response).toContain("المؤشر الحالي ضعيف");
+        expect(r.done.publication_review.reviewer).toBe("llm_advisory_deterministic_evidence_gate");
+        expect(r.fetchMock).toHaveBeenCalledTimes(4);
+    });
+
     test("comparison fallback keeps current metrics without resurrecting another prior comparison member", async () => {
         const previous = toAgenticEvidence("get_comparison", {symbols:["COMI","TMGH"]}, {status:"success",comparison:[
             {symbol:"COMI",date:"2026-10-07",close:124.65},{symbol:"TMGH",date:"2026-10-07",close:87.89}]});
@@ -205,7 +260,7 @@ describe("Agentic architecture integration: current production path", () => {
     });
     test("reviewer prompt distinguishes requested scenario holdings from saved positions",async()=>{
         const r=await run([{content:"تم تحليل السيناريو"},verdict()],{userMessage:"معايا 100 ألف ومحفظتي فيها COMI وSWDY"});
-        const reviewer=JSON.parse(r.fetchMock.mock.calls[1][1].body).messages[0].content;
+        const reviewer=JSON.parse(r.fetchMock.mock.calls[1][1].body).messages[1].content;
         expect(reviewer).toContain("مجرد ذكر المستخدم لأسهم ضمن سؤال تحليل أو محفظة افتراضية لا يعني أنها محفوظة");
         expect(reviewer).toContain("analyze_portfolio_risk");
     });
@@ -226,7 +281,7 @@ describe("Agentic architecture integration: current production path", () => {
         const history=[{role:"assistant",content:"تقصد COMI ولا ETEL؟"},{role:"user",content:"الأول"}];
         const r=await run([{content:"COMI"},verdict()],{state:{...state,current_symbol:"COMI"},summary:{last_topic:"MEMORY_MARKER"},history});
         const body=JSON.parse(r.fetchMock.mock.calls[0][1].body); expect(JSON.stringify(body.messages)).toContain("MEMORY_MARKER");
-        const review=JSON.parse(r.fetchMock.mock.calls[1][1].body); expect(review.messages[1].content).toContain("الأول"); expect(review.messages[1].content).toContain("COMI");
+        const review=JSON.parse(r.fetchMock.mock.calls[1][1].body); expect(review.messages[2].content).toContain("الأول"); expect(review.messages[2].content).toContain("COMI");
     });
     test("false reviewer approval cannot authorize fabricated price", async () => {
         const r=await run([{tool_calls:[call("get_stock_levels",{symbols:["COMI"]})]}, {content:"سعر COMI الحالي 9999 جنيه"},verdict(),
@@ -246,8 +301,8 @@ describe("Agentic architecture integration: current production path", () => {
         expect(r.done.publication_review.final_passed).toBe(true);
         expect(r.fetchMock).toHaveBeenCalledTimes(3);
         const reviewBody=JSON.parse(r.fetchMock.mock.calls[2][1].body);
-        expect(reviewBody.messages[1].content).toContain("available_tools");
-        expect(reviewBody.messages[1].content).toContain("get_comparison");
+        expect(reviewBody.messages[2].content).toContain("available_tools");
+        expect(reviewBody.messages[2].content).toContain("get_comparison");
     });
     test("DSML cannot pass even when reviewer approves", async () => {
         const r=await run([{content:"<DSML invoke get_stock>"},verdict(),{content:"<DSML invoke get_stock>"},verdict()]);
@@ -287,14 +342,14 @@ describe("Agentic architecture integration: current production path", () => {
     });
     test("vision confidence, uncertainty and quantities are context, not asserted market verification", async () => {
         const r=await run([{content:"الصورة غير مؤكدة"},verdict()],{images:["fixture"],options:{mockVisionResult:{symbols:[{symbol:"COMI",visible_values:{quantity:10}}],confidence:.4,uncertainties:["uncertain-fixture"]}}});
-        expect(JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[1].content).toContain("uncertain-fixture"); expect(r.done.vision.confidence).toBe(.4);
+        expect(JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[2].content).toContain("uncertain-fixture"); expect(r.done.vision.confidence).toBe(.4);
     });
     test("portfolio image request uses image evidence without a market-data fan-out", async () => {
         const vision={image_type:"portfolio",symbols:[{symbol:"ETEL",visible_values:{quantity:null,price:null,change_pct:73.26}}],confidence:.95,
             uncertainties:["لا يظهر متوسط الشراء أو عدد الوحدات"],technical_observations:[],market_depth:{},user_relevant_summary:"لقطة محفظة؛ عائد ظاهر 73.26%"};
         const r=await run([{content:"الصورة تعرض ETEL وعائداً ظاهراً، لكنها لا تعرض الكمية أو متوسط الشراء بوضوح."},verdict()],{
             userMessage:"قم بقراءة وتحليل هذه الصورة المرفقة.",images:["fixture"],options:{mockVisionResult:vision}});
-        const context=JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[1].content;
+        const context=JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[2].content;
         expect(context).toContain("لا يظهر متوسط الشراء أو عدد الوحدات");
         expect(AGENTIC_SYSTEM_PROMPT).toContain("لا تخلط بين قيمة المركز أو المكسب النقدي أو العائد % وبين عدد الأسهم أو متوسط الشراء");
         expect(AGENTIC_SYSTEM_PROMPT).toContain("[افتح البروفايل عند قسم محفظتي](/profile#portfolio)");
@@ -305,7 +360,7 @@ describe("Agentic architecture integration: current production path", () => {
     });
     test("portfolio image evidence grounds visible quantity, average cost and return without turning them into quote data", async () => {
         const imageEvidence:any={tool:"image_vision",arguments:{image_type:"portfolio"},source:"image-derived:vision-model",data_time:null,
-            symbols:["HRHO"],availability:"available",data_type:"historical",
+            symbols:["HRHO"],availability:"available",data_type:"image-derived",
             data:{positions:[{symbol:"HRHO",quantity:1046,entry_price:27.32,profit_loss_pct:-2.74}]}};
         const reply="| السهم | الكمية | متوسط الشراء | العائد % |\n|---|---:|---:|---:|\n| HRHO | 1046 | 27.32 | -2.74 |";
         expect(agenticFacts([imageEvidence]).map(f=>[f.symbol,f.field,f.value])).toEqual(expect.arrayContaining([
@@ -314,18 +369,33 @@ describe("Agentic architecture integration: current production path", () => {
         expect(checkAgenticDraft(reply.replace("27.32","999.00"),[imageEvidence],"اقرأ صورة المحفظة"))
             .toContain("table_value_not_grounded:HRHO:999");
     });
+
+    test("portfolio image review grounds cash P/L and return percent shown together under one return column", () => {
+        const imageEvidence:any={tool:"image_vision",arguments:{image_type:"portfolio"},source:"image-derived:vision-model",data_time:null,
+            symbols:["HRHO"],availability:"available",data_type:"image-derived",
+            data:{positions:[{symbol:"HRHO",quantity:1046,entry_price:27.32,current_price:26.57,market_value:27792.22,cost_basis:28576.72,
+                profit_value:-784.30,profit_loss_pct:-2.74,cash_dividends:98.44}]}};
+        const combined="| السهم | السعر | الكمية | متوسط الشراء | القيمة السوقية | التكلفة | التوزيعات النقدية | العائد % |\n|---|---:|---:|---:|---:|---:|---:|---:|\n| HRHO | 26.57 | 1046 | 27.32 | 27,792.22 | 28,576.72 | 98.44 | -784.30 (−2.74%) |";
+        expect(checkAgenticDraft(combined,[imageEvidence])).toEqual([]);
+        expect(checkAgenticDraft(combined.replace("-784.30","-999"),[imageEvidence]))
+            .toContain("table_value_not_grounded:HRHO:-999");
+    });
     test("portfolio image review receives typed evidence and a semantic tool-capability contract", async () => {
-        const vision={image_type:"portfolio",symbols:[{symbol:"HRHO",visible_values:{quantity:1046,average_price:27.32,return_pct:-2.74}}],confidence:.98,
+        const vision={image_type:"portfolio",symbols:[{symbol:"HRHO",asset_type:"fund",visible_values:{quantity:1046,average_price:27.32,return_pct:-2.74}}],confidence:.98,
             uncertainties:[],technical_observations:[],market_depth:{},user_relevant_summary:"مركز HRHO ظاهر بالصورة"};
         const r=await run([{content:"HRHO يمثل مركزاً واحداً؛ الكمية 1046 ومتوسط الشراء 27.32 والعائد -2.74%. لا تكفي الصورة وحدها لتقرير إضافة صندوق نشط."},verdict()],{
             userMessage:"حلل المحفظه و أخبرني ايه الي ناقصها وادخل صناديق اداره نشطه ولا اعمل ايه؟",images:["fixture"],
             options:{mockVisionResult:vision}});
         expect(r.done.publication_review).toMatchObject({passed:true,repaired:false,final_passed:true});
         expect(r.done.response_origin).toBe("llm");
+        expect(r.fetchMock).toHaveBeenCalledTimes(2);
         const reviewRequest=JSON.parse(r.fetchMock.mock.calls[1][1].body);
-        expect(reviewRequest.messages[0].content).toContain("لا تطلب أداة سيناريو رأس مال أو أداة مسح أسهم كشرط للإجابة");
-        expect(reviewRequest.messages[1].content).toContain("image-derived:vision-model");
-        expect(reviewRequest.messages[1].content).toContain('"profit_loss_pct":-2.74');
+        expect(reviewRequest.messages[1].content).toContain("لا تشترط سيناريو رأس مال أو أداة مسح أسهم");
+        expect(reviewRequest.messages[2].content).toContain("image-derived:vision-model");
+        expect(reviewRequest.messages[2].content).toContain('"profit_loss_pct":-2.74');
+        expect(reviewRequest.messages[2].content).toContain('"asset_type":"fund"');
+        expect(reviewRequest.messages[0].content).toBe(JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[0].content);
+        expect(r.done.publication_review.reviewer).toBe("llm_advisory_deterministic_evidence_gate");
     });
     test("an image without explicit units and average price cannot authorize portfolio registration", async () => {
         const vision={image_type:"portfolio",symbols:[{symbol:"ETEL",visible_values:{quantity:null,price:null,change_pct:73.26}}],confidence:.95,
@@ -343,7 +413,7 @@ describe("Agentic architecture integration: current production path", () => {
             summary:{last_vision_context:{image_type:"portfolio",symbols:[{symbol:"ETEL",name:"",visible_values:{quantity:749,price:null,change_pct:73.26}}],confidence:.95,
                 uncertainties:[],user_relevant_summary:"قد تحتوي الصورة على أرقام ليست كميات مؤكدة."}},
         });
-        const context=JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[1].content;
+        const context=JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[2].content;
         expect(context).toContain("ETEL");
         expect(context).not.toContain("749");
         expect(context).not.toContain("73.26");
@@ -397,7 +467,7 @@ describe("Agentic architecture integration: current production path", () => {
     test("previous read evidence is visible in follow-up and checked numerically",async()=>{
         const snapshot=evidenceMemory([toAgenticEvidence("get_stock_levels",{symbols:["COMI"]},{status:"success",levels:[{symbol:"COMI",...price,support:90,resistance:110}]})]);
         const r=await run([{content:"COMI إغلاقه السابق 100 جنيه"},verdict()],{summary:{last_tool_evidence:snapshot},userMessage:"والأول؟"});
-        expect(JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[1].content).toContain('"close":100');
+        expect(JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[2].content).toContain('"close":100');
         expect(r.done.publication_review.final_passed).toBe(true);expect(r.done.usage.tool_calls).toBe(0);
     });
     test("cached evidence cannot prove a new account write",()=>{
@@ -431,9 +501,9 @@ describe("Agentic architecture integration: current production path", () => {
         const r=await run([{tool_calls:[call("screen_stocks",{})]},{content:"لا نتائج في لقطة 2026-10-08."},verdict()],{
             db:db(q=>({data:q.table === "stock_technical_indicators"&&q.ops.some(o=>o[0]==="select"&&o[1]==="date")?[{date:"2026-10-08"}]:[],error:null})),
             summary:{last_tool_evidence:evidenceMemory([previous])},userMessage:"أعد المسح"});
-        const initial=JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[1].content;
-        const writer=JSON.parse(r.fetchMock.mock.calls[1][1].body).messages[1].content;
-        const reviewer=JSON.parse(JSON.parse(r.fetchMock.mock.calls[2][1].body).messages[1].content);
+        const initial=JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[2].content;
+        const writer=JSON.parse(r.fetchMock.mock.calls[1][1].body).messages[2].content;
+        const reviewer=JSON.parse(JSON.parse(r.fetchMock.mock.calls[2][1].body).messages[2].content);
         expect(initial).toContain("2026-10-07");expect(writer).not.toContain("2026-10-07");
         expect(writer.length).toBeLessThan(initial.length);expect(reviewer.previous_evidence).toEqual([]);
         expect(r.done.publication_review.final_passed).toBe(true);
@@ -585,7 +655,7 @@ describe("Agentic tool correctness and failure boundaries", () => {
         const summary={last_tool_evidence:[{...scenario,captured_at:new Date().toISOString()}],current_symbols:["COMI","SWDY","TMGH"]};
         const r=await run([{content:"COMI يمثل 60% من التعرض لقطاع Finance."},verdict(),{content:"COMI يمثل 60% من التعرض لقطاع Finance."},verdict()],{
             userMessage:"راجع إجابتي الأولى عن COMI 60% وSWDY 25% وTMGH 15% وصحح حصة COMI من قطاع Finance.",history,summary,state:{...state,last_symbols:["COMI","SWDY","TMGH"]}});
-        const review=JSON.parse(r.fetchMock.mock.calls[1][1].body).messages[0].content;
+        const review=JSON.parse(r.fetchMock.mock.calls[1][1].body).messages[1].content;
         expect(review).toContain("افحص الإجابة المحددة وسجل دليلها");
         const repair=JSON.parse(r.fetchMock.mock.calls[2][1].body);
         expect(JSON.stringify(repair.messages)).toContain(priorAnswer);

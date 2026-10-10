@@ -41,6 +41,7 @@ export type FactField =
     | "cost_basis"
     | "profit_pct"
     | "profit_value"
+    | "cash_dividends"
     | "quantity"
     | "entry_price"
     | "target_price"
@@ -104,6 +105,7 @@ const FIELD_UNITS: Record<FactField, FactUnit> = {
     cost_basis: "egp",
     profit_pct: "percent",
     profit_value: "egp",
+    cash_dividends: "egp",
     quantity: "shares",
     entry_price: "egp",
     target_price: "egp",
@@ -134,6 +136,7 @@ const VALUE_KEYS: Array<{ key: string; field: FactField }> = [
     { key: "cost_basis", field: "cost_basis" },
     { key: "market_value", field: "market_value" },
     { key: "profit_value", field: "profit_value" },
+    { key: "cash_dividends", field: "cash_dividends" },
     { key: "quantity", field: "quantity" },
     { key: "rsi", field: "rsi" },
     { key: "rsi_14", field: "rsi" },
