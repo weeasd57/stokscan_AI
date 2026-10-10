@@ -76,6 +76,10 @@ describe("Agentic architecture integration: current production path", () => {
         const allocation = "| السهم | النسبة % | المبلغ بالجنيه |\n|---|---:|---:|\n" + result.stocks.map((s: any) => `| ${s.symbol} | ${s.allocation_pct} | ${s.allocated_capital} |`).join("\n");
         const stress = "| هبوط المحفظة % | الخسارة بالجنيه | قيمة المحفظة بعد الهبوط |\n|---:|---:|---:|\n| 5 | 5000 | 95000 |\n| 10 | 10000 | 90000 |";
         expect(checkAgenticDraft(allocation+"\n\n"+stress,[evidence])).toEqual([]);
+        const signedStress = stress.replace("| 5 |", "| −5% |").replace("| 10 |", "| −10% |");
+        expect(checkAgenticDraft(allocation+"\n\n"+signedStress,[evidence])).toEqual([]);
+        expect(checkAgenticDraft(allocation+"\n\n"+signedStress.replace("95000", "98000"),[evidence])).toContain("table_value_not_grounded:PORTFOLIO:98000");
+
         expect(checkAgenticDraft(allocation+"\n\n"+stress.replace("95000","98000"),[evidence])).toContain("table_value_not_grounded:PORTFOLIO:98000");
         expect(checkAgenticDraft(allocation+"\n\n"+stress.replace("90000","95000"),[evidence])).toContain("table_value_not_grounded:PORTFOLIO:95000");
         const published = await run([{tool_calls: [call("analyze_portfolio_risk", args)]}, {content: "محفظة افتراضية لم تحفظ.\n"+allocation+"\n\n"+stress}, verdict()], {userMessage: "وزع 100 ألف بالتساوي واحسب خسارة 5% و10%"});
@@ -688,6 +692,16 @@ describe("Agentic tool correctness and failure boundaries", () => {
             "المسودة تقول إن SWDY سعره أقل من EMA50 رغم أن 116.00 أقل من 115.98؟ لا، 116.00 أعلى قليلاً.",
             "المسودة تذكر أن المقارنة صحيحة؛ لا يوجد خطأ هنا. الخطأ في وصف قرب الدعم، وهو وصف مقبول تقريباً."
         ])).toEqual([]);
+    });
+    test("level-derived comparison percentages remain bound to their own stock", () => {
+        const e = [toAgenticEvidence("get_stock_levels", {symbols:["COMI","SWDY"]}, {status:"success",levels:[
+            {symbol:"COMI",close:124.65,support:124.14,resistance:139.58,date:price.date},
+            {symbol:"SWDY",close:116,support:102.31,resistance:132.95,date:price.date},
+        ]})];
+        const table = "| البند | COMI | SWDY |\n|---|---|---|\n| المسافة من الدعم % | 0.41 | 11.8 |\n| المسافة من المقاومة % | 11.98 | 14.61 |";
+        expect(checkAgenticDraft(table,e)).toEqual([]);
+        expect(checkAgenticDraft(table.replace("0.41", "11.8"),e)).toContain("table_value_not_grounded:COMI:11.8");
+        expect(checkAgenticDraft(table.replace("14.61", "19"),e)).toContain("table_value_not_grounded:SWDY:19");
     });
     test("news for each requested symbol must appear in the news section",()=>{
         const e=[toAgenticEvidence("get_news",{symbols:["COMI","SWDY"]},{status:"success",news:[

@@ -105,6 +105,15 @@ export function agenticFacts(evidence: AgenticEvidence[]): FactRecord[] {
                 const fields: Array<[string, FactRecord["field"], FactRecord["unit"]]> = [["totalReturnPct", "backtest_return_pct", "percent"], ["maxDrawdownPct", "backtest_drawdown_pct", "percent"], ["winRatePct", "backtest_win_rate_pct", "percent"], ["profitFactor", "backtest_profit_factor", "ratio"], ["closedTrades", "backtest_closed_trades", "count"], ["finalEquity", "backtest_final_equity", "egp"]];
                 for (const [key, field, unit] of fields) if (typeof metrics[key] === "number" && Number.isFinite(metrics[key])) facts.push({ id: `${row.symbol}:${metrics.strategy_id}:${key}`, symbol: row.symbol, field, value: metrics[key], unit, as_of: row.date ?? null, source: e.source, tool: e.tool, fetched_at: new Date().toISOString() });
             }
+            // Distances are derived only from a single dated quote/level row.
+            if (row.symbol && Number.isFinite(row.close) && row.close > 0) {
+                for (const [level, field] of [["support", "distance_from_support_pct"], ["resistance", "distance_from_resistance_pct"]] as const) {
+                    if (Number.isFinite(row[level]) && row[level] > 0 && row[field] == null)
+                        facts.push({ id: `${row.symbol}:${field}:close`, symbol: row.symbol, field,
+                            value: Math.abs(row.close - row[level]) / row.close * 100, unit: "percent",
+                            as_of: row.date ?? null, source: e.source, tool: e.tool, fetched_at: new Date().toISOString() });
+                }
+            }
             // Different calculated targets remain separate supported observations.
             if (row.symbol && Number.isFinite(row.take_profit_2)) facts.push({ id: `${row.symbol}:target2`, symbol: row.symbol,
                 field: "target_price", value: row.take_profit_2, unit: "egp", as_of: row.date ?? null, source: e.source, tool: e.tool, fetched_at: new Date().toISOString() });
@@ -159,7 +168,7 @@ function tableMetricFields(label: string): FactRecord["field"][] | undefined {
         [/RSI|القوة النسبية/i,["rsi"]], [/هيست|hist/i,["macd_hist"]], [/MACD.*(?:signal|إشار|اشار)|(?:signal|إشار|اشار).*MACD/i,["macd_signal"]], [/MACD/i,["macd","macd_signal","macd_hist"]],
         [/EMA\s*50/i,["ema_50"]], [/EMA\s*200/i,["ema_200"]], [/حجم.*نسبي|الحجم النسبي|r_vol|vol_ratio/i,["vol_ratio"]],
         [/KING/i,["king_ai_score"]], [/EGX.*AI/i,["egx_ai_score"]], [/تجميع/i,["acc_score"]], [/تصريف/i,["dist_score"]],
-        [/سعر.*(?:شراء|دخول)|الدخول/i,["entry_price","cost_basis"]], [/وقف/i,["stop_loss"]], [/هدف|مستهدف/i,["target_price"]], [/دعم/i,["support"]], [/مسافة.*مقاوم|بعد.*مقاوم|القرب.*مقاوم/i,["distance_from_resistance_pct"]], [/مقاوم/i,["resistance"]],
+        [/سعر.*(?:شراء|دخول)|الدخول/i,["entry_price","cost_basis"]], [/وقف/i,["stop_loss"]], [/هدف|مستهدف/i,["target_price"]], [/مسافة.*دعم|بعد.*دعم|القرب.*دعم/i,["distance_from_support_pct"]], [/دعم/i,["support"]], [/مسافة.*مقاوم|بعد.*مقاوم|القرب.*مقاوم/i,["distance_from_resistance_pct"]], [/مقاوم/i,["resistance"]],
         [/تكلف/i,["cost_basis"]], [/توزيع|وزن|نسبة.*المحفظة|تركيز.*قطاع/i,["position_pct"]], [/مبلغ.*مخصص|قيمة.*مخصصة|رأس.*مال.*موزع/i,["value"]], [/قيمة.*سوق|القيمة السوقية/i,["market_value"]], [/ربح|خسار|عائد|النسبة/i,["profit_pct","profit_value","backtest_return_pct"]],
         [/خسارة.*افتراضية|خسارة.*سيناريو|هبوط.*مفترض/i,["scenario_loss_amount","scenario_loss_pct"]], [/رأس.*مال|إجمالي.*رأس المال/i,["scenario_capital"]],
         [/تغير|التغيّر/i,["change_pct"]], [/كمية|الكمية|عدد|مراكز/i,["quantity"]], [/إغلاق|اغلاق|السعر|سعر|price|close/i,["price","close"]],
@@ -221,7 +230,7 @@ function scenarioTableRow(evidence: AgenticEvidence[], cells: string[], symbols:
     if (symbols.length === 0 && headers.some(h => /خسار|loss|متبقي|متبقية|بعد (?:الهبوط|الانخفاض|التراجع)|remaining|after.*drop/i.test(h)) && headers.some(h => /هبوط|انخفاض|تراجع|drop/i.test(h))) {
         const declineIndex = headers.findIndex(h => /هبوط|انخفاض|تراجع|drop/i.test(h) && !/متبقي|متبقية|بعد (?:الهبوط|الانخفاض|التراجع)|remaining|after.*drop/i.test(h));
         if (declineIndex < 0) return null;
-        const decline = Number(normalizeDigitsAndNumberFormatting(cells[declineIndex] || "").replace(/[%٪\s]/g, ""));
+        const decline = Number(cleanCellText(cells[declineIndex] || "").replace(/[%٪\s]/g, ""));
         const stress = scenario.data.stress_scenarios_not_forecasts?.find((row: any) => Math.abs(row.change_pct) === Math.abs(decline));
         if (stress) return { symbol: "PORTFOLIO", scenario_loss_pct: stress.change_pct, scenario_loss_amount: -stress.loss, allocated_capital: scenario.data.capital - stress.loss };
     }
