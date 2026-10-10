@@ -438,12 +438,16 @@ export function safeAgenticFallback(evidence: AgenticEvidence[], reason: string)
     // unrelated symbols from an older turn.
     const rows = evidence.filter(e => e.availability !== "error").flatMap(e => evidenceRows(e.data));
     for (const e of evidence.filter(e => e.availability !== "error")) {
-        if (e.tool === "screen_stocks" && e.data?.stocks?.length) {
+        if (e.tool === "screen_stocks" && e.data?.status === "success") {
             const d=e.data;
-            lines.push(`\nشاشة فنية بتاريخ ${d.date}: الشروط RSI بين ${d.filters.rsi_min} و${d.filters.rsi_max}، والحجم النسبي ≥ ${d.filters.relative_volume_min}، والمسافة من مقاومة أعلى 20 جلسة ≤ ${d.filters.max_resistance_distance_pct}%.`);
-            lines.push("| السهم | الإغلاق | RSI | الحجم النسبي | المقاومة | البعد عنها % |","|---|---:|---:|---:|---:|---:|");
-            for(const r of d.stocks.slice(0,10)) lines.push(`| ${r.symbol} | ${r.close} | ${r.rsi_14} | ${r.r_vol} | ${r.resistance} | ${r.distance_from_resistance_pct} |`);
-            if(d.scan_complete===false) lines.push("المسح جزئي: بعض المرشحين تجاوزوا حد الفحص أو لا يتوفر لهم تاريخ 20 جلسة.");
+            if (d.date && d.filters) {
+                lines.push(`\nشاشة فنية بتاريخ ${d.date}: الشروط RSI بين ${d.filters.rsi_min} و${d.filters.rsi_max}، والحجم النسبي ≥ ${d.filters.relative_volume_min}، والمسافة من مقاومة أعلى 20 جلسة ≤ ${d.filters.max_resistance_distance_pct}%.`);
+                if (d.stocks?.length) {
+                    lines.push("| السهم | الإغلاق | RSI | الحجم النسبي | المقاومة | البعد عنها % |","|---|---:|---:|---:|---:|---:|");
+                    for(const r of d.stocks.slice(0,10)) lines.push(`| ${r.symbol} | ${r.close} | ${r.rsi_14} | ${r.r_vol} | ${r.resistance} | ${r.distance_from_resistance_pct} |`);
+                } else lines.push("لم تظهر أسهم تطابق الشروط في البيانات المتاحة لهذه الجلسة.");
+                if(d.scan_complete===false) lines.push("المسح جزئي: بعض المرشحين تجاوزوا حد الفحص أو لا يتوفر لهم تاريخ 20 جلسة.");
+            } else lines.push("لا تتوفر لقطة مؤرخة لإتمام المسح الفني حالياً.");
         }
         if (e.tool === "analyze_portfolio_risk" && e.data?.mode === "scenario") {
             const d=e.data;

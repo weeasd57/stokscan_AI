@@ -348,6 +348,11 @@ describe("Agentic tool correctness and failure boundaries", () => {
         const answer=safeAgenticFallback([scan,portfolio],"fixture");
         expect(answer).toContain("شاشة فنية بتاريخ 2026-10-08"); expect(answer).toContain("هذا سيناريو افتراضي"); expect(answer).toContain("5000 جنيه");
     });
+    test("safe fallback reports a verified empty scan with date and constraints",()=>{
+        const scan=toAgenticEvidence("screen_stocks",{}, {status:"success",date:"2026-10-08",filters:{rsi_min:40,rsi_max:60,relative_volume_min:1,max_resistance_distance_pct:3},stocks:[],scan_complete:true});
+        const answer=safeAgenticFallback([scan],"fixture");
+        expect(answer).toContain("2026-10-08"); expect(answer).toContain("لم تظهر أسهم تطابق الشروط"); expect(answer).toContain("RSI بين 40 و60");
+    });
     test("scenario portfolio answers are not rejected for lacking a saved-positions snapshot",()=>{
         const plan:any={intent:"risk_analysis",confidence:1,entities:{symbols:["COMI","SWDY"],sector:null,timeframe:"current",reference:null,portfolio_operation:"view"},needs_vision_context:false,needs_history:false,needs_live_data:false,needs_historical_data:false,tools:["manage_portfolio"],clarification_needed:false,resolved_from:{symbol:null,message_id:null}};
         const scenario:any={tool:"analyze_portfolio_risk",availability:"available",data:{mode:"scenario",source_portfolio:"user_scenario_not_saved",stocks:[{symbol:"COMI"},{symbol:"SWDY"}]},symbols:["COMI","SWDY"]};
