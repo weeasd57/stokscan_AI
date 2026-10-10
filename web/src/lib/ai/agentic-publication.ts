@@ -271,7 +271,10 @@ function scenarioMetricFields(label: string): FactRecord["field"][] | undefined 
     if (/متبقي|متبقية|بعد (?:الهبوط|الانخفاض|التراجع)|remaining|after.*drop/i.test(label)) return ["value"];
     if (/هبوط|انخفاض|تراجع|drop|السيناريو|scenario/i.test(label)) return ["scenario_loss_pct"];
     if (/خسار|loss/i.test(label)) return /%|٪|نسب|percent|pct/i.test(label) ? ["scenario_loss_pct"] : ["scenario_loss_amount"];
-    if (/توزيع|وزن|نسب|تركيز|allocation|weight/i.test(label)) return ["position_pct"];
+    if (/توزيع|وزن|تخصيص|خصيص|نسب|تركيز|allocation|weight/i.test(label)) return ["position_pct"];
+    // A percentage tied to capital/allocation is a share of the portfolio, not a
+    // currency amount: "من رأس المال %" must not fall through to the amount rule.
+    if (/%|٪/.test(label) && /رأس|مال|capital|تخصيص|خصيص|توزيع|وزن|تركيز/i.test(label)) return ["position_pct"];
     if (/مبلغ|قيمة|رأس.*مال|جنيه|capital|amount/i.test(label)) return ["value"];
     return tableMetricFields(label);
 }
@@ -305,7 +308,12 @@ function interpretationSubject(text: string, claimIndex: number, symbols: string
     const before = text.slice(0, claimIndex).split(/[،؛]/).at(-1) || "";
     const after = text.slice(claimIndex).split(/[،؛]/)[0];
     const namesIn = (value: string) => symbols.filter(symbol => new RegExp(`\\b${symbol}\\b`, "i").test(value));
-    const local = namesIn(before + after);
+    const clause = before + after;
+    // A blanket clause ("both are closer to oversold") is not a single-stock
+    // ranking claim; leave it to the contextual reviewer instead of binding it
+    // to the sentence's leading ticker.
+    if (/كلاهما|كلا\s+السهمين|الاثنان|الاثنين|both|جميع|الجميع/i.test(clause)) return null;
+    const local = namesIn(clause);
     if (local.length === 1) return local[0];
     // Ambiguous multi-stock clauses are left to the contextual reviewer.
     return local.length === 0 && namesIn(text).length <= 1 ? inherited : null;
@@ -630,6 +638,9 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
         const named = known.filter(s=>new RegExp(`\\b${s}\\b`).test(line));
         if (named.length === 1) owner=named[0];
         if (named.length > 1 || !owner || /^\s*#{1,6}\s/.test(raw) || /(?:إذا|اذا|لو|عند اختراق|هدف|مستهدف|وقف)/.test(line)) continue;
+        // A generic/disclaimer line ("being above EMA50 only describes the snapshot")
+        // makes no relation claim about the previous owner; do not inherit it.
+        if (named.length === 0 && /لا\s*(?:يثبت|يعني|يدل|تثبت|تكفي|يمكن)|يصف\s+موقع|بشكل\s+عام|عموم|ملاحظة|تنبيه/.test(line)) continue;
         const row = [...rows].reverse().find(r=>r.symbol === owner && r.close != null);
         if (!row) continue;
         for (const relation of line.matchAll(/(?<!ال)(فوق|أعلى من|اعلى من|تحت|أسفل|اسفل|above|below)\s*(?:الـ\s*)?EMA\s*(50|200)/gi)) {

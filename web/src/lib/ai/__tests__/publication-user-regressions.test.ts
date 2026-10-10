@@ -4,6 +4,8 @@ import {groundedReviewerIssues} from '../agentic-runtime';
 import {ARTORO_PLATFORM_CONTEXT} from '../platform-context';
 import {AGENTIC_SYSTEM_PROMPT} from '../agentic-pipeline';
 import {safeAgenticFallback} from '../agentic-publication';
+import * as fs from 'fs';
+import * as path from 'path';
 jest.mock('../server-secrets',()=>({getDeepSeekApiKey:()=> 'offline-key'}));
 test('GTWL price column binds to each support or resistance row, independently of distance',()=>{
     const e=toAgenticEvidence('get_stock_levels',{symbols:['GTWL']},{levels:[{symbol:'GTWL',date:'2026-10-07',close:160,support:124.5,resistance:244}]});
@@ -239,4 +241,41 @@ test('real rejected ABUK/ADIB/CIEB drafts pass: label headings, generic clauses 
     expect(checkAgenticDraft(one,[ev])).toEqual([]);
     expect(checkAgenticDraft(two,[ev])).toEqual([]);
     expect(checkAgenticDraft('ADIB فوق EMA50 بوضوح.',[ev])).toContain('price_average_relation_contradiction:ADIB:ema_50');
+});
+
+test('blanket "both are closer to oversold" clause is not a single-stock RSI ranking (ISPH/PHDC)',()=>{
+    const ev=toAgenticEvidence('get_comparison',{}, {comparison:[
+        {symbol:'ISPH',date:'2026-10-07',close:11.70,rsi_14:38.6139,ema_50:12.29,ema_200:11.78},
+        {symbol:'PHDC',date:'2026-10-07',close:12.93,rsi_14:36.5854,ema_50:13.95,ema_200:12.45},
+    ]});
+    const draft='**RSI:** ISPH أعلى قليلاً (38.61 مقابل 36.59)، وكلاهما في منطقة أقرب للتشبع البيعي دون بلوغه؛ PHDC أقرب إلى التشبع البيعي من ISPH.';
+    expect(checkAgenticDraft(draft,[ev])).toEqual([]);
+    // A real single-stock superlative is still rejected.
+    expect(checkAgenticDraft('ISPH هو الأقرب للتشبع البيعي.',[ev])).toContain('rsi_oversold_proximity_ranking_contradiction:ISPH');
+});
+
+test('generic EMA disclaimer line does not inherit the previous owner (SKPC)',()=>{
+    const ev=toAgenticEvidence('get_comparison',{}, {comparison:[
+        {symbol:'AMOC',date:'2026-10-07',close:14.48,rsi_14:58.76,ema_50:12.27},
+        {symbol:'SKPC',date:'2026-10-07',close:16.19,rsi_14:20.00,ema_50:17.09},
+        {symbol:'MFPC',date:'2026-10-07',close:46.50,rsi_14:35.39,ema_50:44.15},
+    ]});
+    const draft='**فوق متوسطه الخمسيني:** AMOC و MFPC.\n**تحته:** SKPC (إغلاق 16.19 مقابل EMA50 عند 17.09).\n\nملاحظة: وقوف السعر فوق EMA50 يصف موقع السعر الحالي فقط ولا يثبت أن المتوسط نفسه صاعد.';
+    expect(checkAgenticDraft(draft,[ev])).toEqual([]);
+    // A real per-stock wrong relation is still rejected.
+    expect(checkAgenticDraft('SKPC فوق EMA50.',[ev])).toContain('price_average_relation_contradiction:SKPC:ema_50');
+});
+
+test('scenario allocation column labelled التخصيص / من رأس المال % is grounded as position share',()=>{
+    const fixture=path.join(__dirname,'fixtures');
+    const readFixture=(name:string)=>fs.readFileSync(path.join(fixture,name),'utf8').replace(/^\uFEFF/,'');
+    const scenario=JSON.parse(readFixture('portfolio-scenario-allocation.json'));
+    const e=[toAgenticEvidence('analyze_portfolio_risk',{}, scenario)];
+    const draft=readFixture('portfolio-scenario-allocation.draft.txt');
+    // The real rejected draft (explicit 60/25/15 allocation) must pass.
+    expect(checkAgenticDraft(draft,e)).toEqual([]);
+    // A fabricated allocation share or capital amount is still rejected.
+    const freshEvidence=()=>[toAgenticEvidence('analyze_portfolio_risk',{}, JSON.parse(readFixture('portfolio-scenario-allocation.json')))];
+    expect(checkAgenticDraft(draft.replace('| COMI | 60% |','| COMI | 99% |'),freshEvidence()).length).toBeGreaterThan(0);
+    expect(checkAgenticDraft(draft.replace('| 60,000 |','| 70,000 |'),freshEvidence()).length).toBeGreaterThan(0);
 });

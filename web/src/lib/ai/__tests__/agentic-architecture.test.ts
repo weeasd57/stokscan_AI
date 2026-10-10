@@ -763,6 +763,46 @@ describe("Agentic tool correctness and failure boundaries", () => {
         expect(checkAgenticDraft("COMI: السعر تحت EMA50 وتحت EMA200.",e)).toEqual([]);
         expect(checkAgenticDraft("COMI: لو أغلق فوق EMA200 يمكن متابعة التحسن.",e)).toEqual([]);
     });
+    test("COMI vs FWRY production regression test", () => {
+        const e = [toAgenticEvidence("get_comparison", { symbols: ["COMI", "FWRY"] }, {
+            status: "success",
+            comparison: [
+                { symbol: "COMI", close: 124.65, change_pct: -0.4075, rsi_14: 22.5332, macd: -3.073135, macd_signal: -2.707889, macd_histogram: -0.365246, ema_50: 133.146989, ema_200: 126.925929, r_vol: 0.7954, date: "2026-10-07" },
+                { symbol: "FWRY", close: 19.06, change_pct: 1.8162, rsi_14: 52.1912, macd: -0.060516, macd_signal: -0.09636, macd_histogram: 0.035844, ema_50: 18.932831, ema_200: 18.103235, r_vol: 3.0732, date: "2026-10-07" },
+            ]
+        })];
+        const draft = `**تاريخ البيانات:** 2026-10-07، وهي إغلاق يومي (daily close) وليست أسعاراً لحظية.
+
+| البند | COMI | FWRY |
+|---|---:|---:|
+| الإغلاق | 124.65 | 19.06 |
+| التغير اليومي | −0.41% | +1.82% |
+| RSI(14) | 22.53 | 52.19 |
+| MACD | −3.073 | −0.061 |
+| خط الإشارة | −2.708 | −0.096 |
+| الهيستوجرام | −0.365 | +0.036 |
+| EMA50 | 133.15 | 18.93 |
+| EMA200 | 126.93 | 18.10 |
+
+**التغير اليومي:** FWRY أعلى (+1.82%) مقابل COMI سالب (−0.41%).
+
+**RSI:** FWRY أعلى (52.19) مقابل COMI (22.53) القريب من التشبع البيعي.
+
+**MACD:** كلاهما سالب، لكن FWRY أقرب للصفر (−0.061) وهيستوجرامه موجب (+0.036) أي MACD فوق إشارته؛ أما COMI فهيستوجرامه سالب (−0.365) أي MACD تحت إشارته.
+
+**EMA50:** FWRY فوق متوسطه الخمسيني (19.06 > 18.93)، بينما COMI تحت متوسطه (124.65 < 133.15).
+
+**الأقرب نسبياً إلى EMA200** (المسافة المطلقة ÷ EMA200):
+- COMI: |124.65 − 126.93| ÷ 126.93 ≈ **1.79%**
+- FWRY: |19.06 − 18.10| ÷ 18.10 ≈ **5.30%**
+
+إذن **COMI أقرب نسبياً إلى EMA200**، مع ملاحظة أنه أسفل منه، بينما FWRY فوق متوسطه المئوي.
+
+هذه قراءة لقطة إغلاق واحدة؛ موقع السعر فوق/تحت المتوسط لا يثبت ميل المتوسط نفسه، واتجاه الجلسات القادمة غير محسوم من هذه البيانات وحدها.`;
+        const reasons = checkAgenticDraft(draft, e);
+        console.log("CHECK REASONS:", reasons);
+        expect(reasons).toEqual([]);
+    });
     test("plural EMA claims are checked against every comparison row",()=>{
         const e=[toAgenticEvidence("get_comparison",{symbols:["COMI","SWDY"]},{comparison:[
             {symbol:"COMI",close:124.65,ema_50:133.146989,ema_200:130,date:price.date},

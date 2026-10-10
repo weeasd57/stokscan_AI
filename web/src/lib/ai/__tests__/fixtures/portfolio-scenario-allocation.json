@@ -1,0 +1,131 @@
+﻿{
+    "mode":  "scenario",
+    "status":  "success",
+    "stocks":  [
+                   {
+                       "saved":  false,
+                       "sector":  "Finance",
+                       "symbol":  "COMI",
+                       "industry":  "Regional Banks",
+                       "availability":  "available",
+                       "allocation_pct":  60,
+                       "allocated_capital":  60000
+                   },
+                   {
+                       "saved":  false,
+                       "sector":  "Producer Manufacturing",
+                       "symbol":  "SWDY",
+                       "industry":  "Electrical Products",
+                       "availability":  "available",
+                       "allocation_pct":  25,
+                       "allocated_capital":  25000
+                   },
+                   {
+                       "saved":  false,
+                       "sector":  "Finance",
+                       "symbol":  "TMGH",
+                       "industry":  "Real Estate Development",
+                       "availability":  "available",
+                       "allocation_pct":  15,
+                       "allocated_capital":  15000
+                   }
+               ],
+    "capital":  100000,
+    "currency":  "EGP",
+    "persisted":  false,
+    "assumption":  "explicit_allocations",
+    "risk_scope":  "allocation_concentration_and_stress_only",
+    "limitations":  [
+                        "لم تُحسب تقلبات الأسهم أو الارتباطات بينها من سلسلة عوائد تاريخية؛ لا يصح اعتبار التوزيع أو هبوط السيناريو مقياساً للمخاطر السوقية الفعلية.",
+                        "السيناريو توزيع لرأس المال وليس كميات أسهم مشتراة؛ لم تستخدم أسعار تنفيذ أو تكاليف شراء أو سيولة تداول."
+                    ],
+    "rounding_note":  null,
+    "saved_symbols":  [
+
+                      ],
+    "sector_exposure":  [
+                            {
+                                "sector":  "Finance",
+                                "symbol":  "PORTFOLIO",
+                                "symbols":  [
+                                                "COMI",
+                                                "TMGH"
+                                            ],
+                                "allocation_pct":  75,
+                                "allocated_capital":  75000
+                            },
+                            {
+                                "sector":  "Producer Manufacturing",
+                                "symbol":  "PORTFOLIO",
+                                "symbols":  [
+                                                "SWDY"
+                                            ],
+                                "allocation_pct":  25,
+                                "allocated_capital":  25000
+                            }
+                        ],
+    "scenario_metrics":  [
+                             {
+                                 "symbol":  "PORTFOLIO",
+                                 "scenario_capital":  100000
+                             },
+                             {
+                                 "symbol":  "PORTFOLIO",
+                                 "scenario_loss_pct":  -5,
+                                 "scenario_loss_amount":  -5000
+                             },
+                             {
+                                 "symbol":  "PORTFOLIO",
+                                 "scenario_loss_pct":  -10,
+                                 "scenario_loss_amount":  -10000
+                             }
+                         ],
+    "source_portfolio":  "user_scenario_not_saved",
+    "industry_exposure":  [
+                              {
+                                  "symbol":  "PORTFOLIO",
+                                  "symbols":  [
+                                                  "COMI"
+                                              ],
+                                  "industry":  "Regional Banks",
+                                  "allocation_pct":  60,
+                                  "allocated_capital":  60000
+                              },
+                              {
+                                  "symbol":  "PORTFOLIO",
+                                  "symbols":  [
+                                                  "SWDY"
+                                              ],
+                                  "industry":  "Electrical Products",
+                                  "allocation_pct":  25,
+                                  "allocated_capital":  25000
+                              },
+                              {
+                                  "symbol":  "PORTFOLIO",
+                                  "symbols":  [
+                                                  "TMGH"
+                                              ],
+                                  "industry":  "Real Estate Development",
+                                  "allocation_pct":  15,
+                                  "allocated_capital":  15000
+                              }
+                          ],
+    "not_saved_symbols":  [
+                              "COMI",
+                              "SWDY",
+                              "TMGH"
+                          ],
+    "classification_note":  "القطاع تصنيف عام من المصدر وقد يجمع شركات تعمل في صناعات مختلفة؛ اعرض الصناعة بجانبه ولا تعتبر القطاع العام نشاطاً واحداً. القيم غير المتاحة ليست قطاعاً أو صناعة مشتركة مؤكدة.",
+    "sector_concentration_complete":  true,
+    "stress_scenarios_not_forecasts":  [
+                                           {
+                                               "loss":  5000,
+                                               "change_pct":  -5
+                                           },
+                                           {
+                                               "loss":  10000,
+                                               "change_pct":  -10
+                                           }
+                                       ],
+    "industry_concentration_complete":  true
+}
