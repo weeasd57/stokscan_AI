@@ -387,7 +387,7 @@ function checkSnapshotInterpretations(reply: string, evidence: AgenticEvidence[]
         const temporal = raw.match(/(?:(?:الزخم\s+(يتحسن|يتعافى|يتراجع|يتدهور)|(?:تحسن|تعافي|تراجع|تباطؤ).{0,45}(?:الزخم|العلاقة\s+بين\s+MACD))|ضغط\s+البيع\s+(يتراجع|يتباطأ|يخف|يقل)|(?:يخف|يقل|يتراجع|تخفيف|تراجع|انحسار)\s+ضغط\s+البيع)/);
         if (!temporal) continue;
         const prefix = raw.slice(Math.max(0,temporal.index!-35),temporal.index);
-        if (/(?:لا|ليس|مش|غير|قد|يمكن أن)\s*$|لا يثبت|لا يمكن|لا يعني|لا يكفي/.test(prefix)) continue;
+        if (/(?:لا|ليس|مش|غير|قد|يمكن أن)\s*$|لا يثبت|لا تثبت|لا يمكن|لا يعني|لا يكفي/.test(prefix)) continue;
         const snapshots = new Map<string,number>();
         for (const row of stockRows) {
             const hist = row.macd_histogram ?? row.macd_hist;
@@ -581,13 +581,14 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
             // Plural claims apply to every stock in the comparison, even when
             // the sentence omits tickers (for example, "both are below EMA50").
             const blanket = /(?:الاثنان|الاثنين|كلاهما|كلا السهمين|both|all\s+(?:stocks|shares))/i.test(line);
-            const blanketRelation = line.match(/(فوق|أعلى من|اعلى من|تحت|أسفل|اسفل|above|below)\s*(?:الـ\s*)?EMA\s*(50|200)/i);
+            const blanketRelation = line.match(/(?<!ال)(فوق|أعلى من|اعلى من|تحت|أسفل|اسفل|above|below)\s*(?:الـ\s*)?EMA\s*(50|200)/i);
             const beforeRelation = line.slice(Math.max(0, blanketRelation ? blanketRelation.index! - 35 : 0), blanketRelation?.index || 0);
             const hypotheticalOrNegated = /إذا|اذا|لو|أمس|امس|سابق|\bif\b/i.test(beforeRelation)
                 || /(?:ليس|مش|غير|(?:^|\s)لا(?:\s|$))\s*(?:كان|يكون|هو|were|was|is|are)?\s*$/i.test(beforeRelation.slice(-18));
             if (blanket && blanketRelation && !hypotheticalOrNegated) {
                 const above = /فوق|أعلى|اعلى|above/i.test(blanketRelation[1]);
-                for (const row of quotes) {
+                const namedInSentence = quotes.filter(r => new RegExp(`\\b${r.symbol}\\b`, "i").test(line));
+                for (const row of (namedInSentence.length ? namedInSentence : quotes)) {
                     const close = Number(row.close), average = Number(row[`ema_${blanketRelation[2]}`]);
                     if (!Number.isFinite(close) || !Number.isFinite(average)) continue;
                     if ((above && close <= average) || (!above && close >= average))
@@ -631,8 +632,10 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
         if (named.length > 1 || !owner || /^\s*#{1,6}\s/.test(raw) || /(?:إذا|اذا|لو|عند اختراق|هدف|مستهدف|وقف)/.test(line)) continue;
         const row = [...rows].reverse().find(r=>r.symbol === owner && r.close != null);
         if (!row) continue;
-        for (const relation of line.matchAll(/(فوق|أعلى من|اعلى من|تحت|أسفل|اسفل|above|below)\s*(?:الـ\s*)?EMA\s*(50|200)/gi)) {
+        for (const relation of line.matchAll(/(?<!ال)(فوق|أعلى من|اعلى من|تحت|أسفل|اسفل|above|below)\s*(?:الـ\s*)?EMA\s*(50|200)/gi)) {
             if (/(?:ليس|مش|لا|غير)\s*$/.test(line.slice(Math.max(0,relation.index!-12),relation.index))) continue;
+            // A generic clause that precedes the stock it later names is not a claim about the previous owner.
+            if (named.length === 1 && line.search(new RegExp(`\\b${named[0]}\\b`)) > relation.index!) continue;
             const close=Number(row.close), average=Number(row[`ema_${relation[2]}`]);
             if (!Number.isFinite(close) || !Number.isFinite(average)) continue;
             const above=/فوق|أعلى|اعلى|above/i.test(relation[1]);

@@ -298,3 +298,5 @@ npm run build
 - 2026-10-10: prose claims in publication review are now attributed to the symbol in their own clause (not the last table row); repair prompts carry the current request with the review issues. Production check of the ABUK/ADIB/CIEB follow-up pending deployment.
 
 - 2026-10-10: blanket (plural) EMA relation claims are checked per sentence, and markdown headings no longer inherit the last-named stock; review rejection codes are logged server-side (no draft text). Found by a signed-in production smoke of the ABUK/ADIB/CIEB question.
+
+- 2026-10-10: EMA relation checks ignore label phrases (?????? ?? EMA50), scope plural claims to the stocks named in the sentence, skip generic clauses that precede the stock they name, and treat '?? ???? ????? ??? ?????' as a negation. Local replay of the ABUK/ADIB/CIEB question: 5/5 passed review (was 1/4).

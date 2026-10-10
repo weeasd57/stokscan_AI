@@ -227,3 +227,16 @@ test('a generic sentence after a plural claim does not make ABUK/ADIB/CIEB blank
     expect(checkAgenticDraft(answer,[ev])).toEqual([]);
     expect(checkAgenticDraft('ADIB وCIEB كلاهما فوق EMA50.',[ev])).toEqual(expect.arrayContaining(['price_average_relation_contradiction:ADIB:ema_50']));
 });
+
+test('real rejected ABUK/ADIB/CIEB drafts pass: label headings, generic clauses and negated easing',()=>{
+    const ev=toAgenticEvidence('get_comparison',{}, {comparison:[
+        {symbol:'ABUK',date:'2026-10-07',close:90,ema_50:84.96,rsi_14:43.87},
+        {symbol:'ADIB',date:'2026-10-07',close:47.8,ema_50:50.99,rsi_14:20.97},
+        {symbol:'CIEB',date:'2026-10-07',close:24,ema_50:24.56,rsi_14:30.87},
+    ]});
+    const one='| الرمز | الإغلاق |\n|---|---|\n| ABUK | 90.00 |\n| ADIB | 47.80 |\n| CIEB | 24.00 |\n\n## الأعلى من EMA50\n\nABUK وحده فوق EMA50: الإغلاق 90.00 مقابل EMA50 = 84.96. أما ADIB (47.80 مقابل 50.99) وCIEB (24.00 مقابل 24.56) فكلاهما تحت EMA50.\n\n**ملاحظات:** كون السعر تحت EMA50 لا يثبت أن المتوسط نفسه هابط، وكون ABUK فوق EMA50 يصف موقعه فقط.';
+    const two='**ADIB** هو الأقل: RSI = 20.97، مقابل CIEB 30.87 وABUK 43.87. قراءة ADIB قرب 21 تصف منطقة تشبع بيعي، لكنها لقطة واحدة لا تثبت تخفيف ضغط البيع ولا انعكاساً قادماً.\n\nالأعلى من EMA50 هو **ABUK** وحده؛ ADIB وCIEB كلاهما تحت متوسطه. كون السعر فوق EMA50 يصف موقع السعر فقط.';
+    expect(checkAgenticDraft(one,[ev])).toEqual([]);
+    expect(checkAgenticDraft(two,[ev])).toEqual([]);
+    expect(checkAgenticDraft('ADIB فوق EMA50 بوضوح.',[ev])).toContain('price_average_relation_contradiction:ADIB:ema_50');
+});
