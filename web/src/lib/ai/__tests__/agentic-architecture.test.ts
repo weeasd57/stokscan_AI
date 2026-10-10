@@ -1,8 +1,9 @@
 import { executeAgenticTool, runAgenticPipelineStream, AGENTIC_TOOLS_SCHEMA } from "../agentic-pipeline";
 import { cairoWeekBounds } from "../agentic-tools";
-import { checkAgenticDraft, checkUserPositionInputs, toAgenticEvidence, evidenceMemory } from "../agentic-publication";
+import { checkAgenticDraft, checkUserPositionInputs, toAgenticEvidence, evidenceMemory, safeAgenticFallback } from "../agentic-publication";
 import { compactHistory } from "../agentic-runtime";
 import { AGENTIC_SYSTEM_PROMPT } from "../agentic-pipeline";
+import { runAnswerGate } from "../answer-gate";
 import { analyzeImage } from "../vision";
 jest.mock("../server-secrets", () => ({ getDeepSeekApiKey: () => "offline-fake-key" }));
 jest.mock("../vision", () => ({ analyzeImage: jest.fn(), reconcileVisionWithMarket: jest.fn() }));
@@ -101,7 +102,16 @@ describe("Agentic architecture integration: current production path", () => {
         expect(r.done.chart_actions[0].result.timeframe).toBe("1d");
         expect(r.done.chart_actions[0].result.bounded_rows).toBe(500);
     });
-    test("twelve tools remain LLM selected", () => expect(new Set(AGENTIC_TOOLS_SCHEMA.map(t=>t.function.name)).size).toBe(12));
+    test("specialized screens and scenarios remain LLM selected", () => {
+        const names=new Set(AGENTIC_TOOLS_SCHEMA.map(t=>t.function.name));
+        expect(names.size).toBe(14); expect(names.has("screen_stocks")).toBe(true); expect(names.has("analyze_portfolio_risk")).toBe(true);
+    });
+    test("reviewer prompt distinguishes requested scenario holdings from saved positions",async()=>{
+        const r=await run([{content:"تم تحليل السيناريو"},verdict()],{userMessage:"معايا 100 ألف ومحفظتي فيها COMI وSWDY"});
+        const reviewer=JSON.parse(r.fetchMock.mock.calls[1][1].body).messages[0].content;
+        expect(reviewer).toContain("مجرد ذكر المستخدم لأسهم ضمن سؤال تحليل أو محفظة افتراضية لا يعني أنها محفوظة");
+        expect(reviewer).toContain("analyze_portfolio_risk");
+    });
     test("direct greeting is reviewed and publishes only canonical answer", async () => {
         const r = await run([{content:"أهلاً"},verdict()]); expect(r.queries).toHaveLength(0);
         expect(r.done.publication_review.final_passed).toBe(true); expect(r.events.filter(e=>e.type === "token")).toHaveLength(1);
@@ -284,7 +294,7 @@ describe("Agentic architecture integration: current production path", () => {
 });
 
 describe("Agentic tool correctness and failure boundaries", () => {
-    test.each(AGENTIC_TOOLS_SCHEMA.map(t=>t.function.name).filter(name => !["list_chart_strategies", "apply_chart_strategy", "compare_strategies_history"].includes(name)))("existing data tools: %s reads healthy bounded fixtures",async tool=>{
+    test.each(AGENTIC_TOOLS_SCHEMA.map(t=>t.function.name).filter(name => !["list_chart_strategies", "apply_chart_strategy", "compare_strategies_history", "screen_stocks", "analyze_portfolio_risk"].includes(name)))("existing data tools: %s reads healthy bounded fixtures",async tool=>{
         const d=db(q=>({data:q.table === "stocks" ? [{id:1,symbol:"COMI",name:"Commercial Bank"}] : q.table === "stock_prices" ? [price]
             : q.table === "market_cache" ? {payload:{egx30:[{close:100,date:"2026-10-07"},{close:101,date:price.date}],regime:"sideways"}}
             : q.table === "stock_technical_indicators" ? [{symbol:"COMI",...price,change_pct:1,r_vol:2,rsi_14:55,macd:1,macd_signal:.5,macd_histogram:.5}]
@@ -294,6 +304,56 @@ describe("Agentic tool correctness and failure boundaries", () => {
         const r=await executeAgenticTool(tool,{symbols:["COMI"],operation:"view",preset:"top_gainers",status:"open",timeframe:"this_week"},d.client,"u");
         expect(r.status).toBe("success");expect(d.queries.length).toBeGreaterThan(0);
         for(const q of d.queries.filter(q=>q.ops.some(o=>o[0] === "select"))) expect(q.ops.some(o=>o[0] === "limit")).toBe(true);
+    });
+    test("composite stock screen enforces filters and measures resistance from 20 sessions",async()=>{
+        const latest="2026-10-08";
+        const history=Array.from({length:20},(_,i)=>({symbol:"COMI",date:`2026-09-${String(19-i).padStart(2,"0")}`,high:i===0?100:99,close:98}));
+        const tooFar=Array.from({length:20},(_,i)=>({symbol:"SWDY",date:`2026-09-${String(19-i).padStart(2,"0")}`,high:100,close:96}));
+        const d=db(q=>q.table==="stock_technical_indicators"
+            ? {data:q.ops.some(o=>o[0]==="select"&&o[1]==="date")?[{date:latest}]:[
+                {symbol:"COMI",date:latest,close:99,change_pct:1,r_vol:1.4,rsi_14:52},
+                {symbol:"SWDY",date:latest,close:96,change_pct:0,r_vol:2,rsi_14:60}],error:null}
+            : q.table==="stock_prices" ? {data:[...history,...tooFar],error:null} : {data:[],error:null});
+        const r=await executeAgenticTool("screen_stocks",{},d.client,"u");
+        expect(r.status).toBe("success"); expect(r.stocks).toHaveLength(1);
+        expect(r.stocks[0]).toMatchObject({symbol:"COMI",resistance:100,distance_from_resistance_pct:1,resistance_sessions:20});
+        const scan=d.queries.find(q=>q.table==="stock_technical_indicators"&&q.ops.some(o=>o[0]==="select"&&String(o[1]).includes("r_vol")))!;
+        expect(scan.ops).toContainEqual(["gte","rsi_14",40]); expect(scan.ops).toContainEqual(["lte","rsi_14",60]); expect(scan.ops).toContainEqual(["gte","r_vol",1]);
+    });
+    test("screen table grounds resistance and distance separately",()=>{
+        const e=toAgenticEvidence("screen_stocks",{}, {status:"success",date:"2026-10-08",stocks:[{symbol:"COMI",date:"2026-10-08",close:99,rsi_14:52,r_vol:1.4,resistance:100,distance_from_resistance_pct:1}]});
+        const table="| السهم | الإغلاق | RSI | الحجم النسبي | المقاومة | البعد عن المقاومة % |\n|---|---:|---:|---:|---:|---:|\n| COMI | 99 | 52 | 1.4 | 100 | 1 |";
+        expect(checkAgenticDraft(table,[e])).toEqual([]);
+        expect(checkAgenticDraft(table.replace("| 100 | 1 |","| 100 | 4 |"),[e]).some((reason:string)=>reason.includes("COMI"))).toBe(true);
+    });
+    test("virtual portfolio applies capital, states equal-weight assumption, and never writes",async()=>{
+        const d=db(q=>q.table==="positions"?{data:[{symbol:"COMI"}],error:null}
+            :q.table==="stock_fundamentals"?{data:[{symbol:"COMI",data:{sector:"Banks"}},{symbol:"SWDY",data:{sector:"Industrials"}},{symbol:"TMGH",data:{sector:"Real Estate"}}],error:null}:{data:[],error:null});
+        const r=await executeAgenticTool("analyze_portfolio_risk",{capital:100000,symbols:["COMI","SWDY","TMGH"]},d.client,"user-1");
+        expect(r).toMatchObject({status:"success",mode:"scenario",capital:100000,assumption:"equal_weight",source_portfolio:"user_scenario_not_saved",persisted:false});
+        expect(r.stocks.map((s:any)=>s.allocation_pct)).toEqual([33.3333,33.3333,33.3333]);
+        expect(r.stocks.map((s:any)=>s.allocated_capital)).toEqual([33333.33,33333.33,33333.33]);
+        expect(r.stocks.find((s:any)=>s.symbol==="COMI").saved).toBe(true); expect(r.stocks.find((s:any)=>s.symbol==="SWDY").saved).toBe(false);
+        expect(r.sector_exposure).toHaveLength(3); expect(r.stress_scenarios_not_forecasts).toEqual([{change_pct:-5,loss:5000},{change_pct:-10,loss:10000}]);
+        expect(d.queries.find((q:Query)=>q.table==="positions")?.ops).toContainEqual(["eq","user_id","user-1"]);
+        expect(d.queries.some((q:Query)=>q.ops.some(o=>["insert","update","delete"].includes(o[0])))).toBe(false);
+    });
+    test("portfolio percentages must cover every selected stock and total 100",async()=>{
+        const r=await executeAgenticTool("analyze_portfolio_risk",{capital:100000,symbols:["COMI","SWDY"],allocations:[{symbol:"COMI",allocation_pct:60},{symbol:"SWDY",allocation_pct:30}]},db().client,"u");
+        expect(r.status).toBe("error"); expect(r.message).toMatch(/100%/);
+    });
+    test("safe fallback renders checked scanner and hypothetical portfolio evidence",()=>{
+        const scan=toAgenticEvidence("screen_stocks",{}, {status:"success",date:"2026-10-08",filters:{rsi_min:40,rsi_max:60,relative_volume_min:1,max_resistance_distance_pct:3},stocks:[{symbol:"COMI",close:99,rsi_14:52,r_vol:1.4,resistance:100,distance_from_resistance_pct:1}],scan_complete:true});
+        const portfolio=toAgenticEvidence("analyze_portfolio_risk",{}, {status:"success",mode:"scenario",capital:100000,assumption:"equal_weight",source_portfolio:"user_scenario_not_saved",stocks:[{symbol:"COMI",sector:"Banks",allocation_pct:100,allocated_capital:100000,saved:false}],sector_exposure:[{symbol:"PORTFOLIO",sector:"Banks",allocation_pct:100,allocated_capital:100000}],sector_concentration_complete:true,stress_scenarios_not_forecasts:[{change_pct:-5,loss:5000},{change_pct:-10,loss:10000}]});
+        const answer=safeAgenticFallback([scan,portfolio],"fixture");
+        expect(answer).toContain("شاشة فنية بتاريخ 2026-10-08"); expect(answer).toContain("هذا سيناريو افتراضي"); expect(answer).toContain("5000 جنيه");
+    });
+    test("scenario portfolio answers are not rejected for lacking a saved-positions snapshot",()=>{
+        const plan:any={intent:"risk_analysis",confidence:1,entities:{symbols:["COMI","SWDY"],sector:null,timeframe:"current",reference:null,portfolio_operation:"view"},needs_vision_context:false,needs_history:false,needs_live_data:false,needs_historical_data:false,tools:["manage_portfolio"],clarification_needed:false,resolved_from:{symbol:null,message_id:null}};
+        const scenario:any={tool:"analyze_portfolio_risk",availability:"available",data:{mode:"scenario",source_portfolio:"user_scenario_not_saved",stocks:[{symbol:"COMI"},{symbol:"SWDY"}]},symbols:["COMI","SWDY"]};
+        const result=runAnswerGate({reply:"هذا سيناريو افتراضي لتوزيع COMI وSWDY على رأس المال المذكور، ولم يتم حفظه.",plan,toolResults:[scenario],userMessage:"حلل مخاطر محفظتي الافتراضية COMI وSWDY",facts:[]});
+        expect(result.reasons).not.toContain("الطلب يتطلب مراكز المستخدم الفعلية، لكن أداة المحفظة لم تُرجع لقطة موثقة. لا تقدم تحليلاً شخصياً للمحفظة.");
+        expect(result.reasons.some((reason:string)=>reason.includes("لا يوجد مركز محفوظ"))).toBe(false);
     });
     test.each([-10,0,Infinity,NaN])("rejects invalid quantity %s before write",async quantity=>{
         const d=db();const r=await executeAgenticTool("manage_portfolio",{operation:"add",symbol:"COMI",quantity,price:100},d.client,"u");
@@ -467,3 +527,4 @@ describe("Agentic tool correctness and failure boundaries", () => {
         expect(checkAgenticDraft(table, e)).toEqual([]);
     });
 });
+

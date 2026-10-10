@@ -487,6 +487,104 @@ async function executeRawTool(
                 bounded_candidates: preset === "macd_cross" ? 60 : 10, methodology: preset === "macd_cross" ? "Histogram crossed from <=0 previous session to >0 latest session" : preset };
         }
 
+        if (toolName === "screen_stocks") {
+            const rsiMin = finite(args.rsi_min) ?? 40, rsiMax = finite(args.rsi_max) ?? 60;
+            const volumeMin = finite(args.relative_volume_min) ?? 1;
+            const distanceMax = finite(args.max_resistance_distance_pct) ?? 3;
+            const maxResults = Math.trunc(finite(args.max_results) ?? 10);
+            if (rsiMin < 0 || rsiMax > 100 || rsiMin >= rsiMax) throw new Error("نطاق RSI غير صالح");
+            if (volumeMin <= 0 || volumeMin > 20) throw new Error("حد الحجم النسبي يجب أن يكون بين 0 و20");
+            if (distanceMax <= 0 || distanceMax > 10) throw new Error("حد القرب من المقاومة يجب أن يكون أكبر من صفر وحتى 10%");
+            if (maxResults < 1 || maxResults > 20) throw new Error("عدد النتائج يجب أن يكون بين 1 و20");
+            const { data: dates } = await supabase.from("stock_technical_indicators").select("date")
+                .eq("exchange", "EGX").order("date", { ascending: false }).limit(1);
+            const date = dates?.[0]?.date;
+            if (!date) return { status:"success", availability:"missing", date:null, stocks:[], scan_complete:false };
+            const { data: candidates } = await supabase.from("stock_technical_indicators")
+                .select("symbol,date,close,change_pct,r_vol,rsi_14")
+                .eq("exchange", "EGX").eq("date", date).gte("rsi_14", rsiMin).lte("rsi_14", rsiMax)
+                .gte("r_vol", volumeMin).order("r_vol", { ascending:false }).limit(251);
+            const bounded = candidates || [];
+            const truncated = bounded.length > 250;
+            const rows = bounded.slice(0,250);
+            const symbols = rows.map((r:any)=>normalizeSymbol(r.symbol));
+            const startDate = new Date(`${date}T00:00:00Z`); startDate.setUTCDate(startDate.getUTCDate()-45);
+            const history: any[] = [];
+            for (let offset=0; offset<symbols.length; offset+=20) {
+                const page = symbols.slice(offset,offset+20);
+                const { data } = await supabase.from("stock_prices").select("symbol,date,high,close")
+                    .eq("exchange","EGX").in("symbol",page).gte("date",startDate.toISOString().slice(0,10))
+                    .lte("date",date).order("date",{ascending:false}).limit(1000);
+                history.push(...(data || []));
+            }
+            const histories = new Map<string, any[]>();
+            for (const row of history) { const list=histories.get(row.symbol)||[]; list.push(row); histories.set(row.symbol,list); }
+            const insufficientHistory:string[]=[];
+            const stocks = rows.flatMap((row:any) => {
+                const prices = (histories.get(normalizeSymbol(row.symbol))||[]).slice(0,20);
+                if (prices.length < 20) { insufficientHistory.push(row.symbol); return []; }
+                const highs = prices.map((p:any)=>finite(p.high ?? p.close)).filter((n:any)=>n != null && n > 0) as number[];
+                const resistance = highs.length === 20 ? Math.max(...highs) : null;
+                const close=finite(row.close);
+                if (resistance == null || close == null || close > resistance) return [];
+                const distance = (resistance-close)/resistance*100;
+                if (distance > distanceMax) return [];
+                return [{ symbol:row.symbol, date:row.date, close, change_pct:finite(row.change_pct), r_vol:finite(row.r_vol),
+                    rsi_14:finite(row.rsi_14), resistance:round(resistance), distance_from_resistance_pct:round(distance),
+                    price_type:"daily_close", resistance_sessions:20 }];
+            }).sort((a:any,b:any)=>(a.distance_from_resistance_pct-b.distance_from_resistance_pct)||(b.r_vol-a.r_vol)).slice(0,maxResults);
+            return { status:"success", date, filters:{rsi_min:rsiMin,rsi_max:rsiMax,relative_volume_min:volumeMin,
+                max_resistance_distance_pct:distanceMax}, stocks, scan_complete:!truncated && insufficientHistory.length===0,
+                candidate_limit:250, candidates_checked:rows.length, truncated, insufficient_history_symbols:insufficientHistory,
+                methodology:"r_vol >= threshold; resistance is maximum high over latest 20 daily sessions; distance=(resistance-close)/resistance*100" };
+        }
+
+        if (toolName === "analyze_portfolio_risk") {
+            if (!userId) throw new Error("يلزم مستخدم مصادق عليه لتحليل السيناريو");
+            const capital = positive(args.capital);
+            const symbols: string[] = [...new Set<string>((args.symbols as unknown[]).map((value:any)=>normalizeSymbol(value)))];
+            if (symbols.length < 2 || symbols.length > 10) throw new Error("أدخل من سهمين إلى عشرة أسهم لتحليل السيناريو");
+            let weights: Map<string,number>;
+            if (Array.isArray(args.allocations) && args.allocations.length) {
+                weights = new Map<string,number>();
+                for (const item of args.allocations) {
+                    const sym=normalizeSymbol(item.symbol), pct=finite(item.allocation_pct);
+                    if (!symbols.includes(sym) || pct == null || pct <= 0 || weights.has(sym)) throw new Error("توزيع السيناريو غير صالح أو لا يطابق قائمة الأسهم");
+                    weights.set(sym,pct);
+                }
+                if (symbols.some((sym:string)=>!weights.has(sym)) || Math.abs([...weights.values()].reduce((a:number,b:number)=>a+b,0)-100)>0.1)
+                    throw new Error("يجب توزيع 100% على جميع الأسهم المذكورة");
+            } else weights = new Map<string,number>(symbols.map((sym:string)=>[sym,100/symbols.length]));
+            const [{data:savedRows},{data:fundRows}] = await Promise.all([
+                supabase.from("positions").select("symbol").eq("user_id",userId).eq("status","open").in("symbol",symbols).limit(10),
+                supabase.from("stock_fundamentals").select("symbol,data").eq("exchange","EGX").in("symbol",symbols).limit(10)
+            ]);
+            const saved = new Set((savedRows||[]).map((r:any)=>normalizeSymbol(r.symbol)));
+            const fundamentals = new Map((fundRows||[]).map((r:any)=>[normalizeSymbol(r.symbol),r.data]));
+            const sectorOf=(raw:any):string|null=>{
+                const data=typeof raw === "string" ? (()=>{try{return JSON.parse(raw)}catch{return {}}})() : raw||{};
+                return data.sector ?? data.Sector ?? data.industry ?? data.Industry ?? null;
+            };
+            const stocks=symbols.map((symbol:string)=>{
+                const rawAllocation=weights.get(symbol)!;
+                const allocation_pct=Number(rawAllocation.toFixed(4));
+                const allocated_capital=round(capital*rawAllocation/100);
+                const sector=sectorOf(fundamentals.get(symbol));
+                return {symbol,sector:typeof sector === "string" && sector.trim() ? sector.trim() : null,allocation_pct,allocated_capital,saved:saved.has(symbol),availability:fundamentals.has(symbol)?"available":"partial"};
+            });
+            const sectors=new Map<string,any>();
+            for(const row of stocks){const key=row.sector||"غير محدد";const current=sectors.get(key)||{symbol:"PORTFOLIO",sector:row.sector,allocation_pct:0,allocated_capital:0,symbols:[]};
+                current.allocation_pct+=row.allocation_pct;current.allocated_capital+=row.allocated_capital;current.symbols.push(row.symbol);sectors.set(key,current);}
+            const sector_exposure=[...sectors.values()].map((s:any)=>({...s,allocation_pct:round(s.allocation_pct),allocated_capital:round(s.allocated_capital)}));
+            const stress_scenarios_not_forecasts=[{change_pct:-5,loss:round(capital*.05)},{change_pct:-10,loss:round(capital*.10)}];
+            return {status:"success",mode:"scenario",source_portfolio:"user_scenario_not_saved",capital,
+                assumption:args.allocations?.length?"explicit_allocations":"equal_weight",currency:"EGP",stocks,sector_exposure,
+                sector_concentration_complete:stocks.every((s:any)=>s.sector!=null),
+                stress_scenarios_not_forecasts,
+                scenario_metrics:[{symbol:"PORTFOLIO",scenario_capital:capital},...stress_scenarios_not_forecasts.map((s:any)=>({symbol:"PORTFOLIO",scenario_loss_pct:s.change_pct,scenario_loss_amount:-s.loss}))],
+                saved_symbols:symbols.filter((s:string)=>saved.has(s)),not_saved_symbols:symbols.filter((s:string)=>!saved.has(s)),persisted:false};
+        }
+
         if (toolName === "get_news") {
             const symbols = args.symbols || [];
             let stockIds: number[] = [];
@@ -529,4 +627,5 @@ async function executeRawTool(
         return { status: "error", message: e.message || String(e) };
     }
 }
+
 

@@ -51,7 +51,7 @@ export function evidenceMemory(records: AgenticEvidence[], now = new Date()): Ar
 
 export function evidenceRows(data: any): any[] {
     if (!data || typeof data !== "object") return [];
-    const rows = ["stocks", "levels", "positions", "recommendations", "comparison", "accumulation_stocks", "top_gainers", "top_losers", "news"]
+    const rows = ["stocks", "levels", "positions", "recommendations", "comparison", "accumulation_stocks", "top_gainers", "top_losers", "news", "sector_exposure", "scenario_metrics"]
         .flatMap(key => Array.isArray(data[key]) ? data[key] : []);
     if (data.symbol) rows.push(data);
     return rows;
@@ -67,7 +67,8 @@ export function toAgenticEvidence(tool: string, args: any, data: any): AgenticEv
         apply_chart_strategy: "stock_prices+deterministic-strategy-engine", compare_strategies_history: "stock_prices+deterministic-backtest", list_chart_strategies: "strategy-catalog",
         manage_portfolio: "positions+stock_technical_indicators", get_market: "market_cache+stock_technical_indicators", get_news: "news+stocks",
         get_recommendations: "scan_results+stock_technical_indicators", get_accumulation_stocks: "stock_scans_summary", get_comparison: "stock_technical_indicators",
-        get_technical_scan: args.preset === "smart_money_flow" ? "stock_scans_summary" : "stock_technical_indicators" } as any)[tool],
+        get_technical_scan: args.preset === "smart_money_flow" ? "stock_scans_summary" : "stock_technical_indicators",
+        screen_stocks: "stock_technical_indicators+stock_prices", analyze_portfolio_risk: "positions+stock_fundamentals+scenario-calculation" } as any)[tool],
         data_time: dates.length === 1 ? dates[0] : data?.date || data?.session_date || null, symbols,
         availability: data?.status === "error" ? "error" : data?.availability === "missing" || (!rows.length && !data?.egx30?.close && !data?.persisted && !data?.strategies?.length)
             ? "missing" : missing || data?.valuation_complete === false || data?.truncated ? "partial" : "available", data_type: "historical" };
@@ -80,6 +81,7 @@ export function agenticFacts(evidence: AgenticEvidence[]): FactRecord[] {
         acc_score: row.accumulation_score ?? row.acc_score, dist_score: row.distribution_score ?? row.dist_score,
         target_price: row.take_profit_1 ?? row.target_price, profit_pct: row.profit_loss_pct ?? row.realized_return_pct ?? row.unrealized_return_pct,
         cost_basis: row.cost, profit_value: row.profit_loss_val,
+        position_pct: row.allocation_pct, value: row.allocated_capital,
         close: row.close ?? row.current_price, price: row.current_price ?? row.close,
         macd_hist: row.macd_hist ?? row.macd_histogram,
         rsi: row.rsi ?? row.rsi_14,
@@ -153,8 +155,9 @@ function tableMetricFields(label: string): FactRecord["field"][] | undefined {
         [/RSI|القوة النسبية/i,["rsi"]], [/هيست|hist/i,["macd_hist"]], [/MACD.*(?:signal|إشار|اشار)|(?:signal|إشار|اشار).*MACD/i,["macd_signal"]], [/MACD/i,["macd","macd_signal","macd_hist"]],
         [/EMA\s*50/i,["ema_50"]], [/EMA\s*200/i,["ema_200"]], [/حجم.*نسبي|الحجم النسبي|r_vol|vol_ratio/i,["vol_ratio"]],
         [/KING/i,["king_ai_score"]], [/EGX.*AI/i,["egx_ai_score"]], [/تجميع/i,["acc_score"]], [/تصريف/i,["dist_score"]],
-        [/سعر.*(?:شراء|دخول)|الدخول/i,["entry_price","cost_basis"]], [/وقف/i,["stop_loss"]], [/هدف|مستهدف/i,["target_price"]], [/دعم/i,["support"]], [/مقاوم/i,["resistance"]],
-        [/تكلف/i,["cost_basis"]], [/قيمة.*سوق|القيمة السوقية/i,["market_value"]], [/ربح|خسار|عائد|النسبة/i,["profit_pct","profit_value","backtest_return_pct"]],
+        [/سعر.*(?:شراء|دخول)|الدخول/i,["entry_price","cost_basis"]], [/وقف/i,["stop_loss"]], [/هدف|مستهدف/i,["target_price"]], [/دعم/i,["support"]], [/مسافة.*مقاوم|بعد.*مقاوم|القرب.*مقاوم/i,["distance_from_resistance_pct"]], [/مقاوم/i,["resistance"]],
+        [/تكلف/i,["cost_basis"]], [/توزيع|وزن|نسبة.*المحفظة|تركيز.*قطاع/i,["position_pct"]], [/مبلغ.*مخصص|قيمة.*مخصصة|رأس.*مال.*موزع/i,["value"]], [/قيمة.*سوق|القيمة السوقية/i,["market_value"]], [/ربح|خسار|عائد|النسبة/i,["profit_pct","profit_value","backtest_return_pct"]],
+        [/خسارة.*افتراضية|خسارة.*سيناريو|هبوط.*مفترض/i,["scenario_loss_amount","scenario_loss_pct"]], [/رأس.*مال|إجمالي.*رأس المال/i,["scenario_capital"]],
         [/تغير|التغيّر/i,["change_pct"]], [/كمية|الكمية|عدد|مراكز/i,["quantity"]], [/إغلاق|اغلاق|السعر|سعر|price|close/i,["price","close"]],
     ];
     return labels.find(([pattern]) => pattern.test(text))?.[1];
@@ -434,6 +437,24 @@ export function safeAgenticFallback(evidence: AgenticEvidence[], reason: string)
     // the first available rows only as a bounded fallback and never resurrect
     // unrelated symbols from an older turn.
     const rows = evidence.filter(e => e.availability !== "error").flatMap(e => evidenceRows(e.data));
+    for (const e of evidence.filter(e => e.availability !== "error")) {
+        if (e.tool === "screen_stocks" && e.data?.stocks?.length) {
+            const d=e.data;
+            lines.push(`\nشاشة فنية بتاريخ ${d.date}: الشروط RSI بين ${d.filters.rsi_min} و${d.filters.rsi_max}، والحجم النسبي ≥ ${d.filters.relative_volume_min}، والمسافة من مقاومة أعلى 20 جلسة ≤ ${d.filters.max_resistance_distance_pct}%.`);
+            lines.push("| السهم | الإغلاق | RSI | الحجم النسبي | المقاومة | البعد عنها % |","|---|---:|---:|---:|---:|---:|");
+            for(const r of d.stocks.slice(0,10)) lines.push(`| ${r.symbol} | ${r.close} | ${r.rsi_14} | ${r.r_vol} | ${r.resistance} | ${r.distance_from_resistance_pct} |`);
+            if(d.scan_complete===false) lines.push("المسح جزئي: بعض المرشحين تجاوزوا حد الفحص أو لا يتوفر لهم تاريخ 20 جلسة.");
+        }
+        if (e.tool === "analyze_portfolio_risk" && e.data?.mode === "scenario") {
+            const d=e.data;
+            lines.push(`\nهذا سيناريو افتراضي من رأس مال ${d.capital} جنيه، بتوزيع ${d.assumption === "equal_weight" ? "متساوٍ مفترض" : "النسب التي حددتها"}؛ لا يمثل المراكز المحفوظة ولا تم حفظه.`);
+            lines.push("| السهم | القطاع من بيانات الشركة | التوزيع % | المبلغ بالجنيه | محفوظ بالحساب؟ |","|---|---|---:|---:|---|");
+            for(const r of d.stocks) lines.push(`| ${r.symbol} | ${r.sector || "غير متاح"} | ${r.allocation_pct} | ${r.allocated_capital} | ${r.saved ? "نعم" : "لا"} |`);
+            for(const r of d.sector_exposure) lines.push(`قطاع ${r.sector || "غير محدد"}: ${r.allocation_pct}% (${r.allocated_capital} جنيه).`);
+            if(!d.sector_concentration_complete) lines.push("بيانات قطاع سهم أو أكثر غير متاحة؛ تجميع القطاعات جزئي ولا يصح اعتباره كاملاً.");
+            lines.push(`اختبار حساسية حسابي فقط، وليس توقعاً: هبوط افتراضي 5% = ${d.stress_scenarios_not_forecasts[0].loss} جنيه، و10% = ${d.stress_scenarios_not_forecasts[1].loss} جنيه.`);
+        }
+    }
     const quotes = new Map<string, any>();
     for (const row of rows) if (row.symbol && (row.close != null || row.current_price != null)) quotes.set(row.symbol, row);
     if (quotes.size) {
@@ -445,3 +466,4 @@ export function safeAgenticFallback(evidence: AgenticEvidence[], reason: string)
     if (evidence.some(e => e.availability === "missing" || e.availability === "partial")) lines.push("بعض البيانات المطلوبة غير متاحة أو غير مكتملة في المصدر.");
     return lines.join("\n");
 }
+

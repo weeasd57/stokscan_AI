@@ -185,7 +185,9 @@ export function runAnswerGate(input: AnswerGateInput): AnswerGateResult {
     const checked = { coverage: false, metric: false, attribution: false, context: false, completion: true };
     // Recommendation/comparison tables are not personal holdings. Apply the
     // portfolio schema check only when the request is scoped to the account.
-    if (isPortfolioAnalysisRequest(userMessage) || plan.entities.portfolio_operation === "view") {
+    const scenarioPortfolio = toolResults.some(result => result.tool === "analyze_portfolio_risk"
+        && !result.error && result.data?.mode === "scenario" && result.data?.source_portfolio === "user_scenario_not_saved");
+    if (!scenarioPortfolio && (isPortfolioAnalysisRequest(userMessage) || plan.entities.portfolio_operation === "view")) {
         reasons.push(...checkPortfolioTableEvidence(reply, toolResults));
     }
     const task = resolveResponseTask(userMessage, plan, input.history);
@@ -218,10 +220,10 @@ export function runAnswerGate(input: AnswerGateInput): AnswerGateResult {
     if (deniesHoldings && snapshot && snapshot.data.positions.length > 0) {
         reasons.push("الرد يقول إن المحفظة فارغة بينما أداة المحفظة أثبتت وجود مراكز مفتوحة. اذكر المراكز الفعلية ولا تنفِ ملكيتها.");
     }
-    if (plan.entities.portfolio_operation === "view" && plan.intent !== "portfolio_management" && !snapshot) {
+    if (!scenarioPortfolio && plan.entities.portfolio_operation === "view" && plan.intent !== "portfolio_management" && !snapshot) {
         reasons.push("الطلب يتطلب مراكز المستخدم الفعلية، لكن أداة المحفظة لم تُرجع لقطة موثقة. لا تقدم تحليلاً شخصياً للمحفظة.");
     }
-    if (snapshot && isPortfolioAnalysisRequest(userMessage) && snapshot.data.positions.length <= 12) {
+    if (!scenarioPortfolio && snapshot && isPortfolioAnalysisRequest(userMessage) && snapshot.data.positions.length <= 12) {
         const missingSymbols = snapshot.data.positions
             .map((position: any) => String(position.symbol || "").toUpperCase())
             .filter((symbol: string) => symbol && !new RegExp(`\\b${symbol}\\b`, "i").test(reply));
@@ -305,3 +307,4 @@ export function buildGateCorrectionBlock(reasons: string[]): string {
         .map(reason => `  * ${reason}`)
         .join("\n")}\n`;
 }
+

@@ -48,7 +48,10 @@ export type FactField =
     | "exit_price"
     | "distance_from_support_pct"
     | "distance_from_resistance_pct"
-    | "position_pct";
+    | "position_pct"
+    | "scenario_capital"
+    | "scenario_loss_pct"
+    | "scenario_loss_amount";
 
 export type FactUnit = "egp" | "percent" | "ratio" | "points" | "count" | "unitless" | "shares";
 
@@ -109,6 +112,9 @@ const FIELD_UNITS: Record<FactField, FactUnit> = {
     distance_from_support_pct: "percent",
     distance_from_resistance_pct: "percent",
     position_pct: "percent",
+    scenario_capital: "egp",
+    scenario_loss_pct: "percent",
+    scenario_loss_amount: "egp",
 };
 
 const VALUE_KEYS: Array<{ key: string; field: FactField }> = [
@@ -182,6 +188,9 @@ const VALUE_KEYS: Array<{ key: string; field: FactField }> = [
     { key: "distance_from_support_pct", field: "distance_from_support_pct" },
     { key: "distance_from_resistance_pct", field: "distance_from_resistance_pct" },
     { key: "position_pct", field: "position_pct" },
+    { key: "scenario_capital", field: "scenario_capital" },
+    { key: "scenario_loss_pct", field: "scenario_loss_pct" },
+    { key: "scenario_loss_amount", field: "scenario_loss_amount" },
 ];
 
 function toNumber(value: unknown): number | null {
@@ -439,3 +448,4 @@ export function factValues(records: FactRecord[], symbol: string | null, field: 
         .filter(record => record.field === field && normalizeSymbol(record.symbol) === targetSymbol)
         .map(record => record.value);
 }
+
