@@ -305,6 +305,15 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
     reasons.push(...checkStrategyClaims(reply, evidence));
     reasons.push(...checkAttribution(reply, facts));
     if (request) reasons.push(...checkUserPositionInputs(reply, request));
+    if (request && /(?:أخبار|اخبار|خبر|news)/i.test(request)) {
+        const requestedNewsSymbols = [...new Set(evidence.filter(e=>e.tool === "get_news" && e.availability !== "error")
+            .flatMap(e=>Array.isArray(e.arguments?.symbols) ? e.arguments.symbols : []).map((s:any)=>String(s).toUpperCase()))];
+        const plain = reply.replace(/[*_`]/g, "");
+        const heading = plain.search(/(?:^|\n)\s*(?:#{1,6}\s*)?(?:أحدث\s+)?(?:الأخبار?|خبر\s+متاح|news)\s*[:：]?/im);
+        const newsText = heading >= 0 ? plain.slice(heading).split(/\n\s*(?:#{1,6}\s+|\*\*[^\n]{2,50}\*\*)/)[0] : plain;
+        for (const symbol of requestedNewsSymbols)
+            if (!new RegExp(`(?<![A-Z0-9])${symbol}(?![A-Z0-9])`, "i").test(newsText)) reasons.push(`requested_news_symbol_omitted:${symbol}`);
+    }
     // Verify comparative distance statements from the same dated comparison,
     // independently of whether all quoted values themselves are grounded.
     const latestComparisons=new Map<string,AgenticEvidence>();

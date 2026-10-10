@@ -689,6 +689,15 @@ describe("Agentic tool correctness and failure boundaries", () => {
             "المسودة تذكر أن المقارنة صحيحة؛ لا يوجد خطأ هنا. الخطأ في وصف قرب الدعم، وهو وصف مقبول تقريباً."
         ])).toEqual([]);
     });
+    test("news for each requested symbol must appear in the news section",()=>{
+        const e=[toAgenticEvidence("get_news",{symbols:["COMI","SWDY"]},{status:"success",news:[
+            {symbol:"COMI",date:price.date,headlines:["CIB signs agreement"]},
+            {symbol:"SWDY",date:price.date,headlines:["El Sewedy reports growth"]},
+        ]})];
+        const request="هات أحدث خبر لكل واحد من COMI وSWDY";
+        expect(checkAgenticDraft("## أحدث خبر متاح\n• COMI: خبر عن اتفاقية.\n## السعر اللحظي\nغير متاح.",e,request)).toContain("requested_news_symbol_omitted:SWDY");
+        expect(checkAgenticDraft("## أحدث خبر متاح\n• COMI: خبر عن اتفاقية.\n• SWDY: خبر عن نمو الأرباح.\n## السعر اللحظي\nغير متاح.",e,request)).toEqual([]);
+    });
     test("reviewer cannot claim a requested tool was never called when evidence records it",()=>{
         const e=[toAgenticEvidence("get_comparison",{symbols:["COMI","ZZZZ99"]},{comparison:[
             {symbol:"COMI",close:124.65,date:price.date},{symbol:"ZZZZ99",error:"Not found in active main market"}
