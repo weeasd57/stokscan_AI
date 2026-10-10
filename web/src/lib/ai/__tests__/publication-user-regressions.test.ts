@@ -121,3 +121,27 @@ test('real numeric distance formulas verify operands, denominator and conversion
     expect(checkAgenticDraft(draft.replace('| ORAS | 1.94% |','| ORAS | 1.90% |'),[e])).toContain('table_value_not_grounded:ORAS:1.9');
     expect(checkAgenticDraft(replay.screen,[e])).toContain('screen_distance_order_monotonicity_contradiction');
 });
+
+test('production zero-distance ties allow both formulas and negated order changes',()=>{
+    const e=toAgenticEvidence('screen_stocks',{}, {status:'success',date:'2026-10-07',methodology:'distance=(resistance-close)/close*100',stocks:[
+        {symbol:'TWSA',date:'2026-10-07',close:8.62,resistance:8.62,distance_from_resistance_pct:0},
+        {symbol:'FAITA',date:'2026-10-07',close:1.009,resistance:1.009,distance_from_resistance_pct:0},
+        {symbol:'EOSB',date:'2026-10-07',close:1.64,resistance:1.64,distance_from_resistance_pct:0}]});
+    const draft='| # | السهم | الإغلاق | المقاومة | المسافة (÷ الإغلاق) | المعادلة |\n|---|---|---|---|---|---|\n| 1 | TWSA | 8.62 | 8.62 | 0.00% | (8.62 − 8.62) ÷ 8.62 × 100 |\n| 2 | FAITA | 1.009 | 1.009 | 0.00% | (1.009 − 1.009) ÷ 1.009 × 100 |\n| 3 | EOSB | 1.64 | 1.64 | 0.00% | (1.64 − 1.64) ÷ 1.64 × 100 |\nالقسمة على الإغلاق تعطي (المقاومة − الإغلاق) ÷ الإغلاق، والقسمة على المقاومة تعطي (المقاومة − الإغلاق) ÷ المقاومة.\nالترتيب لا يتغير، والقيم هنا متساوية بصفر في الحالتين.';
+    expect(checkAgenticDraft(draft,[e])).toEqual([]);
+    expect(checkAgenticDraft(draft.replace('الترتيب لا يتغير','الترتيب يتغير'),[e])).toContain('screen_distance_order_monotonicity_contradiction');
+    expect(checkAgenticDraft(draft.replace('| 0.00% |','| 1.00% |'),[e])).toContain('table_value_not_grounded:TWSA:1');
+});
+test('oversold proximity and internal news fields are checked in published prose',()=>{
+    const e=toAgenticEvidence('get_comparison',{}, {comparison:[{symbol:'EFID',date:'2026-10-07',rsi_14:31.79},{symbol:'JUFO',date:'2026-10-07',rsi_14:30.54}]});
+    expect(checkAgenticDraft('EFID: RSI عند 31.79 (الأقرب للتشبع البيعي بين الثلاثة).',[e])).toContain('rsi_oversold_proximity_ranking_contradiction:EFID');
+    expect(checkAgenticDraft('JUFO هو الأقرب للتشبع البيعي.',[e])).toEqual([]);
+    expect(checkAgenticDraft('تاريخ السجل ليس نشر الخبر (date_kind = aggregation، event_date فارغ).',[])).toContain('internal_implementation_names_in_response');
+});
+
+test('separate symbolic denominator explanations are checked independently',()=>{
+    const e=screenReplay();
+    const draft='القسمة على الإغلاق: (المقاومة − الإغلاق) ÷ الإغلاق.\nالقسمة على المقاومة: (المقاومة − الإغلاق) ÷ المقاومة.';
+    expect(checkAgenticDraft(draft,[e])).toEqual([]);
+    expect(checkAgenticDraft(draft.replace('÷ المقاومة.','÷ الإغلاق.'),[e])).toContain('screen_distance_formula_contradiction');
+});

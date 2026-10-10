@@ -309,6 +309,12 @@ function checkSnapshotInterpretations(reply: string, evidence: AgenticEvidence[]
     for (const raw of reply.replace(/[*_`]/g, "").split(/\n|[.!؟؛]\s+/)) {
         const named = symbols.filter(symbol => new RegExp(`\\b${symbol}\\b`, "i").test(raw));
         if (named.length === 1) owner = named[0];
+        if (owner && /(?:الأقرب|أقرب).{0,15}(?:للتشبع\s+البيعي|من\s+التشبع\s+البيعي)/.test(raw)) {
+            const current = [...rows].reverse().find(row => row.symbol === owner && Number.isFinite(row.rsi_14));
+            const peers = current ? rows.filter(row => row.date === current.date && Number.isFinite(row.rsi_14)) : [];
+            if (current && peers.some(row => row.symbol !== owner && Math.abs(row.rsi_14-30) < Math.abs(current.rsi_14-30)-1e-6))
+                reasons.push(`rsi_oversold_proximity_ranking_contradiction:${owner}`);
+        }
         const easing = /(?:تخفيف|انحسار|تراجع)\s+ضغط\s+البيع|ضغط\s+البيع\s+(?:يخف|يقل|يتراجع|يتباطأ)/.exec(raw);
         if (easing && /RSI|مؤشر\s+القوة\s+النسبية/i.test(raw)) {
             const prefix = raw.slice(Math.max(0, easing.index - 45), easing.index);
@@ -387,7 +393,7 @@ export function checkUserPositionInputs(reply: string, request: string): string[
 export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], request = ""): string[] {
     const reasons: string[] = [];
     if (!reply.trim()) reasons.push("empty_response");
-    if (/\b(?:get_stock(?:_levels)?|get_market|get_comparison|get_news|get_recommendations|get_technical_scan|get_accumulation_stocks|calculate_position|manage_portfolio|screen_stocks|analyze_portfolio_risk|list_chart_strategies|apply_chart_strategy|compare_strategies_history|stock_prices|stock_technical_indicators|stock_scans_summary|ai_chat_sessions|ai_chat_messages)\b/.test(reply)) reasons.push("internal_implementation_names_in_response");
+    if (/\b(?:get_stock(?:_levels)?|get_market|get_comparison|get_news|get_recommendations|get_technical_scan|get_accumulation_stocks|calculate_position|manage_portfolio|screen_stocks|analyze_portfolio_risk|list_chart_strategies|apply_chart_strategy|compare_strategies_history|stock_prices|stock_technical_indicators|stock_scans_summary|ai_chat_sessions|ai_chat_messages|resistance_relation|date_kind|event_date|record_date)\b/.test(reply)) reasons.push("internal_implementation_names_in_response");
     const substantive = reply.replace(/\[[^\]]*\]\(https?:\/\/[^)]*\)/g, "").replace(/https?:\/\/\S+/g, "")
         .replace(/✅ تحليل EGX Bots[^\n]*/g, "").replace(/📢[^\n]*/g, "");
     if (!/[\p{L}]{2}/u.test(substantive)) reasons.push("response_has_no_substantive_answer");
@@ -427,15 +433,26 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
     const screen = evidence.filter(e => e.tool === "screen_stocks" && e.data?.status === "success").at(-1);
     const methodology = String(screen?.data?.methodology || "");
     const numerator = "\\(\\s*(?:المقاومة|resistance)\\s*[-−]\\s*(?:الإغلاق|close)\\s*\\)\\s*[÷/]\\s*";
-    if ((methodology.includes("distance=(resistance-close)/close*100") && new RegExp(numerator + "(?:المقاومة|resistance)", "i").test(reply))
-        || (methodology.includes("distance=(resistance-close)/resistance*100") && new RegExp(numerator + "(?:الإغلاق|close)", "i").test(reply)))
-        reasons.push("screen_distance_formula_contradiction");
+    for (const line of reply.replace(/[*_`]/g, "").split("\n")) {
+        // Bind each symbolic formula to its own denominator label; a reply may
+        // compare both formulas without changing the screen's methodology.
+        const defaultDenominator = methodology.includes("distance=(resistance-close)/close*100") ? "close"
+            : methodology.includes("distance=(resistance-close)/resistance*100") ? "resistance" : null;
+        if (!defaultDenominator) continue;
+        for (const formula of line.matchAll(new RegExp(numerator + "(الإغلاق|close|المقاومة|resistance)", "gi"))) {
+            const labels = [...line.slice(0,formula.index).matchAll(/(?:القسمة|النسبة|المسافة).{0,20}على\s+(?:أساس\s+)?(الإغلاق|المقاومة)/g)];
+            const label = labels.at(-1)?.[1];
+            const expected = label ? label === "الإغلاق" ? "close" : "resistance" : defaultDenominator;
+            const actual = /الإغلاق|close/i.test(formula[1]) ? "close" : "resistance";
+            if (actual !== expected) reasons.push("screen_distance_formula_contradiction");
+        }
+    }
     if (screen) {
         for (const line of reply.replace(/[*_`]/g, "").split(/\n|[.!؟؛]\s+/)) {
             if (/^(?:هل|\*?هل)\s/.test(line.trim()) || line.trim().endsWith("؟")) continue;
             const positiveRows = evidenceRows(screen.data).filter(row => Number.isFinite(row.close) && row.close > 0 && row.resistance >= row.close);
             const reversal = /(?:ينقلب|يتغير|يختلف|تنقلب|قد\s+يظهر\s+اختلاف).{0,30}(?:ترتيب|ترتيبهما)|(?:ترتيب|ترتيبهما).{0,30}(?:ينقلب|يتغير|يختلف|تنقلب)/.exec(line);
-            if (positiveRows.length >= 2 && reversal && !/(?:لا|لن|ليس|مش|غير)\s*$/.test(line.slice(0,reversal.index)))
+            if (positiveRows.length >= 2 && reversal && !/(?:لا|لن|ليس|مش|غير)\s*$/.test(line.slice(0,reversal.index)) && !/(?:ترتيب|ترتيبهما)\s+(?:لا|لن)\s+(?:ينقلب|يتغير|يختلف)/.test(reversal[0]))
                 reasons.push("screen_distance_order_monotonicity_contradiction");
             const equality = /(?:متطابق(?:ة|تان|تين|ان)?|متساوي(?:ة|تان|تين|ان)?|نفس\s+(?:النسبة|النسب|القيمة|القيم))/.exec(line);
             if (/ترتيب|الترتيب|ranking|order/i.test(line) && !/النسب|النسبة|القيم|القيمة|percent|value/i.test(line)) continue;
@@ -662,7 +679,7 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
             if (idx === rankColIdx || cells[idx].includes(symbol)) continue;
             const screenRow = evidence.filter(e => e.tool === "screen_stocks").flatMap(e => evidenceRows(e.data)).find(row => row.symbol === symbol);
             const header = headers[idx] || "";
-            const explicitDenominator = /(?:أساس|على|مقام)/.test(header) && /الإغلاق|الاغلاق|المقاومة/.test(header)
+            const explicitDenominator = /(?:أساس|على|مقام|÷)/.test(header) && /الإغلاق|الاغلاق|المقاومة/.test(header)
                 ? /الإغلاق|الاغلاق/.test(header) ? "close" : "resistance" : null;
             const formula = normalizeDigitsAndNumberFormatting(cells[idx].replace(/[*_`]/g, "")).match(/^\s*\(\s*(\d+(?:\.\d+)?)\s*[-−]\s*(\d+(?:\.\d+)?)\s*\)\s*[÷/]\s*(\d+(?:\.\d+)?)\s*[×*]\s*(\d+(?:\.\d+)?)(?:\s*=\s*([-+]?\d+(?:\.\d+)?)\s*[%٪]?)?\s*$/);
             if (screenRow && formula) {
@@ -688,7 +705,7 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
             const distanceColumn = /مساف|الموقع.*(?:إغلاق|اغلاق)|بعد.*(?:إغلاق|اغلاق)/i.test(headers[idx] || "");
             const levelField: FactRecord["field"] | undefined = /دعم/.test(cells[0]) ? "distance_from_support_pct"
                 : /مقاوم/.test(cells[0]) ? "distance_from_resistance_pct" : undefined;
-            const fields = distanceColumn && levelField ? [levelField]
+            const fields = screenRow && /مساف|بعد|قرب/.test(header) ? ["distance_from_resistance_pct" as const] : distanceColumn && levelField ? [levelField]
                 : (scenarioRow ? scenarioMetricFields(headers[idx]) : tableMetricFields(headers[idx]))
                     || (currentSymbol ? tableMetricFields(cells[0]) : undefined);
             const allocationFacts = scenarioRow ? buildFactRecords([{ tool: "analyze_portfolio_risk", source: "scenario-calculation",
