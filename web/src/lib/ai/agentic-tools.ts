@@ -491,6 +491,8 @@ async function executeRawTool(
             const rsiMin = finite(args.rsi_min) ?? 40, rsiMax = finite(args.rsi_max) ?? 60;
             const volumeMin = finite(args.relative_volume_min) ?? 1;
             const distanceMax = finite(args.max_resistance_distance_pct) ?? 3;
+            const volumeInclusive = typeof args.relative_volume_inclusive === "boolean" ? args.relative_volume_inclusive : volumeMin > 1;
+            const distanceInclusive = args.resistance_distance_inclusive === true;
             const maxResults = Math.trunc(finite(args.max_results) ?? 10);
             if (rsiMin < 0 || rsiMax > 100 || rsiMin >= rsiMax) throw new Error("نطاق RSI غير صالح");
             if (volumeMin <= 0 || volumeMin > 20) throw new Error("حد الحجم النسبي يجب أن يكون بين 0 و20");
@@ -500,10 +502,11 @@ async function executeRawTool(
                 .eq("exchange", "EGX").order("date", { ascending: false }).limit(1);
             const date = dates?.[0]?.date;
             if (!date) return { status:"success", availability:"missing", date:null, stocks:[], scan_complete:false };
-            const { data: candidates } = await supabase.from("stock_technical_indicators")
+            let candidateQuery = supabase.from("stock_technical_indicators")
                 .select("symbol,date,close,change_pct,r_vol,rsi_14")
-                .eq("exchange", "EGX").eq("date", date).gte("rsi_14", rsiMin).lte("rsi_14", rsiMax)
-                .gte("r_vol", volumeMin).order("r_vol", { ascending:false }).limit(251);
+                .eq("exchange", "EGX").eq("date", date).gte("rsi_14", rsiMin).lte("rsi_14", rsiMax);
+            candidateQuery = volumeInclusive ? candidateQuery.gte("r_vol", volumeMin) : candidateQuery.gt("r_vol", volumeMin);
+            const { data: candidates } = await candidateQuery.order("r_vol", { ascending:false }).limit(251);
             const bounded = candidates || [];
             const truncated = bounded.length > 250;
             const rows = bounded.slice(0,250);
@@ -528,15 +531,17 @@ async function executeRawTool(
                 const close=finite(row.close);
                 if (resistance == null || close == null || close > resistance) return [];
                 const distance = (resistance-close)/resistance*100;
-                if (distance > distanceMax) return [];
+                if (distanceInclusive ? distance > distanceMax : distance >= distanceMax) return [];
                 return [{ symbol:row.symbol, date:row.date, close, change_pct:finite(row.change_pct), r_vol:finite(row.r_vol),
-                    rsi_14:finite(row.rsi_14), resistance:round(resistance), distance_from_resistance_pct:round(distance),
+                    rsi_14:finite(row.rsi_14), resistance:Number(resistance.toFixed(6)), distance_from_resistance_pct:round(distance),
+                    resistance_relation:close === resistance ? "at" : "below",
                     price_type:"daily_close", resistance_sessions:20 }];
             }).sort((a:any,b:any)=>(a.distance_from_resistance_pct-b.distance_from_resistance_pct)||(b.r_vol-a.r_vol)).slice(0,maxResults);
             return { status:"success", date, filters:{rsi_min:rsiMin,rsi_max:rsiMax,relative_volume_min:volumeMin,
-                max_resistance_distance_pct:distanceMax}, stocks, scan_complete:!truncated && insufficientHistory.length===0,
+                relative_volume_inclusive:volumeInclusive,max_resistance_distance_pct:distanceMax,resistance_distance_inclusive:distanceInclusive}, stocks, scan_complete:!truncated && insufficientHistory.length===0,
                 candidate_limit:250, candidates_checked:rows.length, truncated, insufficient_history_symbols:insufficientHistory,
-                methodology:"r_vol >= threshold; resistance is maximum high over latest 20 daily sessions; distance=(resistance-close)/resistance*100" };
+                methodology:`r_vol ${volumeInclusive ? ">=" : ">"} threshold; distance ${distanceInclusive ? "<=" : "<"} threshold; resistance is maximum high over latest 20 daily sessions including snapshot session; distance=(resistance-close)/resistance*100`,
+                breakout_assessment:"This rolling high includes the snapshot session; proximity or equality does not establish a breakout above prior resistance." };
         }
 
         if (toolName === "analyze_portfolio_risk") {
@@ -561,25 +566,32 @@ async function executeRawTool(
             ]);
             const saved = new Set((savedRows||[]).map((r:any)=>normalizeSymbol(r.symbol)));
             const fundamentals = new Map((fundRows||[]).map((r:any)=>[normalizeSymbol(r.symbol),r.data]));
-            const sectorOf=(raw:any):string|null=>{
+            const classificationOf=(raw:any):{sector:string|null;industry:string|null}=>{
                 const data=typeof raw === "string" ? (()=>{try{return JSON.parse(raw)}catch{return {}}})() : raw||{};
-                return data.sector ?? data.Sector ?? data.industry ?? data.Industry ?? null;
+                const text=(value:any)=>typeof value === "string" && value.trim() ? value.trim() : null;
+                return {sector:text(data.sector ?? data.Sector),industry:text(data.industry ?? data.Industry)};
             };
             const stocks=symbols.map((symbol:string)=>{
                 const rawAllocation=weights.get(symbol)!;
                 const allocation_pct=Number(rawAllocation.toFixed(4));
                 const allocated_capital=round(capital*rawAllocation/100);
-                const sector=sectorOf(fundamentals.get(symbol));
-                return {symbol,sector:typeof sector === "string" && sector.trim() ? sector.trim() : null,allocation_pct,allocated_capital,saved:saved.has(symbol),availability:fundamentals.has(symbol)?"available":"partial"};
+                const {sector,industry}=classificationOf(fundamentals.get(symbol));
+                return {symbol,sector,industry,allocation_pct,allocated_capital,saved:saved.has(symbol),availability:fundamentals.has(symbol)?"available":"partial"};
             });
             const sectors=new Map<string,any>();
             for(const row of stocks){const key=row.sector||"غير محدد";const current=sectors.get(key)||{symbol:"PORTFOLIO",sector:row.sector,allocation_pct:0,allocated_capital:0,symbols:[]};
                 current.allocation_pct+=row.allocation_pct;current.allocated_capital+=row.allocated_capital;current.symbols.push(row.symbol);sectors.set(key,current);}
             const sector_exposure=[...sectors.values()].map((s:any)=>({...s,allocation_pct:round(s.allocation_pct),allocated_capital:round(s.allocated_capital)}));
+            const industries=new Map<string,any>();
+            for(const row of stocks){const key=row.industry||"غير محدد";const current=industries.get(key)||{symbol:"PORTFOLIO",industry:row.industry,allocation_pct:0,allocated_capital:0,symbols:[]};
+                current.allocation_pct+=row.allocation_pct;current.allocated_capital+=row.allocated_capital;current.symbols.push(row.symbol);industries.set(key,current);}
+            const industry_exposure=[...industries.values()].map((s:any)=>({...s,allocation_pct:round(s.allocation_pct),allocated_capital:round(s.allocated_capital)}));
             const stress_scenarios_not_forecasts=[{change_pct:-5,loss:round(capital*.05)},{change_pct:-10,loss:round(capital*.10)}];
             return {status:"success",mode:"scenario",source_portfolio:"user_scenario_not_saved",capital,
-                assumption:args.allocations?.length?"explicit_allocations":"equal_weight",currency:"EGP",stocks,sector_exposure,
+                assumption:args.allocations?.length?"explicit_allocations":"equal_weight",currency:"EGP",stocks,sector_exposure,industry_exposure,
                 sector_concentration_complete:stocks.every((s:any)=>s.sector!=null),
+                industry_concentration_complete:stocks.every((s:any)=>s.industry!=null),
+                classification_note:"القطاع تصنيف عام من المصدر وقد يجمع شركات تعمل في صناعات مختلفة؛ اعرض الصناعة بجانبه ولا تعتبر القطاع العام نشاطاً واحداً. القيم غير المتاحة ليست قطاعاً أو صناعة مشتركة مؤكدة.",
                 stress_scenarios_not_forecasts,
                 scenario_metrics:[{symbol:"PORTFOLIO",scenario_capital:capital},...stress_scenarios_not_forecasts.map((s:any)=>({symbol:"PORTFOLIO",scenario_loss_pct:s.change_pct,scenario_loss_amount:-s.loss}))],
                 saved_symbols:symbols.filter((s:string)=>saved.has(s)),not_saved_symbols:symbols.filter((s:string)=>!saved.has(s)),persisted:false};

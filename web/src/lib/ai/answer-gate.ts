@@ -133,6 +133,7 @@ export function checkAttribution(reply: string, facts: FactRecord[]): string[] {
             const symbol = proseOwner(sentence, [...bySymbol.keys()], section);
             if (!symbol) continue;
             const symbolFacts = bySymbol.get(symbol) || [];
+            const scenarioAllocation = symbolFacts.some(record => record.tool === "analyze_portfolio_risk" && record.field === "value");
 
             const percentClaims = Array.from(sentence.matchAll(/(?:[-+]?\d+(?:[.,]\d+)?)\s*(?:%|٪)/g))
                 .map(match => ({ value: Number(match[0].replace(/[\s%٪]/g, "").replace(/,/g, "")), prefix: sentence.slice(0, match.index) }))
@@ -151,7 +152,8 @@ export function checkAttribution(reply: string, facts: FactRecord[]): string[] {
             });
 
             for (const { value, prefix } of percentClaims) {
-                const specific = metricFields(prefix, true);
+                const specific = scenarioAllocation && /توزيع|وزن|حصة|مخصص|نسبة.*(?:استثمار|محفظة)/i.test(prefix)
+                    && !/ربح|خسار|عائد|هبوط/.test(prefix) ? new Set(["position_pct"]) : metricFields(prefix, true);
                 const anyFieldOk = matchesAny(value, specific || percentFields)
                     || (!specific && symbolFacts.some(record => record.field === "rsi" && Math.abs(value - record.value) <= 0.6))
                     || (!specific && symbolFacts.some(record => (record.field === "acc_score" || record.field === "dist_score") && Math.abs(value - record.value) <= 0.6));
@@ -164,7 +166,9 @@ export function checkAttribution(reply: string, facts: FactRecord[]): string[] {
                 }
             }
             for (const { value, prefix } of currencyClaims) {
-                if (!matchesAny(value, metricFields(prefix, false) || currencyFields)) {
+                const specific = metricFields(prefix, false);
+                const fields = specific || (scenarioAllocation ? new Set([...currencyFields, "value"]) : currencyFields);
+                if (!matchesAny(value, fields)) {
                     reasons.push(`قيمة ${value} جنيه منسوبة للسهم ${symbol} لكنها لا تطابق أي سعر/مستوى مسجل لهذا السهم — استعمل أسعار ${symbol} الموثقة فقط أو احذف القيمة.`);
                 }
             }

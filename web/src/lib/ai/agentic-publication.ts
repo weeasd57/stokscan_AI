@@ -16,6 +16,7 @@ export interface AgenticEvidence {
 
 const memoryTools = new Set(["get_stock", "get_stock_levels", "get_market", "get_technical_scan", "get_accumulation_stocks", "get_comparison", "get_news", "get_recommendations"]);
 memoryTools.add("apply_chart_strategy"); memoryTools.add("compare_strategies_history");
+memoryTools.add("screen_stocks"); memoryTools.add("analyze_portfolio_risk");
 /** Remove duplicate aliases/payload text, without removing source, dates, identity or unknown values. */
 export function compactEvidence(record: AgenticEvidence): AgenticEvidence {
     const data = { ...record.data };
@@ -51,7 +52,7 @@ export function evidenceMemory(records: AgenticEvidence[], now = new Date()): Ar
 
 export function evidenceRows(data: any): any[] {
     if (!data || typeof data !== "object") return [];
-    const rows = ["stocks", "levels", "positions", "recommendations", "comparison", "accumulation_stocks", "top_gainers", "top_losers", "news", "sector_exposure", "scenario_metrics"]
+    const rows = ["stocks", "levels", "positions", "recommendations", "comparison", "accumulation_stocks", "top_gainers", "top_losers", "news", "sector_exposure", "industry_exposure", "scenario_metrics"]
         .flatMap(key => Array.isArray(data[key]) ? data[key] : []);
     if (data.symbol) rows.push(data);
     return rows;
@@ -63,6 +64,8 @@ export function toAgenticEvidence(tool: string, args: any, data: any): AgenticEv
     // A scan's output symbols (not its empty input) are the ordered reference for follow-ups.
     const dates = [...new Set<string>(rows.map(r => r.date || r.scan_date || r.current_date || r.signal_date || r.published_at).filter(Boolean))];
     const missing = rows.some(r => r.error || r.availability === "missing");
+    const verifiedEmptyScreen = tool === "screen_stocks" && data?.status === "success" && Boolean(data.date)
+        && Array.isArray(data.stocks) && typeof data.scan_complete === "boolean";
     return { tool, arguments: args, data, source: tool === "list_chart_strategies" ? "deterministic:strategy-catalog" : "supabase:" + ({ get_stock: "stock_technical_indicators+stocks+stock_scans_summary", get_stock_levels: "stock_prices",
         apply_chart_strategy: "stock_prices+deterministic-strategy-engine", compare_strategies_history: "stock_prices+deterministic-backtest", list_chart_strategies: "strategy-catalog",
         manage_portfolio: "positions+stock_technical_indicators", get_market: "market_cache+stock_technical_indicators", get_news: "news+stocks",
@@ -70,8 +73,9 @@ export function toAgenticEvidence(tool: string, args: any, data: any): AgenticEv
         get_technical_scan: args.preset === "smart_money_flow" ? "stock_scans_summary" : "stock_technical_indicators",
         screen_stocks: "stock_technical_indicators+stock_prices", analyze_portfolio_risk: "positions+stock_fundamentals+scenario-calculation" } as any)[tool],
         data_time: dates.length === 1 ? dates[0] : data?.date || data?.session_date || null, symbols,
-        availability: data?.status === "error" ? "error" : data?.availability === "missing" || (!rows.length && !data?.egx30?.close && !data?.persisted && !data?.strategies?.length)
-            ? "missing" : missing || data?.valuation_complete === false || data?.truncated ? "partial" : "available", data_type: "historical" };
+        availability: data?.status === "error" ? "error" : data?.availability === "missing" || (!verifiedEmptyScreen && !rows.length && !data?.egx30?.close && !data?.persisted && !data?.strategies?.length)
+            ? "missing" : missing || data?.valuation_complete === false || data?.scan_complete === false
+                || data?.sector_concentration_complete === false || data?.industry_concentration_complete === false || data?.truncated ? "partial" : "available", data_type: "historical" };
 }
 
 export function agenticFacts(evidence: AgenticEvidence[]): FactRecord[] {
@@ -208,6 +212,68 @@ function normalizeDigitsAndNumberFormatting(value: string): string {
         .replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/٫/g, ".").replace(/,/g, ".");
 }
 
+/** Bind allocations to one scenario row, never to an arbitrary sum of stock facts. */
+function scenarioTableRow(evidence: AgenticEvidence[], cells: string[], symbols: string[], headers: string[]) {
+    const scenario = [...evidence].reverse().find(e => e.tool === "analyze_portfolio_risk"
+        && e.availability !== "error" && e.data?.status === "success" && e.data?.mode === "scenario");
+    if (!scenario) return null;
+    const clean = (text: string) => text.replace(/[*_`]/g, "").trim().toLowerCase();
+    if (headers.some(h => /خسار|loss/i.test(h)) && headers.some(h => /هبوط|انخفاض|تراجع|drop/i.test(h))) {
+        const declineIndex = headers.findIndex(h => /هبوط|انخفاض|تراجع|drop/i.test(h));
+        const decline = Number(normalizeDigitsAndNumberFormatting(cells[declineIndex] || "").replace(/[%٪\s]/g, ""));
+        const stress = scenario.data.stress_scenarios_not_forecasts?.find((row: any) => Math.abs(row.change_pct) === Math.abs(decline));
+        if (stress) return { symbol: "PORTFOLIO", scenario_loss_pct: stress.change_pct, scenario_loss_amount: -stress.loss };
+    }
+    const groupTable = headers.some(h => /قطاع|صناع|sector|industry/i.test(h));
+    const groups = [...(scenario.data.sector_exposure || []), ...(scenario.data.industry_exposure || [])];
+    if (groupTable) {
+        const exactMembers = (members: string[]) => symbols.length === members.length
+            && symbols.every(s => members.includes(s));
+        return groups.find(row => {
+            const label = row.industry ?? row.sector;
+            const labelMatches = typeof label === "string" && cells.some(cell => clean(cell) === clean(label));
+            // A sector label cannot turn a subset or a different set of stocks into its total.
+            return symbols.length ? Array.isArray(row.symbols) && exactMembers(row.symbols) : labelMatches;
+        }) || (symbols.length === 1 ? scenario.data.stocks?.find((row: any) => row.symbol === symbols[0]) : null);
+    }
+    if ((!symbols.length || symbols.every(symbol => symbol === "PORTFOLIO")) && cells.some(cell => /^(?:الإجمالي|إجمالي|المجموع|مجموع|total)$/i.test(clean(cell))))
+        return { symbol: "PORTFOLIO", allocation_pct: 100, allocated_capital: scenario.data.capital };
+    if (symbols.length === 1) return scenario.data.stocks?.find((row: any) => row.symbol === symbols[0]) || null;
+    return null;
+}
+
+function scenarioMetricFields(label: string): FactRecord["field"][] | undefined {
+    if (/هبوط|انخفاض|تراجع|drop/i.test(label)) return ["scenario_loss_pct"];
+    if (/خسار|loss/i.test(label)) return /%|٪|نسب|percent|pct/i.test(label) ? ["scenario_loss_pct"] : ["scenario_loss_amount"];
+    if (/توزيع|وزن|نسب|تركيز|allocation|weight/i.test(label)) return ["position_pct"];
+    if (/مبلغ|قيمة|رأس.*مال|جنيه|capital|amount/i.test(label)) return ["value"];
+    return tableMetricFields(label);
+}
+
+function checkResistanceRelations(reply: string, evidence: AgenticEvidence[]): string[] {
+    const rows = new Map<string, any>();
+    for (const e of evidence) if (e.availability !== "error") for (const row of evidenceRows(e.data))
+        if (row.symbol && Number.isFinite(row.close) && Number.isFinite(row.resistance)) rows.set(row.symbol, row);
+    const reasons: string[] = [];
+    for (const sentence of reply.replace(/[*_`]/g, "").split(/\n|[.!؟]\s+/)) {
+        if (sentence.trim().startsWith("|") || /إذا|اذا|(?:^|\s)لو(?:\s|$)|عند اختراق|شرط|يتطلب|يحتاج/.test(sentence)) continue;
+        for (const [symbol, row] of rows) {
+            if (!new RegExp(`\\b${symbol}\\b`, "i").test(sentence)) continue;
+            for (const relation of sentence.matchAll(/(تحت|أدنى من|ادنى من|أسفل|اسفل|فوق|أعلى من|اعلى من|عند|اخترق(?:ت|ا|وا)?)\s*(?:الـ\s*)?(المقاومة|مقاومتها|مقاومته|تحتها|فوقها)|(تحتها|فوقها)(?=\s|[.,،؛!?؟]|$)/g)) {
+                const prefix = sentence.slice(0, relation.index);
+                if (/(?:ليس|ليست|ليسا|لم|لن|مش|لا|غير|لم يكن|لم تكن)\s*$/.test(prefix)) continue;
+                const term = relation[1] || relation[3];
+                const tolerance = Math.max(1e-9, Math.abs(row.resistance) * 1e-9);
+                const delta = row.close - row.resistance;
+                const valid = /تحت|أدنى|ادنى|أسفل|اسفل/.test(term) ? delta < -tolerance
+                    : term === "عند" ? Math.abs(delta) <= tolerance : delta > tolerance;
+                if (!valid) reasons.push(`price_resistance_relation_contradiction:${symbol}`);
+            }
+        }
+    }
+    return [...new Set(reasons)];
+}
+
 /** Explicit position inputs in the current request are part of the answer contract. */
 export function checkUserPositionInputs(reply: string, request: string): string[] {
     const normalizedRequest = normalizeDigitsAndNumberFormatting(request);
@@ -227,12 +293,13 @@ export function checkUserPositionInputs(reply: string, request: string): string[
 export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], request = ""): string[] {
     const reasons: string[] = [];
     if (!reply.trim()) reasons.push("empty_response");
-    if (/\b(?:get_stock(?:_levels)?|get_market|get_comparison|get_news|get_recommendations|get_technical_scan|get_accumulation_stocks|manage_portfolio|list_chart_strategies|apply_chart_strategy|compare_strategies_history|stock_prices|stock_technical_indicators|stock_scans_summary|ai_chat_sessions|ai_chat_messages)\b/.test(reply)) reasons.push("internal_implementation_names_in_response");
+    if (/\b(?:get_stock(?:_levels)?|get_market|get_comparison|get_news|get_recommendations|get_technical_scan|get_accumulation_stocks|manage_portfolio|screen_stocks|analyze_portfolio_risk|list_chart_strategies|apply_chart_strategy|compare_strategies_history|stock_prices|stock_technical_indicators|stock_scans_summary|ai_chat_sessions|ai_chat_messages)\b/.test(reply)) reasons.push("internal_implementation_names_in_response");
     const substantive = reply.replace(/\[[^\]]*\]\(https?:\/\/[^)]*\)/g, "").replace(/https?:\/\/\S+/g, "")
         .replace(/✅ تحليل EGX Bots[^\n]*/g, "").replace(/📢[^\n]*/g, "");
     if (!/[\p{L}]{2}/u.test(substantive)) reasons.push("response_has_no_substantive_answer");
     if (/DSML|<\/?tool_call|<\/?function_call/i.test(reply)) reasons.push("internal_tool_protocol_in_response");
     const facts = agenticFacts(evidence);
+    reasons.push(...checkResistanceRelations(reply, evidence));
     reasons.push(...checkStrategyClaims(reply, evidence));
     reasons.push(...checkAttribution(reply, facts));
     if (request) reasons.push(...checkUserPositionInputs(reply, request));
@@ -298,7 +365,9 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
     const matchesFact = (val: number, targetFacts: FactRecord[]): boolean => {
         const candidateFacts = targetFacts;
         return candidateFacts.some(f => {
-            const tol = Math.max(0.02, Math.abs(f.value) * 0.005);
+            const fractionalScreenPrice = f.tool === "screen_stocks" && Math.abs(f.value) < 1
+                && ["price", "close", "resistance"].includes(f.field);
+            const tol = fractionalScreenPrice ? Math.max(0.00005, Math.abs(f.value) * 0.0005) : Math.max(0.02, Math.abs(f.value) * 0.005);
             if (Math.abs(val - f.value) <= tol) return true;
             // If the recorded fact is negative (e.g. loss or drop), reporting the positive magnitude is standard in financial tables/prose.
             if (f.value < 0 && Math.abs(val - Math.abs(f.value)) <= tol) return true;
@@ -398,6 +467,8 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
             symbol = null;
         }
 
+        const scenarioRow = scenarioTableRow(evidence, cells, lineSymbols, headers);
+        if (!symbol && scenarioRow) symbol = scenarioRow.symbol || "PORTFOLIO";
         if (!symbol) continue;
         for (const date of line.match(/\b\d{4}-\d{2}-\d{2}\b/g) || []) {
             const dates = evidence.flatMap(e => evidenceRows(e.data)).filter(r => r.symbol === symbol)
@@ -407,8 +478,13 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
 
         for (let idx = 0; idx < cells.length; idx++) {
             if (idx === rankColIdx || cells[idx].includes(symbol)) continue;
-            const fields = tableMetricFields(headers[idx]) || (currentSymbol ? tableMetricFields(cells[0]) : undefined);
-            const relevant = symbol === "PORTFOLIO" ? portfolioFacts : facts.filter(f => f.symbol === symbol);
+            const fields = (scenarioRow ? scenarioMetricFields(headers[idx]) : tableMetricFields(headers[idx]))
+                || (currentSymbol ? tableMetricFields(cells[0]) : undefined);
+            const allocationFacts = scenarioRow ? buildFactRecords([{ tool: "analyze_portfolio_risk", source: "scenario-calculation",
+                data: [{ symbol, position_pct: scenarioRow.allocation_pct, value: scenarioRow.allocated_capital,
+                    scenario_loss_pct: scenarioRow.scenario_loss_pct, scenario_loss_amount: scenarioRow.scenario_loss_amount }] }]) : [];
+            const relevant = scenarioRow && fields?.some(field => ["position_pct", "value", "scenario_loss_pct", "scenario_loss_amount"].includes(field)) ? allocationFacts
+                : symbol === "PORTFOLIO" ? portfolioFacts : facts.filter(f => f.symbol === symbol);
             const strategyRows = evidence.flatMap(e => evidenceRows(e.data));
             const knownStrategies = [
                 ...strategyRows.flatMap(r => r.strategy_metrics || []),
@@ -441,20 +517,23 @@ export function safeAgenticFallback(evidence: AgenticEvidence[], reason: string)
         if (e.tool === "screen_stocks" && e.data?.status === "success") {
             const d=e.data;
             if (d.date && d.filters) {
-                lines.push(`\nشاشة فنية بتاريخ ${d.date}: الشروط RSI بين ${d.filters.rsi_min} و${d.filters.rsi_max}، والحجم النسبي ≥ ${d.filters.relative_volume_min}، والمسافة من مقاومة أعلى 20 جلسة ≤ ${d.filters.max_resistance_distance_pct}%.`);
+                lines.push(`\nشاشة فنية بتاريخ ${d.date}: الشروط RSI بين ${d.filters.rsi_min} و${d.filters.rsi_max}، والحجم النسبي ${d.filters.relative_volume_inclusive === false ? ">" : "≥"} ${d.filters.relative_volume_min}، والمسافة من مقاومة أعلى 20 جلسة ${d.filters.resistance_distance_inclusive === false ? "<" : "≤"} ${d.filters.max_resistance_distance_pct}%.`);
                 if (d.stocks?.length) {
                     lines.push("| السهم | الإغلاق | RSI | الحجم النسبي | المقاومة | البعد عنها % |","|---|---:|---:|---:|---:|---:|");
                     for(const r of d.stocks.slice(0,10)) lines.push(`| ${r.symbol} | ${r.close} | ${r.rsi_14} | ${r.r_vol} | ${r.resistance} | ${r.distance_from_resistance_pct} |`);
                 } else lines.push("لم تظهر أسهم تطابق الشروط في البيانات المتاحة لهذه الجلسة.");
+                lines.push("المساوي للمقاومة عندها، والأقل تحتها؛ أعلى 20 جلسة يشمل جلسة اللقطة، فلا يثبت قرب السعر أو مساواته اختراق مقاومة سابقة.");
                 if(d.scan_complete===false) lines.push("المسح جزئي: بعض المرشحين تجاوزوا حد الفحص أو لا يتوفر لهم تاريخ 20 جلسة.");
             } else lines.push("لا تتوفر لقطة مؤرخة لإتمام المسح الفني حالياً.");
         }
         if (e.tool === "analyze_portfolio_risk" && e.data?.mode === "scenario") {
             const d=e.data;
-            lines.push(`\nهذا سيناريو افتراضي من رأس مال ${d.capital} جنيه، بتوزيع ${d.assumption === "equal_weight" ? "متساوٍ مفترض" : "النسب التي حددتها"}؛ لا يمثل المراكز المحفوظة ولا تم حفظه.`);
-            lines.push("| السهم | القطاع من بيانات الشركة | التوزيع % | المبلغ بالجنيه | محفوظ بالحساب؟ |","|---|---|---:|---:|---|");
-            for(const r of d.stocks) lines.push(`| ${r.symbol} | ${r.sector || "غير متاح"} | ${r.allocation_pct} | ${r.allocated_capital} | ${r.saved ? "نعم" : "لا"} |`);
+            lines.push(`\nهذا سيناريو افتراضي من رأس مال ${d.capital} جنيه، بتوزيع ${d.assumption === "equal_weight" ? "متساوٍ مفترض" : "النسب التي حددتها"}؛ لا يمثل المراكز المحفوظة ولم يتم حفظه.`);
+            lines.push("| السهم | القطاع من بيانات الشركة | الصناعة | التوزيع % | المبلغ بالجنيه | محفوظ بالحساب؟ |","|---|---|---|---:|---:|---|");
+            for(const r of d.stocks) lines.push(`| ${r.symbol} | ${r.sector || "غير متاح"} | ${r.industry || "غير متاح"} | ${r.allocation_pct} | ${r.allocated_capital} | ${r.saved ? "نعم" : "لا"} |`);
             for(const r of d.sector_exposure) lines.push(`قطاع ${r.sector || "غير محدد"}: ${r.allocation_pct}% (${r.allocated_capital} جنيه).`);
+            for(const r of d.industry_exposure || []) lines.push(`صناعة ${r.industry || "غير محدد"}: ${r.allocation_pct}% (${r.allocated_capital} جنيه).`);
+            if(d.classification_note) lines.push(d.classification_note);
             if(!d.sector_concentration_complete) lines.push("بيانات قطاع سهم أو أكثر غير متاحة؛ تجميع القطاعات جزئي ولا يصح اعتباره كاملاً.");
             lines.push(`اختبار حساسية حسابي فقط، وليس توقعاً: هبوط افتراضي 5% = ${d.stress_scenarios_not_forecasts[0].loss} جنيه، و10% = ${d.stress_scenarios_not_forecasts[1].loss} جنيه.`);
         }

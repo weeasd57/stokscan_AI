@@ -1,7 +1,7 @@
 import { executeAgenticTool, runAgenticPipelineStream, AGENTIC_TOOLS_SCHEMA } from "../agentic-pipeline";
 import { cairoWeekBounds } from "../agentic-tools";
 import { checkAgenticDraft, checkUserPositionInputs, toAgenticEvidence, evidenceMemory, safeAgenticFallback } from "../agentic-publication";
-import { compactHistory } from "../agentic-runtime";
+import { compactHistory, unsupersededEvidence } from "../agentic-runtime";
 import { AGENTIC_SYSTEM_PROMPT } from "../agentic-pipeline";
 import { runAnswerGate } from "../answer-gate";
 import { analyzeImage } from "../vision";
@@ -281,6 +281,31 @@ describe("Agentic architecture integration: current production path", () => {
         history.push({role:"user",content:"الأول"});const compact=compactHistory(history);
         expect(compact.at(-1)?.content).toBe("الأول");expect(compact.reduce((n,h)=>n+h.content.length,0)).toBeLessThanOrEqual(5000);
     });
+    test("history drops the standard footer while retaining prices and user requests",()=>{
+        const text="EOSB عند المقاومة 1.64";
+        const history=[{role:"user",content:"هل اخترق؟"},{role:"assistant",content:text+"\n\n✅ تحليل EGX Bots مبني على أحدث البيانات المتاحة ومؤرّخ بمصدره — مش نصيحة استثمار، القرار ليك.\n\n📢 [قناة EGX Bots المجانية على تليجرام للتنبيهات والفرص](https://t.me/egxbots)"}];
+        expect(compactHistory(history)).toEqual([{role:"user",content:"هل اخترق؟"},{role:"assistant",content:text}]);
+    });
+    test("refresh removes duplicate evidence but retains a different scan and failed refresh",()=>{
+        const old=toAgenticEvidence("screen_stocks",{rsi_min:40,rsi_max:60},{status:"success",date:"2026-10-07",stocks:[{symbol:"COMI",close:100}]});
+        const refreshed=toAgenticEvidence("screen_stocks",{rsi_max:60,rsi_min:40},{status:"success",date:"2026-10-08",stocks:[{symbol:"COMI",close:101}]});
+        const different=toAgenticEvidence("screen_stocks",{rsi_min:45,rsi_max:55},{status:"success",stocks:[]});
+        expect(unsupersededEvidence([old],[refreshed])).toEqual([]);
+        expect(unsupersededEvidence([old],[different])).toEqual([old]);
+        expect(unsupersededEvidence([old],[{...refreshed,availability:"error"}])).toEqual([old]);
+    });
+    test("refreshed scan is not repeated in writer or reviewer context",async()=>{
+        const previous=toAgenticEvidence("screen_stocks",{}, {status:"success",date:"2026-10-07",stocks:[{symbol:"COMI",close:100}],scan_complete:true});
+        const r=await run([{tool_calls:[call("screen_stocks",{})]},{content:"لا نتائج في لقطة 2026-10-08."},verdict()],{
+            db:db(q=>({data:q.table === "stock_technical_indicators"&&q.ops.some(o=>o[0]==="select"&&o[1]==="date")?[{date:"2026-10-08"}]:[],error:null})),
+            summary:{last_tool_evidence:evidenceMemory([previous])},userMessage:"أعد المسح"});
+        const initial=JSON.parse(r.fetchMock.mock.calls[0][1].body).messages[1].content;
+        const writer=JSON.parse(r.fetchMock.mock.calls[1][1].body).messages[1].content;
+        const reviewer=JSON.parse(JSON.parse(r.fetchMock.mock.calls[2][1].body).messages[1].content);
+        expect(initial).toContain("2026-10-07");expect(writer).not.toContain("2026-10-07");
+        expect(writer.length).toBeLessThan(initial.length);expect(reviewer.previous_evidence).toEqual([]);
+        expect(r.done.publication_review.final_passed).toBe(true);
+    });
     test("current evidence snapshot is saved with session ownership filters",async()=>{
         const d=db(q=>({data:q.table === "stock_prices" ? [price] : q.table === "ai_chat_sessions" ? [{id:"063eb987-c6e1-4a24-b610-dbeacc58f6e8"}] : [],error:null}));
         global.fetch=jest.fn().mockResolvedValueOnce(response({tool_calls:[call("get_stock_levels",{symbols:["COMI"]})]}))
@@ -318,13 +343,83 @@ describe("Agentic tool correctness and failure boundaries", () => {
         expect(r.status).toBe("success"); expect(r.stocks).toHaveLength(1);
         expect(r.stocks[0]).toMatchObject({symbol:"COMI",resistance:100,distance_from_resistance_pct:1,resistance_sessions:20});
         const scan=d.queries.find(q=>q.table==="stock_technical_indicators"&&q.ops.some(o=>o[0]==="select"&&String(o[1]).includes("r_vol")))!;
-        expect(scan.ops).toContainEqual(["gte","rsi_14",40]); expect(scan.ops).toContainEqual(["lte","rsi_14",60]); expect(scan.ops).toContainEqual(["gte","r_vol",1]);
+        expect(scan.ops).toContainEqual(["gte","rsi_14",40]); expect(scan.ops).toContainEqual(["lte","rsi_14",60]); expect(scan.ops).toContainEqual(["gt","r_vol",1]);
     });
     test("screen table grounds resistance and distance separately",()=>{
         const e=toAgenticEvidence("screen_stocks",{}, {status:"success",date:"2026-10-08",stocks:[{symbol:"COMI",date:"2026-10-08",close:99,rsi_14:52,r_vol:1.4,resistance:100,distance_from_resistance_pct:1}]});
         const table="| السهم | الإغلاق | RSI | الحجم النسبي | المقاومة | البعد عن المقاومة % |\n|---|---:|---:|---:|---:|---:|\n| COMI | 99 | 52 | 1.4 | 100 | 1 |";
         expect(checkAgenticDraft(table,[e])).toEqual([]);
         expect(checkAgenticDraft(table.replace("| 100 | 1 |","| 100 | 4 |"),[e]).some((reason:string)=>reason.includes("COMI"))).toBe(true);
+    });
+    test("screen preserves fractional resistance and excludes an exact distance boundary",async()=>{
+        const date="2026-10-07";
+        const d=db(q=>q.table === "stock_technical_indicators" ? {data:q.ops.some(o=>o[0]==="select"&&o[1]==="date")?[{date}]:[
+            {symbol:"ARAB",date,close:.273,r_vol:1.48,rsi_14:57.94},{symbol:"COMI",date,close:97,r_vol:2,rsi_14:50}],error:null}
+            :{data:Array.from({length:20},(_,i)=>[{symbol:"ARAB",date:`2026-09-${30-i}`,high:.278,close:.273},{symbol:"COMI",date:`2026-09-${30-i}`,high:100,close:97}]).flat(),error:null});
+        const r=await executeAgenticTool("screen_stocks",{},d.client,"u");
+        expect(r.stocks).toHaveLength(1);expect(r.stocks[0]).toMatchObject({symbol:"ARAB",resistance:.278,distance_from_resistance_pct:1.8,resistance_relation:"below"});
+        const e=toAgenticEvidence("screen_stocks",{},r);
+        const table="| السهم | الإغلاق | المقاومة |\n|---|---:|---:|\n| ARAB | 0.273 | 0.278 |";
+        expect(checkAgenticDraft(table,[e])).toEqual([]);
+        expect(checkAgenticDraft(table.replace("0.278","0.28"),[e])).toContain("table_value_not_grounded:ARAB:0.28");
+        const inclusive=await executeAgenticTool("screen_stocks",{relative_volume_min:2,resistance_distance_inclusive:true},d.client,"u");
+        expect(inclusive.stocks.some((s:any)=>s.symbol === "COMI")).toBe(true);
+        expect(d.queries.some(q=>q.ops.some(o=>o[0]==="gte"&&o[1]==="r_vol"&&o[2]===2))).toBe(true);
+    });
+    test.each([false,true])("admin scenario tables publish stock and sector allocations (explicit=%s)",async explicit=>{
+        const d=db(q=>q.table === "stock_fundamentals" ? {data:[
+            {symbol:"COMI",data:{sector:"Finance",industry:"Regional Banks"}},
+            {symbol:"SWDY",data:{sector:"Producer Manufacturing",industry:"Electrical Products"}},
+            {symbol:"TMGH",data:{sector:"Finance",industry:"Real Estate Development"}}
+        ],error:null}:{data:[],error:null});
+        const args:any={capital:100000,symbols:["COMI","SWDY","TMGH"]};
+        if(explicit)args.allocations=[{symbol:"COMI",allocation_pct:60},{symbol:"SWDY",allocation_pct:25},{symbol:"TMGH",allocation_pct:15}];
+        const r=await executeAgenticTool("analyze_portfolio_risk",args,d.client,"u");
+        const e=toAgenticEvidence("analyze_portfolio_risk",args,r);
+        const stock=r.stocks[0];
+        const prose=`COMI توزيع ${stock.allocation_pct.toFixed(2)}% ومبلغ ${stock.allocated_capital} جنيه.`;
+        expect(checkAgenticDraft(prose,[e])).toEqual([]);
+        expect(checkAgenticDraft(prose.replace(stock.allocated_capital.toString(),"90000"),[e]).length).toBeGreaterThan(0);
+        expect(checkAgenticDraft(prose.replace(stock.allocation_pct.toFixed(2),"80"),[e]).length).toBeGreaterThan(0);
+        const table="محفظة افتراضية، لم تحفظ.\n| السهم | النسبة % | المبلغ بالجنيه |\n|---|---:|---:|\n"+
+            r.stocks.map((s:any)=>`| ${s.symbol} | ${s.allocation_pct.toFixed(2)} | ${s.allocated_capital} |`).join("\n")+
+            "\n\n| القطاع | الأسهم | نسبة التركيز % | المبلغ بالجنيه |\n|---|---|---:|---:|\n"+
+            r.sector_exposure.map((s:any)=>`| ${s.sector} | ${s.symbols.join(" / ")} | ${s.allocation_pct.toFixed(2)} | ${s.allocated_capital} |`).join("\n");
+        expect(checkAgenticDraft(table,[e])).toEqual([]);
+        const stress="| هبوط المحفظة % | الخسارة بالجنيه |\n|---:|---:|\n| 5 | 5000 |\n| 10 | 10000 |";
+        expect(checkAgenticDraft(table+"\n\n"+stress,[e])).toEqual([]);
+        expect(checkAgenticDraft(table+"\n\n"+stress.replace("هبوط المحفظة %","نسبة هبوط المحفظة %"),[e])).toEqual([]);
+        expect(checkAgenticDraft(table+"\n\n"+stress.replace("5000","7000"),[e]).length).toBeGreaterThan(0);
+        const industries="| الصناعة | الأسهم | النسبة % | المبلغ بالجنيه |\n|---|---|---:|---:|\n"+
+            r.industry_exposure.map((s:any)=>`| ${s.industry} | ${s.symbols.join(" / ")} | ${s.allocation_pct} | ${s.allocated_capital} |`).join("\n");
+        expect(checkAgenticDraft(industries,[e])).toEqual([]);
+        expect(r.sector_exposure.find((s:any)=>s.sector === "Finance").symbols).toEqual(["COMI","TMGH"]);
+        expect(r.industry_exposure).toHaveLength(3);
+        const wrong=table.replace(explicit?"| 60.00 |":"| 33.33 |","| 80 |");
+        expect(checkAgenticDraft(wrong,[e]).some(reason=>reason.includes("COMI"))).toBe(true);
+        const result=await run([{tool_calls:[call("analyze_portfolio_risk",args)]},{content:table},verdict()],{db:d,userMessage:"حلل المحفظة الافتراضية"});
+        expect(result.done.response_origin).toBe("llm");expect(result.done.publication_review.final_passed).toBe(true);
+        expect(result.done.usage.provider_calls).toBe(3);
+    });
+    test("sector aggregation cannot validate a subset or another sector's amount",()=>{
+        const e=toAgenticEvidence("analyze_portfolio_risk",{}, {status:"success",mode:"scenario",stocks:[{symbol:"COMI",allocation_pct:60,allocated_capital:60000},{symbol:"TMGH",allocation_pct:15,allocated_capital:15000},{symbol:"SWDY",allocation_pct:25,allocated_capital:25000}],sector_exposure:[{symbol:"PORTFOLIO",sector:"Finance",symbols:["COMI","TMGH"],allocation_pct:75,allocated_capital:75000}]});
+        expect(checkAgenticDraft("| السهم | النسبة % | المبلغ بالجنيه |\n|---|---:|---:|\n| COMI | 75 | 75000 |",[e]).length).toBeGreaterThan(0);
+        expect(checkAgenticDraft("| القطاع | الأسهم | النسبة % | المبلغ بالجنيه |\n|---|---|---:|---:|\n| Finance | COMI / SWDY | 75 | 75000 |",[e]).length).toBeGreaterThan(0);
+    });
+    test("resistance equality is at resistance, never below or a confirmed breakout",()=>{
+        const e=toAgenticEvidence("screen_stocks",{}, {status:"success",date:"2026-10-07",stocks:[{symbol:"EOSB",close:1.64,resistance:1.64,distance_from_resistance_pct:0},{symbol:"EFIH",close:25.23,resistance:25.37,distance_from_resistance_pct:0.55}]});
+        expect(checkAgenticDraft("EOSB عند المقاومة، وليس فوقها. EFIH تحت المقاومة.",[e])).toEqual([]);
+        expect(checkAgenticDraft("EOSB تحت المقاومة.",[e])).toContain("price_resistance_relation_contradiction:EOSB");
+        expect(checkAgenticDraft("EOSB اخترق المقاومة فعلاً.",[e])).toContain("price_resistance_relation_contradiction:EOSB");
+        expect(checkAgenticDraft("EOSB وEFIH لم يخترقا المقاومة بل كانا تحتها.",[e])).toContain("price_resistance_relation_contradiction:EOSB");
+        expect(checkAgenticDraft("لو EOSB أغلق فوق المقاومة فهذا شرط اختراق.",[e])).toEqual([]);
+    });
+    test("rejected writer keeps verified virtual calculation in fallback",async()=>{
+        const r=await run([{tool_calls:[call("analyze_portfolio_risk",{capital:100000,symbols:["COMI","SWDY","TMGH"]})]},
+            {content:"تعذر التحليل"},verdict(false,["ناقص"]),{content:"تعذر التحليل"},verdict(false,["ناقص"])],{userMessage:"محفظة افتراضية بمئة ألف"});
+        expect(r.done.response_origin).toBe("safe_fallback");expect(r.done.response).toContain("33333.33");
+        expect(r.done.response).toContain("5000 جنيه");expect(r.done.response).toContain("لم يتم حفظه");
+        expect(r.done.publication_review.final_passed).toBe(false);
     });
     test("virtual portfolio applies capital, states equal-weight assumption, and never writes",async()=>{
         const d=db(q=>q.table==="positions"?{data:[{symbol:"COMI"}],error:null}
@@ -352,6 +447,7 @@ describe("Agentic tool correctness and failure boundaries", () => {
         const scan=toAgenticEvidence("screen_stocks",{}, {status:"success",date:"2026-10-08",filters:{rsi_min:40,rsi_max:60,relative_volume_min:1,max_resistance_distance_pct:3},stocks:[],scan_complete:true});
         const answer=safeAgenticFallback([scan],"fixture");
         expect(answer).toContain("2026-10-08"); expect(answer).toContain("لم تظهر أسهم تطابق الشروط"); expect(answer).toContain("RSI بين 40 و60");
+        expect(scan.availability).toBe("available");expect(answer).not.toContain("بعض البيانات المطلوبة غير متاحة");
     });
     test("scenario portfolio answers are not rejected for lacking a saved-positions snapshot",()=>{
         const plan:any={intent:"risk_analysis",confidence:1,entities:{symbols:["COMI","SWDY"],sector:null,timeframe:"current",reference:null,portfolio_operation:"view"},needs_vision_context:false,needs_history:false,needs_live_data:false,needs_historical_data:false,tools:["manage_portfolio"],clarification_needed:false,resolved_from:{symbol:null,message_id:null}};
