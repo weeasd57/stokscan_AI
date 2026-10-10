@@ -163,10 +163,11 @@ export const AGENTIC_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "analyze_portfolio_risk",
-            "description": "تحليل سيناريو محفظة يذكره المستخدم دون حفظه: رأس مال وأسهم وتوزيع اختياري، مع تجميع القطاعات وفصل المراكز المحفوظة فعلياً.",
+            "description": "تحليل سيناريو محفظة يذكره المستخدم دون حفظه: رأس مال وأسهم وتوزيع اختياري، مع تجميع القطاعات وفصل المراكز المحفوظة فعلياً. عند التوزيع بالتساوي استخدم allocation_mode=equal واحذف allocations؛ لا تحول ثلث رأس المال إلى 33.33% و33.34%.",
             "parameters": { "type": "object", "properties": {
                 "capital": { "type": "number", "description": "رأس المال الإجمالي بالجنيه" },
                 "symbols": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 10 },
+                "allocation_mode": { "type": "string", "enum": ["equal", "explicit"] },
                 "allocations": { "type": "array", "items": { "type": "object", "properties": {
                     "symbol": { "type": "string" }, "allocation_pct": { "type": "number" }
                 }, "required": ["symbol", "allocation_pct"] } }

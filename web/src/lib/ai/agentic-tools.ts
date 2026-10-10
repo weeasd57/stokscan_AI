@@ -550,7 +550,7 @@ async function executeRawTool(
             const symbols: string[] = [...new Set<string>((args.symbols as unknown[]).map((value:any)=>normalizeSymbol(value)))];
             if (symbols.length < 2 || symbols.length > 10) throw new Error("أدخل من سهمين إلى عشرة أسهم لتحليل السيناريو");
             let weights: Map<string,number>;
-            if (Array.isArray(args.allocations) && args.allocations.length) {
+            if (args.allocation_mode !== "equal" && Array.isArray(args.allocations) && args.allocations.length) {
                 weights = new Map<string,number>();
                 for (const item of args.allocations) {
                     const sym=normalizeSymbol(item.symbol), pct=finite(item.allocation_pct);
@@ -571,10 +571,13 @@ async function executeRawTool(
                 const text=(value:any)=>typeof value === "string" && value.trim() ? value.trim() : null;
                 return {sector:text(data.sector ?? data.Sector),industry:text(data.industry ?? data.Industry)};
             };
-            const stocks=symbols.map((symbol:string)=>{
+            const equalWeight=args.allocation_mode === "equal" || !args.allocations?.length;
+            const totalCents=Math.round(capital*100), baseCents=Math.floor(totalCents/symbols.length), extraCents=totalCents % symbols.length;
+            const stocks=symbols.map((symbol:string,index:number)=>{
                 const rawAllocation=weights.get(symbol)!;
                 const allocation_pct=Number(rawAllocation.toFixed(4));
-                const allocated_capital=round(capital*rawAllocation/100);
+                const allocated_capital=equalWeight
+                    ? (baseCents + (index >= symbols.length-extraCents ? 1 : 0))/100 : round(capital*rawAllocation/100);
                 const {sector,industry}=classificationOf(fundamentals.get(symbol));
                 return {symbol,sector,industry,allocation_pct,allocated_capital,saved:saved.has(symbol),availability:fundamentals.has(symbol)?"available":"partial"};
             });
@@ -588,7 +591,10 @@ async function executeRawTool(
             const industry_exposure=[...industries.values()].map((s:any)=>({...s,allocation_pct:round(s.allocation_pct),allocated_capital:round(s.allocated_capital)}));
             const stress_scenarios_not_forecasts=[{change_pct:-5,loss:round(capital*.05)},{change_pct:-10,loss:round(capital*.10)}];
             return {status:"success",mode:"scenario",source_portfolio:"user_scenario_not_saved",capital,
-                assumption:args.allocations?.length?"explicit_allocations":"equal_weight",currency:"EGP",stocks,sector_exposure,industry_exposure,
+                assumption:equalWeight?"equal_weight":"explicit_allocations",currency:"EGP",stocks,sector_exposure,industry_exposure,
+                risk_scope:"allocation_concentration_and_stress_only",
+                limitations:["لم تُحسب تقلبات الأسهم أو الارتباطات بينها من سلسلة عوائد تاريخية؛ لا يصح اعتبار التوزيع أو هبوط السيناريو مقياساً للمخاطر السوقية الفعلية.","السيناريو توزيع لرأس المال وليس كميات أسهم مشتراة؛ لم تستخدم أسعار تنفيذ أو تكاليف شراء أو سيولة تداول."],
+                rounding_note:equalWeight ? "التوزيع متساوٍ قبل التقريب؛ يعرض الوزن إلى أربع منازل والمبلغ إلى قرشين، وتوزع قروش فرق التقريب على المبالغ الأخيرة للحفاظ على رأس المال، وليس كتفضيل للسهم." : null,
                 sector_concentration_complete:stocks.every((s:any)=>s.sector!=null),
                 industry_concentration_complete:stocks.every((s:any)=>s.industry!=null),
                 classification_note:"القطاع تصنيف عام من المصدر وقد يجمع شركات تعمل في صناعات مختلفة؛ اعرض الصناعة بجانبه ولا تعتبر القطاع العام نشاطاً واحداً. القيم غير المتاحة ليست قطاعاً أو صناعة مشتركة مؤكدة.",

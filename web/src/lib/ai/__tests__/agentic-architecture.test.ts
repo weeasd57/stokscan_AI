@@ -37,6 +37,42 @@ async function run(messages: any[], overrides: any = {}) {
 const stockDb = () => db(q => ({ data: q.table === "stock_prices" ? [price] : q.table === "stocks" ? { symbol:"COMI",name:"Commercial Bank" } : [], error:null }));
 
 describe("Agentic architecture integration: current production path", () => {
+    test("truncated reviewer retries the review without rewriting an otherwise valid draft", async () => {
+        const queue = [response({content: "حدد أفق الاستثمار قبل اختيار سهم."}), response({content: '{"passed":'}, "length"), response(verdict())];
+        const fetchMock = jest.fn().mockImplementation(() => Promise.resolve(queue.shift()));
+        global.fetch = fetchMock as any;
+        const events: any[] = [];
+        for await (const event of runAgenticPipelineStream("اختبار", [], state, null, [], db().client, [], "u", "s", "m")) events.push(event);
+        const done = events.find(event => event.type === "done").data;
+        expect(done.publication_review).toMatchObject({final_passed: true, repaired: false});
+        expect(done.response_origin).toBe("llm");
+        expect(done.usage.calls.map((call: any) => call.stage)).toEqual(["chat", "review", "review"]);
+        expect(fetchMock.mock.calls.map((args: any) => JSON.parse(args[1].body).max_tokens).slice(1)).toEqual([1200,1600]);
+    });
+    test("equal rounding distributes cents without negative amounts for a tiny capital", async () => {
+        const result = await executeAgenticTool("analyze_portfolio_risk", {capital: 0.06, symbols: ["COMI","SWDY","TMGH","EAST","AFMC","ELEC","SIPC","DAPH","ADRI","ADCI"], allocation_mode: "equal"}, db().client, "u");
+        expect(result.stocks.every((s: any) => s.allocated_capital >= 0)).toBe(true);
+        expect(result.stocks.reduce((sum: number,s: any) => sum+s.allocated_capital,0)).toBeCloseTo(0.06,8);
+    });
+    test("scenario stress totals do not inherit the last stock table's symbol", async () => {
+        const args = {capital: 100000, symbols: ["COMI", "SWDY", "TMGH"], allocation_mode: "equal", allocations: [{symbol: "COMI", allocation_pct: 33.33},{symbol: "SWDY", allocation_pct: 33.33},{symbol: "TMGH", allocation_pct: 33.34}]};
+        const result = await executeAgenticTool("analyze_portfolio_risk", args, db().client, "u");
+        expect(result.assumption).toBe("equal_weight");
+        expect(result.stocks.map((s: any) => s.allocation_pct)).toEqual([33.3333,33.3333,33.3333]);
+        expect(result.stocks.reduce((sum: number,s: any) => sum+s.allocated_capital,0)).toBeCloseTo(100000,2);
+        const evidence = toAgenticEvidence("analyze_portfolio_risk", args, result);
+        const allocation = "| السهم | النسبة % | المبلغ بالجنيه |\n|---|---:|---:|\n" + result.stocks.map((s: any) => `| ${s.symbol} | ${s.allocation_pct} | ${s.allocated_capital} |`).join("\n");
+        const stress = "| هبوط المحفظة % | الخسارة بالجنيه | قيمة المحفظة بعد الهبوط |\n|---:|---:|---:|\n| 5 | 5000 | 95000 |\n| 10 | 10000 | 90000 |";
+        expect(checkAgenticDraft(allocation+"\n\n"+stress,[evidence])).toEqual([]);
+        expect(checkAgenticDraft(allocation+"\n\n"+stress.replace("95000","98000"),[evidence])).toContain("table_value_not_grounded:PORTFOLIO:98000");
+        expect(checkAgenticDraft(allocation+"\n\n"+stress.replace("90000","95000"),[evidence])).toContain("table_value_not_grounded:PORTFOLIO:95000");
+        const published = await run([{tool_calls: [call("analyze_portfolio_risk", args)]}, {content: "محفظة افتراضية لم تحفظ.\n"+allocation+"\n\n"+stress}, verdict()], {userMessage: "وزع 100 ألف بالتساوي واحسب خسارة 5% و10%"});
+        expect(published.done.publication_review.final_passed).toBe(true);
+        expect(published.done.response_origin).toBe("llm");
+        const stockClaim = "| السهم | المبلغ بالجنيه |\n|---|---:|\n| TMGH | 95000 |";
+        expect(checkAgenticDraft(stockClaim,[evidence])).toContain("table_value_not_grounded:TMGH:95000");
+    });
+
     test("writer and reviewer charges survive in the final message metadata", async () => {
         const result = await run([{content: "حدد أفق الاستثمار قبل اختيار سهم."}, verdict()]);
         expect(result.done.usage).toMatchObject({prompt_tokens: 20, completion_tokens: 10, total_tokens: 30, provider_calls: 2, cost_status: "estimated"});
@@ -442,7 +478,7 @@ describe("Agentic tool correctness and failure boundaries", () => {
         const r=await executeAgenticTool("analyze_portfolio_risk",{capital:100000,symbols:["COMI","SWDY","TMGH"]},d.client,"user-1");
         expect(r).toMatchObject({status:"success",mode:"scenario",capital:100000,assumption:"equal_weight",source_portfolio:"user_scenario_not_saved",persisted:false});
         expect(r.stocks.map((s:any)=>s.allocation_pct)).toEqual([33.3333,33.3333,33.3333]);
-        expect(r.stocks.map((s:any)=>s.allocated_capital)).toEqual([33333.33,33333.33,33333.33]);
+        expect(r.stocks.map((s:any)=>s.allocated_capital)).toEqual([33333.33,33333.33,33333.34]);
         expect(r.stocks.find((s:any)=>s.symbol==="COMI").saved).toBe(true); expect(r.stocks.find((s:any)=>s.symbol==="SWDY").saved).toBe(false);
         expect(r.sector_exposure).toHaveLength(3); expect(r.stress_scenarios_not_forecasts).toEqual([{change_pct:-5,loss:5000},{change_pct:-10,loss:10000}]);
         expect(d.queries.find((q:Query)=>q.table==="positions")?.ops).toContainEqual(["eq","user_id","user-1"]);
