@@ -3,6 +3,7 @@ import {checkAgenticDraft,checkUserPositionInputs,toAgenticEvidence,compactEvide
 import {groundedReviewerIssues} from '../agentic-runtime';
 import {ARTORO_PLATFORM_CONTEXT} from '../platform-context';
 import {AGENTIC_SYSTEM_PROMPT} from '../agentic-pipeline';
+import {safeAgenticFallback} from '../agentic-publication';
 jest.mock('../server-secrets',()=>({getDeepSeekApiKey:()=> 'offline-key'}));
 test('GTWL price column binds to each support or resistance row, independently of distance',()=>{
     const e=toAgenticEvidence('get_stock_levels',{symbols:['GTWL']},{levels:[{symbol:'GTWL',date:'2026-10-07',close:160,support:124.5,resistance:244}]});
@@ -162,6 +163,32 @@ test('oversold proximity and internal news fields are checked in published prose
     expect(checkAgenticDraft('**EFID:** الأدنى في RSI بين الثلاثة (31.79)، أي الأقرب إلى منطقة التشبع البيعي.',[e])).toEqual(expect.arrayContaining(['rsi_oversold_proximity_ranking_contradiction:EFID','rsi_minimum_ranking_contradiction:EFID']));
     expect(checkAgenticDraft('**JUFO:** الأدنى في RSI بين الثلاثة (30.54)، أي الأقرب إلى منطقة التشبع البيعي.',[e])).toEqual([]);
     expect(checkAgenticDraft('تاريخ السجل ليس نشر الخبر (date_kind = aggregation، event_date فارغ).',[])).toContain('internal_implementation_names_in_response');
+});
+
+test('current comparison supersedes stale symbol snapshots and lowest RSI is not threshold distance',()=>{
+    const stale=toAgenticEvidence('get_stock',{}, {stocks:[
+        {symbol:'ADIB',date:'2026-10-06',close:52,ema_50:50,rsi_14:32},
+        {symbol:'CIEB',date:'2026-10-06',close:25,ema_50:24,rsi_14:31},
+    ]});
+    const current=toAgenticEvidence('get_comparison',{}, {comparison:[
+        {symbol:'ADIB',date:'2026-10-07',close:47.8,change_pct:-0.64,rsi_14:20.97,macd:-1,macd_signal:-0.8,macd_histogram:-0.2,ema_50:50.99,ema_200:48},
+        {symbol:'CIEB',date:'2026-10-07',close:24,change_pct:-1.4,rsi_14:30.87,macd:-0.4,macd_signal:-0.3,macd_histogram:-0.1,ema_50:24.56,ema_200:25},
+    ]});
+    const answer='| السهم | الإغلاق | RSI | فوق/تحت EMA50 |\n|---|---:|---:|---|\n| ADIB | 47.80 | 20.97 | تحت |\n| CIEB | 24.00 | 30.87 | تحت |\nADIB لديه أقل RSI وهو الأقرب للتشبع البيعي. كلا السهمين تحت EMA50 بتاريخ 2026-10-07.';
+    expect(checkAgenticDraft(answer,[stale,current])).toEqual([]);
+    expect(checkAgenticDraft('الأقرب إلى حد RSI 30 هو ADIB.',[current])).toContain('rsi_oversold_proximity_ranking_contradiction:ADIB');
+});
+
+test('comparison fallback keeps validated daily metrics instead of dropping them',()=>{
+    const comparison=toAgenticEvidence('get_comparison',{}, {status:'success',comparison:[
+        {symbol:'ORAS',date:'2026-10-07',close:877.02,change_pct:4.0368,rsi_14:49.5735,macd:7.37147,macd_signal:6.272861,macd_histogram:1.098609,ema_50:802.155491,ema_200:661.690728,r_vol:1.2},
+        {symbol:'ETEL',date:'2026-10-07',close:148,change_pct:-1.2543,rsi_14:69.685,macd:7.404529,macd_signal:6.445679,macd_histogram:0.958849,ema_50:125.288723,ema_200:98.198074,r_vol:0.8},
+    ]});
+    const fallback=safeAgenticFallback([comparison],'تعذر التحقق من الصياغة.');
+    expect(fallback).toContain('| الإغلاق | 877.02 جنيه | 148 جنيه |');
+    expect(fallback).toContain('| خط الإشارة | 6.272861 | 6.445679 |');
+    expect(fallback).toContain('2026-10-07');
+    expect(fallback).toContain('ليست أسعاراً لحظية');
 });
 
 test('separate symbolic denominator explanations are checked independently',()=>{

@@ -37,6 +37,19 @@ async function run(messages: any[], overrides: any = {}) {
 const stockDb = () => db(q => ({ data: q.table === "stock_prices" ? [price] : q.table === "stocks" ? { symbol:"COMI",name:"Commercial Bank" } : [], error:null }));
 
 describe("Agentic architecture integration: current production path", () => {
+    test("comparison fallback keeps current metrics without resurrecting another prior comparison member", async () => {
+        const previous = toAgenticEvidence("get_comparison", {symbols:["COMI","TMGH"]}, {status:"success",comparison:[
+            {symbol:"COMI",date:"2026-10-07",close:124.65},{symbol:"TMGH",date:"2026-10-07",close:87.89}]});
+        const d = db(q => ({data:q.table === "stock_technical_indicators" ? [{symbol:q.ops.find(op=>op[0] === "eq" && op[1] === "symbol")?.[2],
+            date:"2026-10-08",close:100,rsi_14:45,ema_50:110,ema_200:90}] : [],error:null}));
+        const r = await run([{tool_calls:[call("get_comparison",{symbols:["COMI","SWDY"]})]},
+            {content:"get_comparison"},verdict(),{content:"get_comparison"},verdict()], {
+            userMessage:"قارن COMI وSWDY",db:d,summary:{last_tool_evidence:[{...previous,captured_at:new Date().toISOString()}]}});
+        expect(r.done.response_origin).toBe("safe_fallback");
+        expect(r.done.response).toContain("| البند | COMI | SWDY |");
+        expect(r.done.response).toContain("| RSI(14) | 45 | 45 |");
+        expect(r.done.response).not.toContain("TMGH");
+    });
     test("an invented reviewer quote is rechecked without rewriting the valid draft", async () => {
         const invalid = {content:JSON.stringify({passed:false,issues:[{message:"عرض أهدافاً",kind:"claim",draft_quote:"take_profit_1"}]})};
         const result = await run([{content:"لا يتوفر صافي شراء المؤسسات اليوم؛ المتاح مؤشرات فنية مؤرخة فقط."}, invalid,
@@ -519,6 +532,40 @@ describe("Agentic tool correctness and failure boundaries", () => {
         const e=toAgenticEvidence("analyze_portfolio_risk",{}, {status:"success",mode:"scenario",stocks:[{symbol:"COMI",allocation_pct:60,allocated_capital:60000},{symbol:"TMGH",allocation_pct:15,allocated_capital:15000},{symbol:"SWDY",allocation_pct:25,allocated_capital:25000}],sector_exposure:[{symbol:"PORTFOLIO",sector:"Finance",symbols:["COMI","TMGH"],allocation_pct:75,allocated_capital:75000}]});
         expect(checkAgenticDraft("| السهم | النسبة % | المبلغ بالجنيه |\n|---|---:|---:|\n| COMI | 75 | 75000 |",[e]).length).toBeGreaterThan(0);
         expect(checkAgenticDraft("| القطاع | الأسهم | النسبة % | المبلغ بالجنيه |\n|---|---|---:|---:|\n| Finance | COMI / SWDY | 75 | 75000 |",[e]).length).toBeGreaterThan(0);
+    });
+    test("scenario prose validates a stock's percentage of its sector, separately from capital share",()=>{
+        const e=toAgenticEvidence("analyze_portfolio_risk",{}, {status:"success",mode:"scenario",stocks:[
+            {symbol:"COMI",sector:"Finance",allocation_pct:60,allocated_capital:60000},
+            {symbol:"SWDY",sector:"Producer Manufacturing",allocation_pct:25,allocated_capital:25000},
+            {symbol:"TMGH",sector:"Finance",allocation_pct:15,allocated_capital:15000}],
+            sector_exposure:[{sector:"Finance",allocation_pct:75,allocated_capital:75000,symbols:["COMI","TMGH"]},
+                {sector:"Producer Manufacturing",allocation_pct:25,allocated_capital:25000,symbols:["SWDY"]}]});
+        expect(checkAgenticDraft("COMI يمثل 60% من رأس المال و80% من التعرض لقطاع Finance.",[e])).toEqual([]);
+        expect(checkAgenticDraft("COMI يمثل 60% من رأس المال و60% من التعرض لقطاع Finance.",[e]))
+            .toContain("scenario_sector_share_mismatch:COMI:expected_80");
+        expect(checkAgenticDraft("COMI يمثل 80% من التعرض لقطاع Finance، وTMGH يمثل 20% من التعرض لقطاع Finance.",[e])).toEqual([]);
+    });
+    test("an explicit previous-answer correction retains scoped scenario evidence through fallback",async()=>{
+        const scenario=toAgenticEvidence("analyze_portfolio_risk",{capital:100000,symbols:["COMI","SWDY","TMGH"],allocations:[
+            {symbol:"COMI",allocation_pct:60},{symbol:"SWDY",allocation_pct:25},{symbol:"TMGH",allocation_pct:15}]},{status:"success",mode:"scenario",capital:100000,
+            source_portfolio:"user_scenario_not_saved",stocks:[{symbol:"COMI",sector:"Finance",industry:"Regional Banks",allocation_pct:60,allocated_capital:60000},
+                {symbol:"SWDY",sector:"Producer Manufacturing",industry:"Electrical Products",allocation_pct:25,allocated_capital:25000},
+                {symbol:"TMGH",sector:"Finance",industry:"Real Estate Development",allocation_pct:15,allocated_capital:15000}],
+            sector_exposure:[{sector:"Finance",allocation_pct:75,allocated_capital:75000,symbols:["COMI","TMGH"]},
+                {sector:"Producer Manufacturing",allocation_pct:25,allocated_capital:25000,symbols:["SWDY"]}],
+            industry_exposure:[],stress_scenarios_not_forecasts:[{change_pct:-5,loss:5000},{change_pct:-10,loss:10000}],persisted:false});
+        const priorAnswer="COMI وحده 60% من رأس المال وهو أيضاً 60% من التعرض لقطاع Finance.";
+        const history=[{role:"user",content:"محفظة افتراضية: COMI 60%، SWDY 25%، TMGH 15%."},{role:"assistant",content:priorAnswer}];
+        const summary={last_tool_evidence:[{...scenario,captured_at:new Date().toISOString()}],current_symbols:["COMI","SWDY","TMGH"]};
+        const r=await run([{content:"COMI يمثل 60% من التعرض لقطاع Finance."},verdict(),{content:"COMI يمثل 60% من التعرض لقطاع Finance."},verdict()],{
+            userMessage:"راجع إجابتي الأولى عن COMI 60% وSWDY 25% وTMGH 15% وصحح حصة COMI من قطاع Finance.",history,summary,state:{...state,last_symbols:["COMI","SWDY","TMGH"]}});
+        const review=JSON.parse(r.fetchMock.mock.calls[1][1].body).messages[0].content;
+        expect(review).toContain("افحص الإجابة المحددة وسجل دليلها");
+        const repair=JSON.parse(r.fetchMock.mock.calls[2][1].body);
+        expect(JSON.stringify(repair.messages)).toContain(priorAnswer);
+        expect(r.done.response_origin).toBe("safe_fallback");
+        expect(r.done.response).toContain("| COMI | Finance | Regional Banks | 60 | 60000 | 80 |");
+        expect(r.done.response).toContain("| TMGH | Finance | Real Estate Development | 15 | 15000 | 20 |");
     });
     test("resistance equality is at resistance, never below or a confirmed breakout",()=>{
         const e=toAgenticEvidence("screen_stocks",{}, {status:"success",date:"2026-10-07",stocks:[{symbol:"EOSB",close:1.64,resistance:1.64,distance_from_resistance_pct:0},{symbol:"EFIH",close:25.23,resistance:25.37,distance_from_resistance_pct:0.55}]});

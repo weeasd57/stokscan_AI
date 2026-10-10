@@ -302,22 +302,42 @@ function checkResistanceRelations(reply: string, evidence: AgenticEvidence[]): s
 
 /** Verify interpretations as relations, not just the presence of their individual numbers. */
 function checkSnapshotInterpretations(reply: string, evidence: AgenticEvidence[]): string[] {
-    const rows = evidence.filter(e => e.availability !== "error").flatMap(e => evidenceRows(e.data));
-    const symbols = [...new Set<string>(rows.map(r => r.symbol).filter(Boolean))];
+    const allRows = evidence.filter(e => e.availability !== "error").flatMap(e => evidenceRows(e.data));
+    // A follow-up can carry an older snapshot alongside a refreshed comparison.
+    // Rank only one dated row per symbol: newest date wins, and the later evidence
+    // wins ties (the current comparison is appended after session memory).
+    const latestBySymbol = new Map<string, any>();
+    for (const row of allRows) {
+        if (!row.symbol) continue;
+        const prior = latestBySymbol.get(row.symbol);
+        const date = String(row.date || row.current_date || row.as_of || "").slice(0, 10);
+        const priorDate = String(prior?.date || prior?.current_date || prior?.as_of || "").slice(0, 10);
+        if (!prior || date >= priorDate) latestBySymbol.set(row.symbol, row);
+    }
+    const currentRows = [...latestBySymbol.values()];
+    // Preserve the full series below; only ranking checks use the current snapshot.
+    const rows = allRows;
+    const symbols = [...new Set<string>(currentRows.map(r => r.symbol).filter(Boolean))];
     let owner: string | null = symbols.length === 1 ? symbols[0] : null;
     const reasons: string[] = [];
     for (const raw of reply.replace(/[*_`]/g, "").split(/\n|[.!؟؛]\s+/)) {
         const named = symbols.filter(symbol => new RegExp(`\\b${symbol}\\b`, "i").test(raw));
         if (named.length === 1) owner = named[0];
-        if (owner && /(?:الأقرب|أقرب).{0,30}(?:للتشبع\s+البيعي|(?:من|إلى|الى)\s+(?:منطقة\s+)?التشبع\s+البيعي)/.test(raw)) {
-            const current = [...rows].reverse().find(row => row.symbol === owner && Number.isFinite(row.rsi_14));
-            const peers = current ? rows.filter(row => row.date === current.date && Number.isFinite(row.rsi_14)) : [];
-            if (current && peers.some(row => row.symbol !== owner && Math.abs(row.rsi_14-30) < Math.abs(current.rsi_14-30)-1e-6))
+        if (owner && (/(?:الأقرب|أقرب).{0,30}(?:للتشبع\s+البيعي|(?:من|إلى|الى)\s+(?:منطقة\s+)?التشبع\s+البيعي)/.test(raw)
+            || /(?:الأقرب|أقرب).{0,20}(?:حد\s*(?:RSI\s*)?30|RSI\s*30)|30.{0,15}(?:الأقرب|أقرب)/i.test(raw))) {
+            const current = currentRows.find(row => row.symbol === owner && Number.isFinite(row.rsi_14));
+            const peers = current ? currentRows.filter(row => row.date === current.date && Number.isFinite(row.rsi_14)) : [];
+            // “Closer to the oversold zone” means lower RSI. Only an explicit
+            // distance-to-30 claim is a geometric proximity comparison.
+            const explicitThresholdDistance = /(?:المسافة|أقرب|أقربها).{0,20}(?:إلى|ل|من)?\s*(?:حد\s*)?30|30.{0,15}(?:أقرب|المسافة)/.test(raw);
+            if (current && peers.some(row => row.symbol !== owner && (explicitThresholdDistance
+                ? Math.abs(row.rsi_14 - 30) < Math.abs(current.rsi_14 - 30) - 1e-6
+                : row.rsi_14 < current.rsi_14 - 1e-6)))
                 reasons.push(`rsi_oversold_proximity_ranking_contradiction:${owner}`);
         }
         if (owner && /(?:الأدنى|أدنى|الأقل|أقل)\s+(?:في\s+)?RSI.{0,30}بين\s+(?:الثلاثة|الأسهم|الاسهم)/i.test(raw)) {
-            const current = [...rows].reverse().find(row => row.symbol === owner && Number.isFinite(row.rsi_14));
-            if (current && rows.some(row => row.date === current.date && row.symbol !== owner && Number.isFinite(row.rsi_14) && row.rsi_14 < current.rsi_14-1e-6))
+            const current = currentRows.find(row => row.symbol === owner && Number.isFinite(row.rsi_14));
+            if (current && currentRows.some(row => row.date === current.date && row.symbol !== owner && Number.isFinite(row.rsi_14) && row.rsi_14 < current.rsi_14-1e-6))
                 reasons.push(`rsi_minimum_ranking_contradiction:${owner}`);
         }
         const easing = /(?:تخفيف|انحسار|تراجع)\s+ضغط\s+البيع|ضغط\s+البيع\s+(?:يخف|يقل|يتراجع|يتباطأ)/.exec(raw);
@@ -371,6 +391,46 @@ function checkSnapshotInterpretations(reply: string, evidence: AgenticEvidence[]
     return [...new Set(reasons)];
 }
 
+/** Verify a stock's share of a sector against the scenario's aggregate allocation. */
+function checkScenarioSectorShareClaims(reply: string, evidence: AgenticEvidence[]): string[] {
+    const scenarios = evidence.filter(e => e.tool === "analyze_portfolio_risk" && e.availability !== "error"
+        && e.data?.status === "success" && e.data?.mode === "scenario");
+    const reasons: string[] = [];
+    const shareClaims = /([-+]?\d+(?:[.,٫]\d+)?)\s*(?:%|٪|percent)\s*(?:من|of)\s*(?:(?:إجمالي|total)\s*)?(?:التعرض(?:\s+(?:للقطاع|ل\s*قطاع|للقطاع|بالقطاع|القطاع))?|(?:حصة|نسبة|وزن)\s+(?:ال)?قطاع|(?:ال)?قطاع\s+(?:التعرض|exposure)|(?:sector\s+)?exposure\s+(?:of|to)?)/gi;
+    for (const sentence of reply.replace(/[*_`]/g, "").split(/\n|[.!؟؛]\s+/)) {
+        if (sentence.trim().startsWith("|")) continue;
+        const normalized = normalizeDigitsAndNumberFormatting(sentence);
+        for (const scenario of scenarios) {
+            const stocks = Array.isArray(scenario.data.stocks) ? scenario.data.stocks : [];
+            const symbolMentions = stocks.flatMap((stock: any) => {
+                const symbol = String(stock.symbol || "").toUpperCase();
+                if (!symbol) return [];
+                const pattern = new RegExp(`\\b${symbol}\\b`, "gi");
+                return [...normalized.matchAll(pattern)].map(match => ({ stock, symbol, index: match.index ?? 0 }));
+            }).sort((a: any, b: any) => a.index - b.index);
+            for (const match of normalized.matchAll(shareClaims)) {
+                const claimIndex = match.index ?? 0;
+                // Bind each percentage to the nearest preceding ticker in the same
+                // sentence. If the prose does not make that relationship explicit,
+                // leave it to the LLM reviewer instead of cross-checking every ticker
+                // against every percentage and creating false rejections.
+                const mention = [...symbolMentions].reverse().find((item: any) => item.index < claimIndex
+                    && claimIndex - item.index <= 80);
+                if (!mention || !mention.stock.sector) continue;
+                const sector = String(mention.stock.sector).toLowerCase();
+                const sectorWeight = stocks.filter((row: any) => String(row.sector || "").toLowerCase() === sector)
+                    .reduce((sum: number, row: any) => sum + Number(row.allocation_pct || 0), 0);
+                if (!(sectorWeight > 0) || !Number.isFinite(Number(mention.stock.allocation_pct))) continue;
+                const expected = Number((Number(mention.stock.allocation_pct) / sectorWeight * 100).toFixed(2));
+                const actual = Number(match[1]);
+                if (Math.abs(actual - expected) > 0.03)
+                    reasons.push(`scenario_sector_share_mismatch:${mention.symbol}:expected_${expected}`);
+            }
+        }
+    }
+    return [...new Set(reasons)];
+}
+
 function explicitPositionInputs(request: string) {
     const normalizedRequest = normalizeDigitsAndNumberFormatting(request);
     const average = normalizedRequest.match(/(?:متوسطي|متوسط(?:ي)?(?:\s+(?:(?:ال)?شراء|سعر\s+(?:ال)?شراء))?|سعر\s+شرائي|اشتريت(?:ه)?\s+بسعر)\s*(?:(?:هو|فيه|عند)\s*)?[:=]?\s*(\d+(?:\.\d+)?)/i);
@@ -413,6 +473,7 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
         field:"cost_basis",value:Number(inputs.totalCost),unit:"egp",as_of:null,source:"user_request",tool:"user_input",fetched_at:new Date().toISOString()});
     reasons.push(...checkResistanceRelations(reply, evidence));
     reasons.push(...checkSnapshotInterpretations(reply, evidence));
+    reasons.push(...checkScenarioSectorShareClaims(reply, evidence));
     reasons.push(...checkStrategyClaims(reply, evidence));
     for (const line of reply.replace(/[*_`]/g, "").split(/\n|[.!؟؛]\s+/)) {
         if (!/نشاط|حجم\s+نسبي/.test(line) || !/أقل\s+من\s+متوسط|دون\s+المتوسط|أعلى\s+من\s+متوسط/.test(line)) continue;
@@ -522,7 +583,7 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
             const periods=[...line.matchAll(/EMA\s*(50|200)/gi)].map(m=>m[1]);
             if (new Set(periods).size !== 1) continue;
             const relation=line.match(/أقرب|اقرب|أبعد|ابعد/);
-            if (!relation || /(?:ليس|مش|غير)\s*$/.test(line.slice(0,relation.index))) continue;
+            if (!relation || /(?:ليس|مش|غير)\s*$/.test(line.slice(0,relation.index)) || /RSI|التشبع\s+البيعي/.test(line)) continue;
             const field=`ema_${periods[0]}`;
             const distances=quotes.map(r=>({symbol:r.symbol,average:Number(r[field]),close:Number(r.close)}))
                 .filter(r=>Number.isFinite(r.average) && r.average > 0 && Number.isFinite(r.close))
@@ -536,7 +597,16 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
     }
     // Compare claimed above/below relations to the actual quote, not merely whether both numbers exist.
     let owner: string | null = null;
-    const rows = evidence.flatMap(e => evidenceRows(e.data));
+    const allRows = evidence.flatMap(e => evidenceRows(e.data));
+    const latestRowsBySymbol = new Map<string, any>();
+    for (const row of allRows) {
+        if (!row.symbol) continue;
+        const prior = latestRowsBySymbol.get(row.symbol);
+        const date = String(row.date || row.current_date || row.as_of || "").slice(0, 10);
+        const priorDate = String(prior?.date || prior?.current_date || prior?.as_of || "").slice(0, 10);
+        if (!prior || date >= priorDate) latestRowsBySymbol.set(row.symbol, row);
+    }
+    const rows = [...latestRowsBySymbol.values()];
     const known = [...new Set(rows.map(r=>r.symbol).filter(Boolean))];
     for (const raw of reply.split("\n")) {
         const line = raw.replace(/[*_`]/g, "");
@@ -752,6 +822,23 @@ export function safeAgenticFallback(evidence: AgenticEvidence[], reason: string)
     // unrelated symbols from an older turn.
     const rows = evidence.filter(e => e.availability !== "error").flatMap(e => evidenceRows(e.data));
     for (const e of evidence.filter(e => e.availability !== "error")) {
+        if (e.tool === "get_comparison" && e.availability !== "error") {
+            const comparisonRows = evidenceRows(e.data).filter(row => row.symbol && row.close != null);
+            if (comparisonRows.length) {
+                const fields: Array<[string, string, string]> = [
+                    ["الإغلاق", "close", "جنيه"], ["التغير اليومي", "change_pct", "%"],
+                    ["RSI(14)", "rsi_14", ""], ["MACD", "macd", ""], ["خط الإشارة", "macd_signal", ""],
+                    ["الهيستوجرام", "macd_histogram", ""], ["EMA50", "ema_50", ""], ["EMA200", "ema_200", ""],
+                    ["النشاط النسبي", "r_vol", ""],
+                ];
+                const present = fields.filter(([, field]) => comparisonRows.some(row => Number.isFinite(row[field])));
+                lines.push("\nمقارنة موثقة من بيانات الإغلاق اليومية:", `| البند | ${comparisonRows.map(row => row.symbol).join(" | ")} |`, `|---|${comparisonRows.map(() => "---:").join("|")}|`);
+                for (const [label, field, unit] of present)
+                    lines.push(`| ${label} | ${comparisonRows.map(row => Number.isFinite(row[field]) ? `${row[field]}${unit ? ` ${unit}` : ""}` : "غير متاح").join(" | ")} |`);
+                const dates = [...new Set(comparisonRows.map(row => row.date || row.current_date).filter(Boolean))];
+                lines.push(`التاريخ: ${dates.length === 1 ? dates[0] : dates.join("، ") || "غير متاح"}. هذه إغلاقات يومية وليست أسعاراً لحظية.`);
+            }
+        }
         if (e.tool === "screen_stocks" && e.data?.status === "success") {
             const d=e.data;
             if (d.date && d.filters) {
@@ -778,8 +865,12 @@ export function safeAgenticFallback(evidence: AgenticEvidence[], reason: string)
         if (e.tool === "analyze_portfolio_risk" && e.data?.mode === "scenario") {
             const d=e.data;
             lines.push(`\nهذا سيناريو افتراضي من رأس مال ${d.capital} جنيه، بتوزيع ${d.assumption === "equal_weight" ? "متساوٍ مفترض" : "النسب التي حددتها"}؛ لا يمثل المراكز المحفوظة ولم يتم حفظه.`);
-            lines.push("| السهم | القطاع من بيانات الشركة | الصناعة | التوزيع % | المبلغ بالجنيه | محفوظ بالحساب؟ |","|---|---|---|---:|---:|---|");
-            for(const r of d.stocks) lines.push(`| ${r.symbol} | ${r.sector || "غير متاح"} | ${r.industry || "غير متاح"} | ${r.allocation_pct} | ${r.allocated_capital} | ${r.saved ? "نعم" : "لا"} |`);
+            lines.push("| السهم | القطاع من بيانات الشركة | الصناعة | من رأس المال % | المبلغ بالجنيه | من تعرض القطاع % | محفوظ بالحساب؟ |","|---|---|---|---:|---:|---:|---|");
+            for(const r of d.stocks) {
+                const sector = (d.sector_exposure || []).find((item:any) => item.sector === r.sector && item.allocated_capital > 0);
+                const sectorShare = sector ? Number((r.allocated_capital / sector.allocated_capital * 100).toFixed(2)) : null;
+                lines.push(`| ${r.symbol} | ${r.sector || "غير متاح"} | ${r.industry || "غير متاح"} | ${r.allocation_pct} | ${r.allocated_capital} | ${sectorShare ?? "غير متاح"} | ${r.saved ? "نعم" : "لا"} |`);
+            }
             for(const r of d.sector_exposure) lines.push(`قطاع ${r.sector || "غير محدد"}: ${r.allocation_pct}% (${r.allocated_capital} جنيه).`);
             for(const r of d.industry_exposure || []) lines.push(`صناعة ${r.industry || "غير محدد"}: ${r.allocation_pct}% (${r.allocated_capital} جنيه).`);
             if(d.classification_note) lines.push(d.classification_note);
@@ -789,7 +880,9 @@ export function safeAgenticFallback(evidence: AgenticEvidence[], reason: string)
         }
     }
     const quotes = new Map<string, any>();
-    for (const row of rows) if (row.symbol && (row.close != null || row.current_price != null)) quotes.set(row.symbol, row);
+    const comparisonSymbols = new Set(evidence.filter(e => e.tool === "get_comparison" && e.availability !== "error")
+        .flatMap(e => evidenceRows(e.data).map(row => row.symbol).filter(Boolean)));
+    for (const row of rows) if (row.symbol && !comparisonSymbols.has(row.symbol) && (row.close != null || row.current_price != null)) quotes.set(row.symbol, row);
     if (quotes.size) {
         lines.push("\nالبيانات المتاحة من المصدر (إغلاقات يومية، وليست أسعاراً لحظية):", "| السهم | الإغلاق | التاريخ |", "|---|---|---|");
         for (const row of [...quotes.values()].slice(0, 10)) lines.push(`| ${row.symbol} | ${row.close ?? row.current_price} | ${row.date ?? row.current_date ?? "غير متاح"} |`);
