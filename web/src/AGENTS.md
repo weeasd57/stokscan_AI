@@ -45,7 +45,8 @@ npm run dev          # Start dev server on port 3000
 npm run build        # Production build
 npm run lint         # ESLint
 npm run test         # Jest tests
-npm run test:live    # Live integration tests
+npm run test:live    # Bounded real production HTTP chat verification (auth + expected SHA required)
+npm run test:provider -- src/lib/ai/__tests__/selected.live.test.ts # Explicit provider-only case
 npm run format       # Prettier format
 ```
 
@@ -55,6 +56,8 @@ npm run format       # Prettier format
 - Use the repository's Jest configuration and the environment required by the relevant test.
 - When changing core AI files, run relevant offline tests first. Do not automatically run `npm run test:live`: live provider calls require a genuine in-scope need, a bounded case and reuse of existing results.
 - When changing UI components, update or add companion test/story files
+- Never present mocked unit tests or a build as proof of live chat correctness. For reported chat failures, verify the deployed revision, signed-in account, selected model, original session/history and chart context through `/api/ai-chat`; inspect the rendered ARTORO response too. State API and browser results separately, including blockers.
+- Use `/admin/chat-verification` for the existing ChatContext/ChatWidget path and `npm run test:production-chat -- --expected-sha <full-sha>` for two bounded real HTTP turns. `test:provider` invokes provider-only tests and cannot establish website parity. Diagnostic traces are private, admin-owned and bounded; an incomplete trace is not a verification pass.
 
 ## Request Budget
 

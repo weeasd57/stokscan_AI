@@ -4,6 +4,7 @@ import { createContext, useContext, useState, ReactNode, useEffect, useCallback,
 import { useAuth } from "@/contexts/AuthContext";
 import { ChatSession } from "@/components/chat/ChatSidebar";
 import { sanitizeReply, sanitizeUiLabel, stripEnvironmentLeak } from "@/lib/ai/sanitizer";
+import { createChatRequest } from "@/lib/chat-request.cjs";
 import { orderChatMessages } from "@/lib/ai/chat-order";
 
 export type ChatMessage = {
@@ -538,24 +539,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             const requestChartOwner = chartOwnerRef.current;
             const requestChartGeneration = chartGenerationRef.current;
             const response = await fetch("/api/ai-chat", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Accept": "text/event-stream, application/json",
-                    "x-stream": "true"
-                },
-                signal: abortControllerRef.current.signal,
-                body: JSON.stringify({
-                    message: text || "قم بقراءة وتحليل هذه الصورة المرفقة.",
+                ...createChatRequest({
+                    message: text,
                     history: existingSessionMsgs.map(m => ({ role: m.role, content: m.content })),
-                    images: imagesList.length > 0 ? imagesList : undefined,
-                    image: imagesList[0] || undefined,
+                    images: imagesList,
                     model: selectedModel,
-                    session_id: currentSessionId,
-                    client_message_id: `${currentSessionId}:${newUserMsg.timestamp}`,
-                    stream: true,
-                    chart_context: requestChartContext,
-                })
+                    sessionId: currentSessionId,
+                    clientMessageId: `${currentSessionId}:${newUserMsg.timestamp}`,
+                    chartContext: requestChartContext,
+                }),
+                signal: abortControllerRef.current.signal,
             });
 
             if (response.status === 429) {

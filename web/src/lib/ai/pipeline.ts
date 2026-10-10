@@ -1958,6 +1958,7 @@ export function buildTopMoversResponse(tools: StructuredToolOutput): string | nu
 }
 
 export interface PipelineOptions {
+    diagnosticCapture?: (type: string, data: any) => void;
     chartContext?: import("./chart-strategy-tools").ChartContext;
     signal?: AbortSignal;
     timeoutMs?: number;

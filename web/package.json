@@ -12,8 +12,10 @@
     "prepare": "husky",
     "test": "jest",
     "test:offline": "jest --config jest.offline.config.js",
-    "test:live": "node scripts/run-live-tests.js",
-    "test:planner-compare": "node scripts/run-planner-compare.js"
+    "test:live": "node scripts/verify-chat-production.cjs",
+    "test:planner-compare": "node scripts/run-planner-compare.js",
+    "test:production-chat": "node scripts/verify-chat-production.cjs",
+    "test:provider": "node scripts/run-live-tests.js"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

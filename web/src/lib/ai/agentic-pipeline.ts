@@ -3,6 +3,7 @@ import { ExcelTable } from "./excel-tables";
 import { CHART_STRATEGY_TOOL_SCHEMA, type ChartContext } from "./chart-strategy-tools";
 
 export interface PipelineOptions {
+    diagnosticCapture?: (type: string, data: any) => void;
     chartContext?: ChartContext;
     signal?: AbortSignal;
     timeoutMs?: number;

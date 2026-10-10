@@ -67,9 +67,12 @@ export async function* runAgenticRuntime(input: RuntimeInput): AsyncGenerator<Ev
         while (true) {
             const step = await scope.run(() => awaitExecution(core.next(), scope.signal));
             if (step.done) return;
+            if (["plan", "tools_data", "done"].includes(step.value.type))
+                input.options.diagnosticCapture?.("pipeline_event", step.value);
             yield step.value;
         }
     } catch (error) {
+        input.options.diagnosticCapture?.("execution_failure", { error: error instanceof Error ? error.message : "unknown" });
         console.error("[Agentic] request failed or deadline reached", error instanceof Error ? error.message : "unknown");
         const response = withFooter(input.images.length
             ? "وصلت الصورة، لكن انتهت مهلة المعالجة قبل إكمال قراءتها والتحقق من النتيجة. لم أعتمد أرقاماً غير مؤكدة؛ جرّب صورة واحدة واضحة أو أرسل الجزء المطلوب وحده."
@@ -97,7 +100,7 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[], accoun
             if (options.mockVisionResult) {
                 vision = options.mockVisionResult;
             } else {
-                const result = await analyzeImage(input.images, userMessage, input.apiKeys, input.messageId, (provider, model) => accounting.start(provider, model, "vision"));
+                const result = await analyzeImage(input.images, userMessage, input.apiKeys, input.messageId, (provider, model) => accounting.start(provider, model, "vision"), options.diagnosticCapture);
                 vision = result?.vision ?? null;
                 visionError = result?.error ?? null;
             }
@@ -150,12 +153,15 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[], accoun
     const request = async (body: any, stage = "chat") => {
         if (++providerCalls > AGENTIC_BUDGET.providerCalls) throw new Error("MODEL_CALL_BUDGET_EXHAUSTED");
         const capture = accounting.start("deepseek", model, stage);
+        const requestBody = { model, temperature: 0.2, thinking: { type: stage !== "review" && selectedModel === "deepseek-reasoner" ? "enabled" : "disabled" }, ...body };
+        options.diagnosticCapture?.("provider_request", {stage, body: requestBody});
         const response = await executionFetch(AI_CONFIG.api.deepseekBaseUrl, { method: "POST",
             headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ model, temperature: 0.2, thinking: { type: stage !== "review" && selectedModel === "deepseek-reasoner" ? "enabled" : "disabled" }, ...body }) });
-        if (!response.ok) throw new Error(`MODEL_HTTP_${response.status}`);
+            body: JSON.stringify(requestBody) });
+        if (!response.ok) { options.diagnosticCapture?.("provider_http_error", {stage, status: response.status}); throw new Error(`MODEL_HTTP_${response.status}`); }
         const json = await awaitExecution(response.json());
         capture(json);
+        options.diagnosticCapture?.("provider_response", {stage, model: json.model || model, choices: json.choices, usage: json.usage});
         const choice = json.choices?.[0];
         if (!choice?.message) throw new Error("INVALID_MODEL_RESPONSE");
         if (choice.finish_reason === "length" && !choice.message.tool_calls?.length) return { ...choice.message, incomplete: true };
@@ -260,6 +266,7 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[], accoun
         dialogue:recentHistory.slice(-2), context:{state:context.state,summary:context.summary,vision:context.vision,current_time_cairo:context.current_time_cairo} });
     const review = async (reply: string) => {
         const deterministic = checkAgenticDraft(reply, verificationEvidence(), userMessage);
+        options.diagnosticCapture?.("deterministic_review", {draft: reply, reasons: deterministic});
         const reviewBody = { messages: [{ role: "system", content: reviewInstruction },
             { role: "user", content: JSON.stringify(reviewPayload(reply)) }], response_format: { type: "json_object" } };
         let message = await request({ ...reviewBody, max_tokens: 1200 }, "review");

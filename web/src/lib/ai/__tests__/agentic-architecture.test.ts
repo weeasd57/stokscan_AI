@@ -37,6 +37,18 @@ async function run(messages: any[], overrides: any = {}) {
 const stockDb = () => db(q => ({ data: q.table === "stock_prices" ? [price] : q.table === "stocks" ? { symbol:"COMI",name:"Commercial Bank" } : [], error:null }));
 
 describe("Agentic architecture integration: current production path", () => {
+    test("diagnostic capture observes the real provider messages without changing execution", async () => {
+        const captures: any[] = [];
+        const result = await run([{content:"حدد أفق الاستثمار قبل اختيار سهم."}, verdict()], {options:{diagnosticCapture:(type: string,data: any)=>captures.push({type,data:JSON.parse(JSON.stringify(data))})}});
+        const requests=captures.filter(entry=>entry.type === "provider_request");
+        expect(requests).toHaveLength(2);
+        expect(requests[0].data.body).toEqual(JSON.parse(result.fetchMock.mock.calls[0][1].body));
+        expect(captures.some(entry=>entry.type === "provider_response" && entry.data.choices[0].finish_reason === "stop")).toBe(true);
+        expect(captures.some(entry=>entry.type === "deterministic_review" && entry.data.reasons.length === 0)).toBe(true);
+        expect(JSON.stringify(captures)).not.toContain("offline-fake-key");
+        expect(result.done.publication_review.final_passed).toBe(true);
+    });
+
     test("truncated reviewer retries the review without rewriting an otherwise valid draft", async () => {
         const queue = [response({content: "حدد أفق الاستثمار قبل اختيار سهم."}), response({content: '{"passed":'}, "length"), response(verdict())];
         const fetchMock = jest.fn().mockImplementation(() => Promise.resolve(queue.shift()));

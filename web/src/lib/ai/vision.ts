@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { VisionContext } from "./types";
 import { getSyncStockMappings } from "./planner";
 import { AI_CONFIG } from "./config";
@@ -341,7 +342,8 @@ export async function analyzeImage(
     userMessage: string,
     apiKeys: string[],
     messageId: string,
-    onCall?: (provider: string, model: string) => (json: any) => void
+    onCall?: (provider: string, model: string) => (json: any) => void,
+    diagnosticCapture?: (type: string, data: any) => void
 ): Promise<{ vision: VisionContext | null; error: string | null }> {
     const deepSeekKey = getDeepSeekApiKey();
     const nvidiaKeys = getNvidiaApiKeys();
@@ -381,6 +383,9 @@ export async function analyzeImage(
         const timeoutId = setTimeout(() => controller.abort(), Math.min(VISION_TIMEOUT_MS, remaining));
         try {
             const capture = onCall?.(provider, model);
+            diagnosticCapture?.("vision_provider_request", {provider, model, system_prompt: VISION_SYSTEM_PROMPT,
+                user_message: userMessage, image_hashes: (Array.isArray(imageUrl) ? imageUrl : [imageUrl]).map(value => createHash("sha256").update(value).digest("hex")),
+                max_tokens: 1800, temperature: 0.05, response_format: {type: "json_object"}});
             const endpoint = provider === "deepseek" ? AI_CONFIG.api.deepseekBaseUrl : AI_CONFIG.api.nvidiaBaseUrl;
             const res = await executionFetch(endpoint, {
                 method: "POST",
@@ -417,6 +422,7 @@ export async function analyzeImage(
             }
             const json = await res.json();
             capture?.(json);
+            diagnosticCapture?.("provider_response", {stage: "vision", provider, model: json.model || model, choices: json.choices, usage: json.usage});
             const choice = json.choices?.[0];
             const finishReason = String(choice?.finish_reason || "");
             const rawContent = choice?.message?.content?.trim() || "";

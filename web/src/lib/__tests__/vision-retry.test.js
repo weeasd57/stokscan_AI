@@ -70,12 +70,15 @@ describe("analyzeImage key retry", () => {
 
     it("records provider usage even when vision output is truncated", async () => {
         const captures = [];
+        const trace = jest.fn();
         const onCall = jest.fn(() => { const capture = jest.fn(); captures.push(capture); return capture; });
         const payload = {choices: [{finish_reason: "length", message: {content: "incomplete"}}], usage: {prompt_tokens: 100, completion_tokens: 1800, total_tokens: 1900}};
         global.fetch = jest.fn().mockResolvedValueOnce({ok: true, json: async () => payload}).mockResolvedValueOnce(okResponse(VALID_VISION));
-        await analyzeImage("data:image/jpeg;base64,AAAA", "اقرأ الصورة", ["key-one", "key-two"], "usage-test", onCall);
+        await analyzeImage("data:image/jpeg;base64,AAAA", "اقرأ الصورة", ["key-one", "key-two"], "usage-test", onCall, trace);
         expect(onCall).toHaveBeenCalledTimes(2);
         expect(captures[0]).toHaveBeenCalledWith(payload);
+        expect(trace.mock.calls.some(([type,data]) => type === "provider_response" && data.choices[0].finish_reason === "length")).toBe(true);
+        expect(JSON.stringify(trace.mock.calls)).not.toContain("key-one");
         expect(captures[1]).toHaveBeenCalledTimes(1);
     });
 

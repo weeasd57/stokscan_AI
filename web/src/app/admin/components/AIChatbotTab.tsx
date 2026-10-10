@@ -299,6 +299,7 @@ export default function AIChatbotTab() {
                         <Sparkles className="w-8 h-8 text-indigo-500" />
                         ARTORO & Support Monitor
                     </h2>
+                    <a href="/admin/chat-verification" className="text-sm underline text-indigo-500">اختبار ARTORO عبر نفس مسار الموقع</a>
                     <p className="text-zinc-500 font-medium mt-1">سجل استفسارات ومحادثات العملاء وتذاكر الدعم الفني المباشر مقسمة حسب الغرف والجلسات.</p>
                 </div>
             </div>

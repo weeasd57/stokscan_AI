@@ -4,6 +4,8 @@ const createJestConfig = nextJest({ dir: "./" });
 module.exports = createJestConfig({
     testEnvironment: "node",
     testMatch: [
+        "<rootDir>/src/lib/ai/__tests__/*.live.test.ts",
+        "<rootDir>/src/lib/__tests__/*.live.test.js",
         "<rootDir>/src/lib/__tests__/chat-live-integration.test.js",
         "<rootDir>/src/lib/__tests__/automation-full-eval.test.js",
         "<rootDir>/src/lib/__tests__/live-user-scenario.test.js",

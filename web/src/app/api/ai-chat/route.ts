@@ -1,3 +1,4 @@
+import { canTraceChat, createDiagnosticTrace } from "@/lib/ai/diagnostic-trace";
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getSupabaseClient, getSupabaseServiceClient } from "@/lib/supabase/route-data";
@@ -436,6 +437,10 @@ export async function POST(req: NextRequest) {
             }
         }
         const body = await req.json();
+        const diagnostics = createDiagnosticTrace(canTraceChat(user));
+        diagnostics.capture("http_request", { message: body.message, history: body.history, model: body.model,
+            session_id: body.session_id, client_message_id: body.client_message_id, stream: body.stream,
+            chart_context: sanitizeChartContext(body.chart_context), image_count: Array.isArray(body.images) ? body.images.length : body.image ? 1 : 0 });
         const chartContext = sanitizeChartContext(body.chart_context);
         const rawMessage = typeof body.message === "string" ? body.message : "";
         const message = sanitizeUserMessage(rawMessage);
@@ -568,6 +573,7 @@ export async function POST(req: NextRequest) {
             return Math.max(0, 5 - todayCount);
         };
 
+        diagnostics.capture("runtime_configuration", {config: AI_CONFIG, user_is_pro: userIsPro, unlimited: isUnlimited, billing_enabled: billingOn, history_source: "server_session_messages_preferred", endpoint: "/api/ai-chat", transport: stream === true || stream === "true" || (req.headers.get("accept") || "").includes("text/event-stream") ? "sse" : "json"});
         const keysToTry = getNvidiaApiKeys();
 
         if (!getDeepSeekApiKey() && keysToTry.length === 0) {
@@ -662,7 +668,7 @@ export async function POST(req: NextRequest) {
                             activeSessionId,
                             messageId,
                             userRequestedModel,
-                            { isPro: userIsPro, chartContext }
+                            { isPro: userIsPro, chartContext, diagnosticCapture: diagnostics.capture }
                         );
 
                         // Keep only a bounded rolling window for safety checks.
@@ -753,6 +759,7 @@ export async function POST(req: NextRequest) {
                                          correlation_id: correlationId,
                                          publication_review: event.data?.publication_review || null,
                                          usage: event.data?.usage || null,
+                                         diagnostic_trace: diagnostics.snapshot(),
                                          response_origin: event.data?.response_origin || null,
                                          response_task: event.data?.response_task || null,
                                          vision_error: event.data?.vision_error || null,
@@ -938,7 +945,7 @@ export async function POST(req: NextRequest) {
             activeSessionId,
             messageId,
             userRequestedModel,
-            { isPro: userIsPro, chartContext }
+            { isPro: userIsPro, chartContext, diagnosticCapture: diagnostics.capture }
         );
 
         const replyText = filterOutput(pipelineResult.response);
@@ -955,6 +962,7 @@ export async function POST(req: NextRequest) {
             if (activeSessionId) {
                 const provenance = extractProvenanceFromToolResults(pipelineResult?.tools?.results || [], pipelineResult?.tables || []) || {};
                 provenance.usage = pipelineResult.usage || null;
+                provenance.diagnostic_trace = diagnostics.snapshot();
                 provenance.correlation_id = correlationId;
                 provenance.publication_review = pipelineResult.publication_review || null;
                 provenance.response_origin = pipelineResult.response_origin || null;

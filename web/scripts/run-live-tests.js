@@ -2,6 +2,12 @@ const fs = require("fs");
 const path = require("path");
 const { spawnSync } = require("child_process");
 
+const selectedFiles = process.argv.slice(2).filter(arg => /\.test\.(?:js|ts)$/.test(arg));
+if (!selectedFiles.length) {
+    console.error("Provider-only tests require explicit test file paths. Use npm run test:production-chat for the real website route; no paid suite was started.");
+    process.exit(2);
+}
+
 const envPath = path.join(__dirname, "..", ".env.local");
 if (fs.existsSync(envPath)) {
     for (const rawLine of fs.readFileSync(envPath, "utf8").replace(/^\uFEFF/, "").split(/\r?\n/)) {
@@ -30,7 +36,7 @@ if (!process.env.NEXT_PUBLIC_SUPABASE_URL) process.env.NEXT_PUBLIC_SUPABASE_URL 
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const command = process.execPath;
 const jestBin = require.resolve("jest/bin/jest");
-const result = spawnSync(command, [jestBin, "--config", "jest.live.config.js", "--runInBand", "--forceExit", ...process.argv.slice(2)], {
+const result = spawnSync(command, [jestBin, "--config", "jest.live.config.js", "--runInBand", "--forceExit", "--runTestsByPath", ...process.argv.slice(2)], {
     cwd: path.join(__dirname, ".."),
     env: process.env,
     stdio: "inherit",
