@@ -296,3 +296,5 @@ npm run build
 - على أول نشر `6b6f7b5` نجح تحليل المركز الكامل دون رفض النفي، وفحوص المستويات الحتمية لم تعد ترفض السعر الصحيح. كشف الاختبار أن المراجع اللغوي كان يرفض توضيح الموقع الملائم ثم يقلب الاعتراض بعد الإصلاح، ويضيف متطلبات حساب سيناريو لم يطلبه المستخدم. شُددت تعليماته لتمييز الخطأ المادي عن التحسين الاختياري، مع قواعد صريحة للوجهة المذكورة بعد «أقصد» وعدم تأكيد تغطية أرشيف خارجي بلا دليل. يلزم تحقق حي على النشر التالي.
 
 - 2026-10-10: prose claims in publication review are now attributed to the symbol in their own clause (not the last table row); repair prompts carry the current request with the review issues. Production check of the ABUK/ADIB/CIEB follow-up pending deployment.
+
+- 2026-10-10: blanket (plural) EMA relation claims are checked per sentence, and markdown headings no longer inherit the last-named stock; review rejection codes are logged server-side (no draft text). Found by a signed-in production smoke of the ABUK/ADIB/CIEB question.

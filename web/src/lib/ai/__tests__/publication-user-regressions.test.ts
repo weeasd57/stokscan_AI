@@ -216,3 +216,14 @@ test('separate symbolic denominator explanations are checked independently',()=>
     expect(checkAgenticDraft(draft,[e])).toEqual([]);
     expect(checkAgenticDraft(draft.replace('÷ المقاومة.','÷ الإغلاق.'),[e])).toContain('screen_distance_formula_contradiction');
 });
+
+test('a generic sentence after a plural claim does not make ABUK/ADIB/CIEB blanket EMA50 claims',()=>{
+    const ev=toAgenticEvidence('get_comparison',{}, {comparison:[
+        {symbol:'ABUK',date:'2026-10-07',close:90,ema_50:84.96,rsi_14:43.87},
+        {symbol:'ADIB',date:'2026-10-07',close:47.8,ema_50:50.99,rsi_14:20.97},
+        {symbol:'CIEB',date:'2026-10-07',close:24,ema_50:24.56,rsi_14:30.87},
+    ]});
+    const answer='| الرمز | الإغلاق |\n|---|---:|\n| ABUK | 90.00 |\n| ADIB | 47.80 |\n| CIEB | 24.00 |\n\n**الأعلى من EMA50:** ABUK فقط. أما ADIB (47.80 مقابل 50.99) وCIEB (24.00 مقابل 24.56) فكلاهما تحت متوسطه الخمسيني. كون السعر فوق EMA50 يصف موقع السعر فقط.';
+    expect(checkAgenticDraft(answer,[ev])).toEqual([]);
+    expect(checkAgenticDraft('ADIB وCIEB كلاهما فوق EMA50.',[ev])).toEqual(expect.arrayContaining(['price_average_relation_contradiction:ADIB:ema_50']));
+});

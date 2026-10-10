@@ -576,7 +576,7 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
         if (quotes.length < 2) continue;
         const dates=quotes.map(r=>String(r.date || r.as_of || e.data_time || "").slice(0,10));
         if (!dates[0] || dates.some(d=>d !== dates[0])) continue;
-        for (const raw of reply.split("\n")) {
+        for (const raw of reply.split(/\n|(?<=[.!؟])\s+/)) {
             const line=raw.replace(/[*_`]/g, "");
             // Plural claims apply to every stock in the comparison, even when
             // the sentence omits tickers (for example, "both are below EMA50").
@@ -628,7 +628,7 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
         const line = raw.replace(/[*_`]/g, "");
         const named = known.filter(s=>new RegExp(`\\b${s}\\b`).test(line));
         if (named.length === 1) owner=named[0];
-        if (named.length > 1 || !owner || /(?:إذا|اذا|لو|عند اختراق|هدف|مستهدف|وقف)/.test(line)) continue;
+        if (named.length > 1 || !owner || /^\s*#{1,6}\s/.test(raw) || /(?:إذا|اذا|لو|عند اختراق|هدف|مستهدف|وقف)/.test(line)) continue;
         const row = [...rows].reverse().find(r=>r.symbol === owner && r.close != null);
         if (!row) continue;
         for (const relation of line.matchAll(/(فوق|أعلى من|اعلى من|تحت|أسفل|اسفل|above|below)\s*(?:الـ\s*)?EMA\s*(50|200)/gi)) {

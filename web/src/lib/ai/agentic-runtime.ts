@@ -378,6 +378,7 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[], accoun
         }
     } catch (error) { reasons.push(error instanceof Error ? error.message : "review_unavailable"); finalPassed = false; }
     if (!finalPassed) {
+        console.warn("[Agentic] publication review failed:", reasons.slice(0, 6).join(" | ").slice(0, 600));
         origin = "safe_fallback";
         draft = input.images.length && vision
             ? "تمكنت من قراءة الصورة، لكن لم يكتمل التحقق من إجابة موثوقة لكل ما فيها؛ لذلك لم أعرض استنتاجات غير مؤكدة. جرّب إرسال صورة أوضح أو حدّد الجزء الذي تريد قراءته."
