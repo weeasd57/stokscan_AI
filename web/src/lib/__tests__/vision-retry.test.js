@@ -68,6 +68,17 @@ describe("analyzeImage key retry", () => {
         expect(result.error).toBe("vision_http_500");
     });
 
+    it("records provider usage even when vision output is truncated", async () => {
+        const captures = [];
+        const onCall = jest.fn(() => { const capture = jest.fn(); captures.push(capture); return capture; });
+        const payload = {choices: [{finish_reason: "length", message: {content: "incomplete"}}], usage: {prompt_tokens: 100, completion_tokens: 1800, total_tokens: 1900}};
+        global.fetch = jest.fn().mockResolvedValueOnce({ok: true, json: async () => payload}).mockResolvedValueOnce(okResponse(VALID_VISION));
+        await analyzeImage("data:image/jpeg;base64,AAAA", "اقرأ الصورة", ["key-one", "key-two"], "usage-test", onCall);
+        expect(onCall).toHaveBeenCalledTimes(2);
+        expect(captures[0]).toHaveBeenCalledWith(payload);
+        expect(captures[1]).toHaveBeenCalledTimes(1);
+    });
+
     it("preserves separate screenshots and retries an explicitly truncated result", async () => {
         const truncated = okResponse({ image_type: "table", symbols: [], technical_observations: [] }, "length");
         const fetchMock = jest.fn().mockResolvedValueOnce(truncated).mockResolvedValueOnce(okResponse(VALID_VISION));

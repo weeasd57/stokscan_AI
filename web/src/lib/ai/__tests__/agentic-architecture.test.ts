@@ -37,6 +37,21 @@ async function run(messages: any[], overrides: any = {}) {
 const stockDb = () => db(q => ({ data: q.table === "stock_prices" ? [price] : q.table === "stocks" ? { symbol:"COMI",name:"Commercial Bank" } : [], error:null }));
 
 describe("Agentic architecture integration: current production path", () => {
+    test("writer and reviewer charges survive in the final message metadata", async () => {
+        const result = await run([{content: "حدد أفق الاستثمار قبل اختيار سهم."}, verdict()]);
+        expect(result.done.usage).toMatchObject({prompt_tokens: 20, completion_tokens: 10, total_tokens: 30, provider_calls: 2, cost_status: "estimated"});
+        expect(result.done.usage.cost_usd).toBeGreaterThan(0);
+        expect(result.done.usage.calls.map((call: any) => call.stage)).toEqual(["chat", "review"]);
+    });
+    test("a later failed call preserves the earlier billed tokens without claiming zero cost", async () => {
+        const result = await run([{content: "حدد أفق الاستثمار قبل اختيار سهم."}]);
+        expect(result.done.response_origin).toBe("safe_fallback");
+        expect(result.done.usage.total_tokens).toBe(15);
+        expect(result.done.usage.known_cost_usd).toBeGreaterThan(0);
+        expect(result.done.usage.cost_usd).toBeNull();
+        expect(result.done.usage.unpriced_calls).toBeGreaterThan(0);
+    });
+
     test("publication completeness catches a user position that the draft ignored", () => {
         const request = "وضع سهم جولدن تكس ايه متوسطي فيه 155 ومعايا 4 اسهم ف اديني توقعاتك كدا";
         expect(checkUserPositionInputs("السهم في اتجاه ضعيف. لو تحب اكتبلي متوسطك والكمية.", request)).toEqual([
@@ -174,8 +189,8 @@ describe("Agentic architecture integration: current production path", () => {
     test("provider usage sums planner, synthesis and reviewer", async () => {
         const r=await run([{content:"أهلاً"},verdict()]); expect(r.done.usage).toMatchObject({prompt_tokens:20,completion_tokens:10,total_tokens:30,provider_calls:2});
     });
-    test("requested allowed model is actually used", async () => {
-        const r=await run([{content:"أهلاً"},verdict()],{model:"deepseek-reasoner"}); expect(JSON.parse(r.fetchMock.mock.calls[0][1].body).model).toBe("deepseek-reasoner");
+    test("legacy reasoning selection uses the supported Flash model in thinking mode", async () => {
+        const r=await run([{content:"أهلاً"},verdict()],{model:"deepseek-reasoner"}); expect(JSON.parse(r.fetchMock.mock.calls[0][1].body)).toMatchObject({model:"deepseek-flash", thinking:{type:"enabled"}});
     });
     test("vision confidence, uncertainty and quantities are context, not asserted market verification", async () => {
         const r=await run([{content:"الصورة غير مؤكدة"},verdict()],{images:["fixture"],options:{mockVisionResult:{symbols:[{symbol:"COMI",visible_values:{quantity:10}}],confidence:.4,uncertainties:["uncertain-fixture"]}}});

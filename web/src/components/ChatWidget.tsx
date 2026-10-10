@@ -145,10 +145,10 @@ export default function ChatWidget() {
     // Dynamic auto-expand textarea height as user types
     useEffect(() => {
         if (textareaRef.current) {
-            textareaRef.current.style.height = "auto";
-            textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 220)}px`;
+            textareaRef.current.style.height = "40px";
+            if (input.length > 0) textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
         }
-    }, [input]);
+    }, [input, isOpen, isExpanded]);
 
     // Close model menu when clicking outside
     useEffect(() => {
@@ -290,7 +290,7 @@ export default function ChatWidget() {
             <button
                 onClick={() => setIsOpen(true)}
                 className="fixed bottom-5 right-5 h-16 w-16 bg-[#FFE600] hover:bg-[#ffef5c] border-4 border-black dark:border-white text-black flex items-center justify-center shadow-[6px_6px_0_0_#000] dark:shadow-[6px_6px_0_0_#fff] transition-all hover:-translate-x-1 hover:-translate-y-1 hover:shadow-[9px_9px_0_0_#000] dark:hover:shadow-[9px_9px_0_0_#fff] active:translate-x-1 active:translate-y-1 active:shadow-none z-[9999] animate-in fade-in zoom-in duration-300 p-2"
-                title="AI Market Assistant"
+                title="ARTORO"
             >
                 <NextImage src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={40} height={40} className="w-10 h-10 object-contain" priority />
             </button>
@@ -301,8 +301,8 @@ export default function ChatWidget() {
         <div 
             className={`
                 fixed z-[9999] flex bg-[#fffdf2] dark:bg-[#09090b] border-4 border-black dark:border-white transition-all duration-300 overflow-hidden
-                max-md:inset-0 max-md:w-full max-md:h-full max-md:rounded-none max-md:pt-[env(safe-area-inset-top,20px)] max-md:pb-[env(safe-area-inset-bottom,10px)]
-                md:rounded-none md:min-w-[400px] md:min-h-[500px] md:max-w-[100vw] md:max-h-[100vh]
+                max-md:inset-0 max-md:w-full max-md:h-[100dvh] max-md:rounded-none max-md:pt-[env(safe-area-inset-top,0px)] max-md:pb-[env(safe-area-inset-bottom,0px)]
+                md:rounded-none md:min-w-[400px] md:min-h-[320px] md:max-w-[100vw] md:max-h-[100vh]
                 ${isExpanded 
                     ? "md:top-4 md:bottom-4 md:left-4 md:right-4 md:w-[calc(100vw-2rem)] md:h-[calc(100vh-2rem)] md:shadow-[10px_10px_0_0_#000] dark:md:shadow-[10px_10px_0_0_#fff]"
                     : "md:bottom-6 md:right-6 md:top-auto md:left-auto md:w-[700px] md:h-[680px] md:shadow-[10px_10px_0_0_#000] dark:md:shadow-[10px_10px_0_0_#fff]"
@@ -324,9 +324,9 @@ export default function ChatWidget() {
             )}
 
             {/* Main Chat Container */}
-            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
+            <div className="flex-1 flex flex-col h-full min-h-0 min-w-0 overflow-hidden">
                 {/* Header */}
-                <div className="flex items-center justify-between px-4 py-3 border-b-4 border-black dark:border-white bg-[#FFE600] shrink-0">
+                <div className="flex items-center justify-between px-3 py-1.5 border-b-2 border-black dark:border-white bg-[#FFE600] shrink-0">
                     <div className="flex items-center gap-2 text-black font-black uppercase tracking-tight">
                         {user && (
                             <button
@@ -337,10 +337,10 @@ export default function ChatWidget() {
                                 <PanelLeft className="h-4 w-4 stroke-[2.5]" />
                             </button>
                         )}
-                        <div className="h-9 w-9 border-2 border-black bg-white flex items-center justify-center shadow-[2px_2px_0_0_#000] p-1 shrink-0">
+                        <div className="h-7 w-7 border-2 border-black bg-white flex items-center justify-center shadow-[2px_2px_0_0_#000] p-1 shrink-0">
                             <NextImage src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={28} height={28} className="w-6 h-6 object-contain" />
                         </div>
-                        <span>EGX AI Assistant</span>
+                        <span>ARTORO</span>
                     </div>
                     <div className="flex items-center gap-2">
                         {user && (
@@ -366,7 +366,7 @@ export default function ChatWidget() {
                 </div>
 
                 {/* Messages Body */}
-                <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5 space-y-4 neobrutal-grid-bg" onScroll={handleScroll}>
+                <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 sm:p-5 space-y-4 neobrutal-grid-bg" onScroll={handleScroll}>
                     {!user ? (
                         <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4 my-auto min-h-[300px]">
                             <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500">
@@ -652,7 +652,7 @@ export default function ChatWidget() {
                 </div>
 
                 {/* Input Form */}
-                <div className="p-3 sm:p-4 border-t-4 border-black dark:border-white bg-[#FFE600] shrink-0 min-w-0 overflow-hidden">
+                <div className="p-2 border-t-2 border-black dark:border-white bg-[#FFE600] shrink-0 min-w-0 overflow-hidden">
                     {user ? (
                         <>
                         <form onSubmit={handleSubmit} className="space-y-2">
@@ -722,9 +722,9 @@ export default function ChatWidget() {
                                     placeholder={
                                         imagePreviews.length > 0
                                             ? (language === "ar" ? `أضف وصفاً لـ (${imagePreviews.length}) صور (اختياري)...` : `Add description for (${imagePreviews.length}) images (optional)...`) 
-                                            : (language === "ar" ? "اسأل عن أي سهم في البورصة المصرية... (Shift+Enter لسطر جديد)" : "Ask about any EGX stock... (Shift+Enter for newline)")
+                                            : (language === "ar" ? "اسأل ARTORO..." : "Ask ARTORO...")
                                     }
-                                    className="flex-1 min-h-[42px] max-h-[220px] py-2 px-3 bg-transparent text-base md:text-sm text-black dark:text-zinc-100 placeholder:text-zinc-500 focus:outline-none resize-none leading-relaxed overflow-y-auto transition-all duration-150"
+                                    className="flex-1 min-w-0 h-10 min-h-[40px] max-h-[160px] py-2 px-3 bg-transparent text-base md:text-sm text-black dark:text-zinc-100 placeholder:text-zinc-500 focus:outline-none resize-none leading-6 overflow-y-auto"
                                 />
 
                                 <button

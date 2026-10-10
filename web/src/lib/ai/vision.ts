@@ -340,7 +340,8 @@ export async function analyzeImage(
     imageUrl: string | string[],
     userMessage: string,
     apiKeys: string[],
-    messageId: string
+    messageId: string,
+    onCall?: (provider: string, model: string) => (json: any) => void
 ): Promise<{ vision: VisionContext | null; error: string | null }> {
     const deepSeekKey = getDeepSeekApiKey();
     const nvidiaKeys = getNvidiaApiKeys();
@@ -379,6 +380,7 @@ export async function analyzeImage(
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), Math.min(VISION_TIMEOUT_MS, remaining));
         try {
+            const capture = onCall?.(provider, model);
             const endpoint = provider === "deepseek" ? AI_CONFIG.api.deepseekBaseUrl : AI_CONFIG.api.nvidiaBaseUrl;
             const res = await executionFetch(endpoint, {
                 method: "POST",
@@ -414,6 +416,7 @@ export async function analyzeImage(
                 return null;
             }
             const json = await res.json();
+            capture?.(json);
             const choice = json.choices?.[0];
             const finishReason = String(choice?.finish_reason || "");
             const rawContent = choice?.message?.content?.trim() || "";

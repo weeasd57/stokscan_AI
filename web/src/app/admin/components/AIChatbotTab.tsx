@@ -7,10 +7,12 @@ import {
     Zap, Crown, ArrowDown, Folder, Archive, CheckCircle2 
 } from "lucide-react";
 import { toast } from "sonner";
+import { ChatUsageDetails, UserChatCost } from "./ChatUsageDetails";
 import SupportTab from "./SupportTab";
 import { FormattedChatMessage } from "@/components/chat/FormattedChatMessage";
 
 export default function AIChatbotTab() {
+    const [usageTotals, setUsageTotals] = useState<{ users: Record<string, any>; complete: boolean } | null>(null);
     const [logsLoading, setLogsLoading] = useState(true);
     const [isDeleting, setIsDeleting] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -44,7 +46,8 @@ export default function AIChatbotTab() {
     const fetchLogs = async (limit = loadedLimit) => {
         setLogsLoading(true);
         try {
-            const res = await fetch(`/api/admin/ai-chatbot/logs?limit=${limit}`);
+            const [res, usageRes] = await Promise.all([fetch(`/api/admin/ai-chatbot/logs?limit=${limit}`), fetch("/api/admin/ai-chatbot/usage").catch(() => null)]);
+            setUsageTotals(usageRes?.ok ? await usageRes.json() : null);
             if (res.ok) {
                 const data = await res.json();
                 setLoadedLimit(limit);
@@ -294,7 +297,7 @@ export default function AIChatbotTab() {
                 <div>
                     <h2 className="text-2xl font-black uppercase tracking-tight text-black dark:text-white flex items-center gap-3">
                         <Sparkles className="w-8 h-8 text-indigo-500" />
-                        AI Chatbot & Support Monitor
+                        ARTORO & Support Monitor
                     </h2>
                     <p className="text-zinc-500 font-medium mt-1">سجل استفسارات ومحادثات العملاء وتذاكر الدعم الفني المباشر مقسمة حسب الغرف والجلسات.</p>
                 </div>
@@ -311,7 +314,7 @@ export default function AIChatbotTab() {
                     }`}
                 >
                     <Sparkles className="w-4 h-4" />
-                    <span>🤖 سجل محادثات الذكاء الاصطناعي (AI Chatbot)</span>
+                    <span>🤖 سجل محادثات الذكاء الاصطناعي (ARTORO)</span>
                     <span className="text-[10px] bg-black/20 dark:bg-white/20 px-2 py-0.5 rounded-full font-mono">
                         {userGroups.length}
                     </span>
@@ -485,6 +488,7 @@ export default function AIChatbotTab() {
                                                         </div>
                                                     </div>
                                                     <div className="flex flex-col items-end shrink-0 gap-1">
+                                                        <span className="text-[10px] font-mono" title="التكلفة التقديرية للسجل المحفوظ">{usageTotals?.users[group.user_id] && (usageTotals.users[group.user_id].unpriced_messages < usageTotals.users[group.user_id].messages || usageTotals.users[group.user_id].cost_usd > 0) ? `≈ $${usageTotals.users[group.user_id].cost_usd.toFixed(6)}` : "التكلفة غير متاحة"}</span>
                                                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                                             isUnread 
                                                                 ? "bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30" 
@@ -503,6 +507,7 @@ export default function AIChatbotTab() {
                                 <div className="md:col-span-3 flex flex-col h-full bg-white dark:bg-black overflow-hidden order-last md:order-first">
                                     {selectedGroup ? (
                                         <>
+                                            <div className="p-3 border-b border-zinc-200 dark:border-zinc-800"><UserChatCost summary={usageTotals?.users[selectedGroup.user_id]} complete={usageTotals?.complete === true} /></div>
                                             {/* Top User Bar */}
                                             <div className="p-3.5 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-black flex items-center justify-between shrink-0">
                                                 <div className="flex items-center gap-3">
@@ -698,7 +703,7 @@ export default function AIChatbotTab() {
                                                                 <div className="bg-indigo-50/70 dark:bg-zinc-950 border border-indigo-100 dark:border-zinc-800/80 text-black dark:text-zinc-100 p-3 rounded-2xl rounded-tl-none text-xs max-w-[85%] leading-relaxed">
                                                                     <span className="text-[10px] font-bold text-indigo-500 block mb-1 flex items-center justify-between gap-1 w-full">
                                                                         <span className="flex items-center gap-1">
-                                                                            <Sparkles className="w-3 h-3 text-indigo-500" /> EGX Bots AI:
+                                                                            <Sparkles className="w-3 h-3 text-indigo-500" /> ARTORO:
                                                                         </span>
                                                                         <div className="flex items-center gap-1.5">
                                                                             {log.dataSource === "realtime" && (
@@ -723,6 +728,7 @@ export default function AIChatbotTab() {
                                                                             )}
                                                                         </div>
                                                                     </span>
+                                                                    <ChatUsageDetails log={log} />
                                                                     <div className="text-black dark:text-zinc-100">
                                                                         {log.reply && log.reply.trim().length > 0 ? (
                                                                             <FormattedChatMessage

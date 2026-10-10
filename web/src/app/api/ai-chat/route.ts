@@ -955,6 +955,7 @@ export async function POST(req: NextRequest) {
             if (activeSessionId) {
                 const provenance = extractProvenanceFromToolResults(pipelineResult?.tools?.results || [], pipelineResult?.tables || []) || {};
                 provenance.usage = pipelineResult.usage || null;
+                provenance.correlation_id = correlationId;
                 provenance.publication_review = pipelineResult.publication_review || null;
                 provenance.response_origin = pipelineResult.response_origin || null;
                 provenance.suggested_buttons = suggestedButtons;

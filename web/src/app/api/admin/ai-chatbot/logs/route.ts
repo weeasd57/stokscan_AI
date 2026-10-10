@@ -221,6 +221,12 @@ export async function GET(req: NextRequest) {
                             data_source: dataSource,
                             data_date: dataDate,
                             tables,
+                            usage: meta?.usage || null,
+                            assistant_message_id: assistantMsg?.id || null,
+                            response_origin: meta?.response_origin || null,
+                            correlation_id: meta?.correlation_id || null,
+                            reply_created_at: assistantMsg?.created_at || null,
+                            publication_review: meta?.publication_review || null,
                             is_pro: isProUser(msg.user_id),
                         });
                     }
@@ -252,6 +258,11 @@ export async function GET(req: NextRequest) {
                             data_source: meta?.data_source || null,
                             data_date: meta?.data_date || null,
                             tables: Array.isArray(meta?.tables) ? meta.tables : [],
+                            usage: meta?.usage || null,
+                            assistant_message_id: msg.id,
+                            response_origin: meta?.response_origin || null,
+                            correlation_id: meta?.correlation_id || null,
+                            publication_review: meta?.publication_review || null,
                             is_pro: isProUser(msg.user_id),
                         });
                     }
@@ -264,7 +275,7 @@ export async function GET(req: NextRequest) {
         );
 
         return NextResponse.json(formattedLogs, {
-            headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=300" },
+            headers: { "Cache-Control": "private, no-store" },
         });
     } catch (e) {
         console.error("Error in admin ai-chatbot logs GET:", e);
