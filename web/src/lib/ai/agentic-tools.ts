@@ -257,8 +257,9 @@ async function executeRawTool(
                 const complete = positions.length <= 100 && enriched.every(p => p.cost != null && p.market_value != null);
                 const invested = enriched.every(p => p.cost != null) ? enriched.reduce((n,p) => n + p.cost!, 0) : null;
                 const market = complete ? enriched.reduce((n,p) => n + p.market_value!, 0) : null;
-                return { status: "success", operation, persisted: false, valuation_complete: complete,
-                    truncated: positions.length > 100, positions: enriched,
+                return { status: "success", operation, persisted: false, read_complete: true,
+                    empty: positions.length === 0, saved_positions_found: positions.length > 0,
+                    valuation_complete: complete, truncated: positions.length > 100, positions: enriched,
                     summary: { positions_count: enriched.length, total_invested: invested,
                         total_market_value: market, unrealized_pl_val: market != null && invested != null ? round(market-invested) : null,
                         unrealized_pl_pct: market != null && invested != null && invested > 0 ? round((market-invested)/invested*100) : null } };

@@ -1,6 +1,8 @@
 import {
     compactHistory,
+    fallbackEvidence,
     groundedReviewerIssues,
+    removeBogusPortfolioReviewIssues,
     removeDisprovenMissingToolIssues,
     removeSelfRetractedReviewerIssues,
     unsupersededEvidence,
@@ -131,6 +133,65 @@ describe("agentic-runtime pure guardrails (offline; no provider or chatbot calls
             const realConcern = "المسودة لم تذكر تاريخ البيانات";
 
             expect(removeSelfRetractedReviewerIssues([selfRetracted, realConcern])).toEqual([realConcern]);
+        });
+
+        test("dismisses false portfolio review objections when manage_portfolio(view) verifies empty positions", () => {
+            const emptyEvidence = [
+                toAgenticEvidence("manage_portfolio", { operation: "view" }, {
+                    status: "success",
+                    operation: "view",
+                    persisted: false,
+                    read_complete: true,
+                    empty: true,
+                    saved_positions_found: false,
+                    positions: [],
+                }),
+            ];
+            const bogusIssues = [
+                "حفظ المحفظة يحتاج persisted=true من الدور الحالي",
+                "لم يتم إثبات أن المحفظة فارغة لأن persisted=false",
+                "المسودة تذكر أن المحفظة فارغة دون حفظ المراكز",
+            ];
+            const realIssue = "المسودة لم تذكر الإغلاق الأخير لسهم COMI";
+
+            expect(removeBogusPortfolioReviewIssues([...bogusIssues, realIssue], emptyEvidence)).toEqual([realIssue]);
+        });
+
+        test("retains legitimate persisted=true objections when a portfolio write operation was attempted", () => {
+            const writeAttemptEvidence = [
+                toAgenticEvidence("manage_portfolio", { operation: "add", symbol: "COMI", quantity: 100, price: 120 }, {
+                    status: "success",
+                    operation: "add",
+                    persisted: false,
+                }),
+            ];
+            const writeIssue = "حفظ المحفظة يحتاج persisted=true من الدور الحالي";
+
+            expect(removeBogusPortfolioReviewIssues([writeIssue], writeAttemptEvidence)).toEqual([writeIssue]);
+        });
+
+        test("scopes fallbackEvidence to active symbols to prevent leaking unrelated past tables", () => {
+            const pastComparison = toAgenticEvidence("get_comparison", { symbols: ["EFIC", "HRHO", "SWDY"] }, {
+                status: "success",
+                stocks: [
+                    { symbol: "EFIC", close: 80 },
+                    { symbol: "HRHO", close: 27 },
+                    { symbol: "SWDY", close: 95 },
+                ],
+            });
+            const activeImageEvidence = toAgenticEvidence("get_stock", { symbol: "TALM" }, {
+                status: "success",
+                stocks: [{ symbol: "TALM", close: 21 }],
+            });
+
+            const allEvidence = [pastComparison, activeImageEvidence];
+            // When active symbols are TALM and TMGH (from current vision/turn), past comparison must not leak
+            const scoped = fallbackEvidence(allEvidence, ["TALM", "TMGH"]);
+            expect(scoped.some(e => e.tool === "get_comparison")).toBe(false);
+
+            // When no active symbols are given, default candidate filtering applies
+            const unscoped = fallbackEvidence(allEvidence);
+            expect(unscoped.some(e => e.tool === "get_comparison")).toBe(true);
         });
     });
 });

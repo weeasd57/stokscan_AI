@@ -300,3 +300,9 @@ npm run build
 - 2026-10-10: blanket (plural) EMA relation claims are checked per sentence, and markdown headings no longer inherit the last-named stock; review rejection codes are logged server-side (no draft text). Found by a signed-in production smoke of the ABUK/ADIB/CIEB question.
 
 - 2026-10-10: EMA relation checks ignore label phrases (?????? ?? EMA50), scope plural claims to the stocks named in the sentence, skip generic clauses that precede the stock they name, and treat '?? ???? ????? ??? ?????' as a negation. Local replay of the ABUK/ADIB/CIEB question: 5/5 passed review (was 1/4).
+
+- 2026-10-10: إصلاح جلسة تحليل المحفظة والصور للمستخدم (أحمد):
+  1. تحليل صورة المحفظة دون إنكار الأرقام: عند استخراج بيانات المحفظة من لقطة شاشة بأسهم وكميات ومتوسطات شراء (`visible_values`)، يقوم الموديل بتحليل التوزيع والقطاعات ونسب المراكز مباشرة دون ادعاء كاذب بأن الكميات أو متوسطات الشراء لم تظهر.
+  2. منع تراجع الرموز في المتابعات: عند متابعة المستخدم بعد إرفاق صورة محفظة (مثل «اهو» أو «لا اعملها»)، تعتمد الجلسة رموز الصورة الأخيرة (`last_image_symbols` و`activeSymbols`) بدلاً من الرجوع لرموز نوقشت في أدوار سابقة.
+  3. حماية المراجع عند عرض المحفظة الفارغة: إضافة `removeBogusPortfolioReviewIssues` لإسقاط اعتراضات المراجع التي تطالب بـ `persisted=true` أو تدعي أن خلو المحفظة لم يُثبت عندما ترجع أداة `manage_portfolio(operation="view")` نتيجة مؤكدة بأن المحفظة فارغة (`empty: true` / `saved_positions_found: false`).
+  4. تقييد الرد الآمن البديل (`fallbackEvidence`): قصر الجداول المعروضة في الرد الاحتياطي على الرموز النشطة الحالية (`activeSymbols`) حتى لا تتسرب جداول مقارنة قديمة من جولات سابقة إلى ردود المحفظة والصور.
