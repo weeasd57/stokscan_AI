@@ -1,5 +1,7 @@
 import { executionSupabase } from "./execution";
 import { executeChartStrategyTool, type ChartHistoryCache } from "./chart-strategy-tools";
+import { sanitizeNewsRows } from "./news-evidence";
+import { todayInCairo } from "./cairo-date";
 
 const normalizeSymbol = (value: unknown) => String(value).trim().toUpperCase().replace(/\.CA$/i, "");
 const finite = (value: unknown): number | null => value == null || value === "" || !Number.isFinite(Number(value)) ? null : Number(value);
@@ -604,19 +606,25 @@ async function executeRawTool(
         }
 
         if (toolName === "get_news") {
-            const symbols = args.symbols || [];
-            let stockIds: number[] = [];
-            const names = new Map<number,string>();
-            if (symbols.length) {
-                const { data: stocks } = await supabase.from("stocks").select("id,symbol").in("symbol",symbols).limit(10);
-                for (const stock of stocks || []) { stockIds.push(stock.id); names.set(stock.id,stock.symbol); }
-                if (!stockIds.length) return { status:"success", availability:"missing", news:[], symbols, note:"لم أجد رموزاً موثقة للأخبار المطلوبة" };
-            }
-            let query = supabase.from("news").select("stock_id,title,published_at,source,url")
-                .order("published_at",{ascending:false});
-            if (stockIds.length) query = query.in("stock_id",stockIds);
-            const { data: rows } = await query.limit(10);
-            return { status:"success", news:(rows || []).map((r:any)=>({...r,symbol:names.get(r.stock_id) ?? null})), symbols };
+            const symbols: string[] = args.symbols || [];
+            const today = todayInCairo();
+            const since = new Date(`${today}T00:00:00Z`);
+            since.setUTCDate(since.getUTCDate() - 7);
+            const sinceDate = since.toISOString().slice(0, 10);
+            let query = supabase.from("stock_news_sentiment")
+                .select("symbol,date,sentiment_score,news_count,headlines")
+                .eq("exchange", "EGX").gte("date", sinceDate).gt("news_count", 0)
+                .order("date", { ascending: false }).limit(50);
+            if (symbols.length) query = query.in("symbol", symbols);
+            const { data: rows } = await query;
+            const rowSymbols = [...new Set((rows || []).map((r:any)=>String(r.symbol || "").toUpperCase()).filter(Boolean))];
+            const { data: names } = rowSymbols.length
+                ? await supabase.from("stocks").select("symbol,name").in("symbol", rowSymbols).limit(rowSymbols.length)
+                : { data: [] };
+            const nameMap = new Map<string,string>((names || []).map((r:any)=>[String(r.symbol).toUpperCase(),String(r.name || "")]));
+            const news = sanitizeNewsRows(rows || [], nameMap);
+            return { status:"success", availability:news.length ? "available" : "missing", news, symbols,
+                date_range:{ from:sinceDate, through:today }, note:news.length ? undefined : "لا توجد عناوين موثقة مطابقة في مصدر الأخبار خلال آخر 7 أيام" };
         }
 
         if (toolName === "get_comparison") {

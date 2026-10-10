@@ -1,7 +1,7 @@
 import { executeAgenticTool, runAgenticPipelineStream, AGENTIC_TOOLS_SCHEMA } from "../agentic-pipeline";
 import { cairoWeekBounds } from "../agentic-tools";
 import { checkAgenticDraft, checkUserPositionInputs, toAgenticEvidence, evidenceMemory, safeAgenticFallback } from "../agentic-publication";
-import { compactHistory, unsupersededEvidence } from "../agentic-runtime";
+import { compactHistory, unsupersededEvidence, removeDisprovenMissingToolIssues } from "../agentic-runtime";
 import { AGENTIC_SYSTEM_PROMPT } from "../agentic-pipeline";
 import { runAnswerGate } from "../answer-gate";
 import { analyzeImage } from "../vision";
@@ -203,6 +203,17 @@ describe("Agentic architecture integration: current production path", () => {
     test("review rejection is repaired once and verified again", async () => {
         const r=await run([{content:"رد بعيد عن السؤال"},verdict(false,["لم يكمل السؤال"]),{content:"رد مصحح"},verdict()]);
         expect(r.done.publication_review).toMatchObject({passed:false,repaired:true,final_passed:true}); expect(r.done.response).toContain("رد مصحح");
+    });
+    test("partial lookup is not repaired after reviewer falsely claims its tool was never called", async () => {
+        const d=db(q=>({data:q.table === "stock_technical_indicators" ? [{symbol:"COMI",close:124.65,date:price.date}] : [],error:null}));
+        const r=await run([{tool_calls:[call("get_comparison",{symbols:["COMI","ZZZZ99"]})]},
+            {content:"تعذر العثور على بيانات الرمز ZZZZ99، وظهرت بيانات COMI المتاحة."},
+            verdict(false,["لم يتم استدعاء get_comparison للرمز ZZZZ99"])] ,{db:d,userMessage:"قارن COMI وZZZZ99"});
+        expect(r.done.publication_review.final_passed).toBe(true);
+        expect(r.fetchMock).toHaveBeenCalledTimes(3);
+        const reviewBody=JSON.parse(r.fetchMock.mock.calls[2][1].body);
+        expect(reviewBody.messages[1].content).toContain("available_tools");
+        expect(reviewBody.messages[1].content).toContain("get_comparison");
     });
     test("DSML cannot pass even when reviewer approves", async () => {
         const r=await run([{content:"<DSML invoke get_stock>"},verdict(),{content:"<DSML invoke get_stock>"},verdict()]);
@@ -568,10 +579,10 @@ describe("Agentic tool correctness and failure boundaries", () => {
         const d=db(q=>({data:q.ops.some(o=>o[0] === "select" && o[1] === "created_at") ? [] : [{symbol:"COMI",status:"win",entry_price:100,target_price:120}],error:null}));
         const r=await executeAgenticTool("get_recommendations",{status:"closed"},d.client,"u");expect(r.recommendations[0].realized_return_pct).toBeNull();
     });
-    test("stock news filters stock_id before limiting actual news schema",async()=>{
-        const d=db(q=>({data:q.table === "stocks" ? [{id:7,symbol:"COMI"}] : [{stock_id:7,title:"خبر",published_at:price.date}],error:null}));
+    test("stock news uses bounded sentiment schema and filters requested symbols",async()=>{
+        const d=db(q=>({data:q.table === "stocks" ? [{symbol:"COMI",name:"Commercial International Bank"}] : [{symbol:"COMI",date:price.date,headlines:["COMI reports quarterly earnings"],news_count:1,sentiment_score:0.5}],error:null}));
         const r=await executeAgenticTool("get_news",{symbols:["COMI"]},d.client,"u");
-        expect(d.queries[1].ops).toContainEqual(["in","stock_id",[7]]);expect(r.news[0].symbol).toBe("COMI");
+        expect(d.queries[0].table).toBe("stock_news_sentiment");expect(d.queries[0].ops).toContainEqual(["in","symbol",["COMI"]]);expect(r.news[0].symbol).toBe("COMI");
     });
     test("sell requires explicit price and quantity and cannot oversell",async()=>{
         const d=db(()=>({data:[{id:"p",symbol:"COMI",quantity:10,entry_price:100,updated_at:price.date}],error:null}));
@@ -662,6 +673,22 @@ describe("Agentic tool correctness and failure boundaries", () => {
         expect(checkAgenticDraft("COMI: السعر 124.65 تحت EMA50 لكنه فوق EMA200.",e)).toContain("price_average_relation_contradiction:COMI:ema_200");
         expect(checkAgenticDraft("COMI: السعر تحت EMA50 وتحت EMA200.",e)).toEqual([]);
         expect(checkAgenticDraft("COMI: لو أغلق فوق EMA200 يمكن متابعة التحسن.",e)).toEqual([]);
+    });
+    test("plural EMA claims are checked against every comparison row",()=>{
+        const e=[toAgenticEvidence("get_comparison",{symbols:["COMI","SWDY"]},{comparison:[
+            {symbol:"COMI",close:124.65,ema_50:133.146989,ema_200:130,date:price.date},
+            {symbol:"SWDY",close:116,ema_50:115.98344,ema_200:120,date:price.date},
+        ]})];
+        expect(checkAgenticDraft("الاثنان تحت EMA50.",e)).toContain("price_average_relation_contradiction:SWDY:ema_50");
+        expect(checkAgenticDraft("كلاهما تحت EMA200.",e)).toEqual([]);
+    });
+    test("reviewer cannot claim a requested tool was never called when evidence records it",()=>{
+        const e=[toAgenticEvidence("get_comparison",{symbols:["COMI","ZZZZ99"]},{comparison:[
+            {symbol:"COMI",close:124.65,date:price.date},{symbol:"ZZZZ99",error:"Not found in active main market"}
+        ]})];
+        expect(e[0].availability).toBe("partial");
+        expect(removeDisprovenMissingToolIssues(["لم يتم استدعاء get_comparison للرمز ZZZZ99"],e)).toEqual([]);
+        expect(removeDisprovenMissingToolIssues(["لم يتم استدعاء get_news"],e)).toEqual(["لم يتم استدعاء get_news"]);
     });
     test("period constants and small integers are not exemptions for invented price cells",()=>{
         const e=[toAgenticEvidence("get_stock",{symbols:["COMI"]},{stocks:[{symbol:"COMI",close:108,date:price.date}]})];

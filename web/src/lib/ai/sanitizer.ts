@@ -197,10 +197,12 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         const countAr = (s: string) => (s.match(/[\u0600-\u06FF]/g) || []).length;
         const countEn = (s: string) => (s.match(/[A-Za-z]/g) || []).length;
         const isStructural = (t: string) => /^(#{1,6}\s|\*\*\S{1,12}\*\*|[•\-]\s*[A-Z]{2,6}\b|[A-Z]{2,6}\s*[:：]|\|)/.test(t);
-        const kept = cleanReply
-            .split("\n")
-            .filter(line => {
+        let preservingSectorRows = false;
+        const kept = cleanReply.split("\n").filter(line => {
                 const t = line.trim();
+                if (/^(?:#{1,6}\s*)?(?:\*\*)?(?:التركيز القطاعي|التركيز الصناعي|التوزيع القطاعي|التوزيع الصناعي)(?:\*\*)?\s*[:：]?/.test(t)) preservingSectorRows = true;
+                else if (!t || (/^#{1,6}\s/.test(t)) || (preservingSectorRows && !/^[•*\-]\s/.test(t))) preservingSectorRows = false;
+                if (preservingSectorRows && /^[•*\-]\s/.test(t)) return true;
                 if ((t.startsWith("|") && t.endsWith("|")) || /^\|[\s:|-]+\|$/.test(t)) return true; // Markdown table row
                 if (/^https?:\/\//i.test(t)) return true;          // source URLs from web search
                 if (/^المصدر[:：]/.test(t)) return true;           // source attribution lines

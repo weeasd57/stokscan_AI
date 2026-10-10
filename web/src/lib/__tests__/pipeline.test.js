@@ -1588,6 +1588,13 @@ describe("Beginner investing guidance", () => {
 });
 
 describe("Legacy table parser safety", () => {
+    it("keeps English sector labels in structured Arabic concentration rows", () => {
+        const { sanitizeReply } = require("../ai/sanitizer");
+        const cleaned = sanitizeReply("التركيز القطاعي:\n• Finance: 66.67% (66,666.67 جنيه) — ويشمل COMI وTMGH\n• Producer Manufacturing: 33.33% (33,333.33 جنيه) — SWDY\n\nThe private reasoning should be removed.");
+        expect(cleaned).toContain("Finance: 66.67%");
+        expect(cleaned).toContain("Producer Manufacturing: 33.33%");
+        expect(cleaned).not.toContain("private reasoning");
+    });
     it("does not treat context labels as stock symbols", () => {
         const parsed = parseToolsOutput([
             "بيانات الأسهم الحية:",

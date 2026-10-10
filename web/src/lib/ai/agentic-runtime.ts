@@ -20,11 +20,21 @@ interface RuntimeInput {
 type Event = { type: string; data: any };
 const footer = "\n\n" + AI_CONFIG.disclaimer + "\n\n📢 [قناة EGX Bots المجانية على تليجرام للتنبيهات والفرص](https://t.me/egxbots)";
 const withFooter = (reply: string) => reply.includes("t.me/egxbots") ? reply : reply + footer;
+/** Suppress reviewer claims that a tool was never tried when the call log proves otherwise. */
+export function removeDisprovenMissingToolIssues(issues: string[], evidence: AgenticEvidence[]) {
+    return issues.filter(issue => {
+        if (!/(?:لم\s*(?:يتم\s*)?(?:استدعاء|استخدام|تجربة|التحقق)|لم\s+يحاول|not\s+(?:been\s+)?(?:called|invoked|attempted|used)|did\s+not\s+(?:call|invoke|attempt|use))/i.test(issue)) return true;
+        const mentioned = [...new Set(issue.match(/\b(?:get_[a-z_]+|screen_stocks|analyze_portfolio_risk)\b/gi) || [])];
+        if (!mentioned.length) return true;
+        return !mentioned.some(name => evidence.some(e => e.tool.toLowerCase() === name.toLowerCase() && e.availability !== "error"));
+    });
+}
 function fallbackEvidence(evidence: AgenticEvidence[]) {
     return evidence.filter(e => e.data?.persisted === true || (e.data?.status === "success"
         && ["screen_stocks", "analyze_portfolio_risk"].includes(e.tool) && e.availability !== "error"));
 }
 const reviewInstruction = `راجع المسودة الحالية فقط، وفق طلب المستخدم الحالي وأدلته. الحوار السابق لحل الإشارات وليس إجابة تقوم بمراجعتها. تجاهل سلامة الرد السابق عند الحكم على المسودة الحالية. أخرج JSON: {"passed":boolean,"issues":string[],"notes":string[]}.
+افحص قائمة الأدوات المتاحة وسجل استدعاءات الأدوات ووسائط كل استدعاء قبل كتابة issues. لا تقل إن أداة لم تُستدعَ إذا كان سجل evidence يثبت استدعاءها، حتى لو أعادت نتيجة جزئية أو رمزاً غير موجود؛ اقبل توضيح النقص كما هو. لا تطلب أداة غير موجودة في available_tools.
 اجعل JSON موجزاً: ثلاثة أخطاء كحد أقصى، كل خطأ في جملة قصيرة أقل من 150 حرفاً؛ عند القبول issues=[] وnotes=[]، دون إعادة سرد المسودة أو تبرير كل نقطة. issues للأخطاء فقط وnotes للتفسير المقبول. قبول قيد بيانات حقيقي ليس خطأ. ارفض خلط الرموز/أسماء الشركات أو الأرقام أو عدم إنجاز نفس المتابعة والمعيار والفترة. الأدلة السابقة مصدر صحيح للدور السابق؛ غياب أداة الآن لا يجعلها مختلقة، لكن لا تنسبها لبيانات حية جديدة. مجرد ذكر المستخدم لأسهم ضمن سؤال تحليل أو محفظة افتراضية لا يعني أنها محفوظة، ولا يتطلب طلب الحفظ أو رابط البروفايل. عند توفر نتيجة analyze_portfolio_risk اقبل تحليلاً موسوماً كسيناريو، واطلب بيان التوزيع المفترض/المحدد، رأس المال المطبق، القطاعات المتاحة، وحالة الحفظ المدعومة بالأداة؛ لا تخلطه بنتيجة manage_portfolio. عند توفر screen_stocks اقبل الجدول المحسوب للشروط المركبة فقط إذا التزم بتاريخ الأداة وحدودها ووضح المسح الجزئي. الإغلاق المساوي للمقاومة عندها وليس تحتها؛ أعلى 20 جلسة يشمل جلسة اللقطة ولا يثبت اختراق مقاومة سابقة. القطاع من المصدر تصنيف عام؛ راجع الصناعة أيضاً ولا تساوِ Finance بالبنوك لكل الأسهم. نسبة التوزيع ليست عائداً، ومبلغ القطاع هو مجموع مبالغ أعضائه المحددين.
 ارفض عرض نتائج سهم سابق بدلاً من الرمز المطلوب الآن، ورفض الإجابة عن توافر بيانات دون محاولة تحقق. عند اعتراض المستخدم «إيه ده» راجع ارتباط الرد بالطلب الذي تعثر. لا تعتبر آخر سهم هو الوجهة الافتراضية لأي مبلغ يذكره المستخدم. الفترة القريبة يجب تحديدها صراحة؛ سنتان لا تعني السوق الحالي. أسماء دوال الأدوات والجداول الداخلية لا تظهر للمستخدم. العلاقات الحسابية المشتقة من MACD/إشارته والمتوسطات تفسير مسموح مع بيان أساسه؛ منع اختراع معادلة مؤشر داخلي لا يمنع التحليل الفني.
 التقريب الصحيح للعرض مقبول: لا ترفض خانتين أو ثلاثاً لمجرد وجود منازل أكثر في الدليل، طالما لا يغيّر الإشارة أو المعنى أو الترتيب. المسودة النهائية تجيب السؤال كاملاً؛ رفض المسودة السابقة وإصلاحها إجراء داخلي، وليس موضوع الإجابة. لا تقبل شرح «ما تم إصلاحه» أو «كما ورد من الأداة» أو الاعتذار عن تقريب صحيح بدلاً من المقارنة المطلوبة. شرح مصدر/تاريخ البيانات وحدودها للمستخدم مسموح. إذا ذكر المستخدم متوسط شراء أو كمية في الطلب الحالي، أجب عن أثرهما ولا تطلب إعادة ذكرهما. وإذا طلب صراحة مراجعة/تحديث مستويات سهم من الحوار، اطلب جلب بيانات السهم ومستوياته في هذه الجولة؛ لا تعتبر وقت جلب الأدلة القديمة دليلاً على حداثة تاريخ السوق.
@@ -262,6 +272,7 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[], accoun
         return [...relevantPrevious, ...evidence];
     };
     const reviewPayload = (reply: string) => ({ request: userMessage, draft_to_review:reply,
+        available_tools:input.toolsSchema.map((tool:any)=>tool.function?.name).filter(Boolean),
         evidence:evidence.map(compactEvidence), previous_evidence:unsupersededEvidence(previousEvidence, evidence).filter(e => !usedSymbols.length || e.symbols.some(s => usedSymbols.includes(s))),
         dialogue:recentHistory.slice(-2), context:{state:context.state,summary:context.summary,vision:context.vision,current_time_cairo:context.current_time_cairo} });
     const review = async (reply: string) => {
@@ -280,10 +291,11 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[], accoun
         const issues = verdict.issues ?? verdict.reasons;
         if (typeof verdict.passed !== "boolean" || !Array.isArray(issues) || issues.some((r:any) => typeof r !== "string")) throw new Error("INVALID_REVIEW_SCHEMA");
         // Legacy positive explanations in reasons must not veto passed=true.
-        const failures = verdict.issues !== undefined ? issues : (verdict.passed ? [] : issues);
+        const failures = removeDisprovenMissingToolIssues(verdict.issues !== undefined ? issues : (verdict.passed ? [] : issues), evidence);
         const reasons = [...deterministic, ...failures];
-        if (!verdict.passed && !reasons.length) reasons.push("review_rejected_without_reason");
-        return { passed: verdict.passed && reasons.length === 0, reasons };
+        const rejectionWasFullyDisproven = !verdict.passed && issues.length > 0 && failures.length === 0;
+        if (!verdict.passed && !reasons.length && !rejectionWasFullyDisproven) reasons.push("review_rejected_without_reason");
+        return { passed: (verdict.passed || rejectionWasFullyDisproven) && reasons.length === 0, reasons };
 
     };
     let firstPassed = false, finalPassed = false, repaired = false, reasons: string[] = [];

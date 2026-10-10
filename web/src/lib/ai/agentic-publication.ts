@@ -68,7 +68,7 @@ export function toAgenticEvidence(tool: string, args: any, data: any): AgenticEv
         && Array.isArray(data.stocks) && typeof data.scan_complete === "boolean";
     return { tool, arguments: args, data, source: tool === "list_chart_strategies" ? "deterministic:strategy-catalog" : "supabase:" + ({ get_stock: "stock_technical_indicators+stocks+stock_scans_summary", get_stock_levels: "stock_prices",
         apply_chart_strategy: "stock_prices+deterministic-strategy-engine", compare_strategies_history: "stock_prices+deterministic-backtest", list_chart_strategies: "strategy-catalog",
-        manage_portfolio: "positions+stock_technical_indicators", get_market: "market_cache+stock_technical_indicators", get_news: "news+stocks",
+        manage_portfolio: "positions+stock_technical_indicators", get_market: "market_cache+stock_technical_indicators", get_news: "stock_news_sentiment+stocks",
         get_recommendations: "scan_results+stock_technical_indicators", get_accumulation_stocks: "stock_scans_summary", get_comparison: "stock_technical_indicators",
         get_technical_scan: args.preset === "smart_money_flow" ? "stock_scans_summary" : "stock_technical_indicators",
         screen_stocks: "stock_technical_indicators+stock_prices", analyze_portfolio_risk: "positions+stock_fundamentals+scenario-calculation" } as any)[tool],
@@ -317,6 +317,19 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
         if (!dates[0] || dates.some(d=>d !== dates[0])) continue;
         for (const raw of reply.split("\n")) {
             const line=raw.replace(/[*_`]/g, "");
+            // Plural claims apply to every stock in the comparison, even when
+            // the sentence omits tickers (for example, "both are below EMA50").
+            const blanket = /(?:الاثنان|الاثنين|كلاهما|كلا السهمين|both|all\s+(?:stocks|shares))/i.test(line);
+            const blanketRelation = line.match(/(فوق|أعلى من|اعلى من|تحت|أسفل|اسفل|above|below)\s*(?:الـ\s*)?EMA\s*(50|200)/i);
+            if (blanket && blanketRelation && !/(?:إذا|اذا|لو|أمس|امس|سابق|ليس|مش|غير|(?:^|\s)لا(?:\s|$))/i.test(line)) {
+                const above = /فوق|أعلى|اعلى|above/i.test(blanketRelation[1]);
+                for (const row of quotes) {
+                    const close = Number(row.close), average = Number(row[`ema_${blanketRelation[2]}`]);
+                    if (!Number.isFinite(close) || !Number.isFinite(average)) continue;
+                    if ((above && close <= average) || (!above && close >= average))
+                        reasons.push(`price_average_relation_contradiction:${row.symbol}:ema_${blanketRelation[2]}`);
+                }
+            }
             const named=quotes.filter(r=>new RegExp(`\\b${r.symbol}\\b`,"i").test(line));
             if (named.length !== 1 || /إذا|اذا|لو|أمس|امس|سابق/.test(line)) continue;
             const periods=[...line.matchAll(/EMA\s*(50|200)/gi)].map(m=>m[1]);
