@@ -1,7 +1,29 @@
 import {executeAgenticTool} from '../agentic-tools';
 import {checkAgenticDraft,checkUserPositionInputs,toAgenticEvidence,compactEvidence} from '../agentic-publication';
 import {groundedReviewerIssues} from '../agentic-runtime';
+import {ARTORO_PLATFORM_CONTEXT} from '../platform-context';
+import {AGENTIC_SYSTEM_PROMPT} from '../agentic-pipeline';
 jest.mock('../server-secrets',()=>({getDeepSeekApiKey:()=> 'offline-key'}));
+test('GTWL price column binds to each support or resistance row, independently of distance',()=>{
+    const e=toAgenticEvidence('get_stock_levels',{symbols:['GTWL']},{levels:[{symbol:'GTWL',date:'2026-10-07',close:160,support:124.5,resistance:244}]});
+    const draft='# GTWL — الدعوم والمقاومات\n| المستوى | السعر | المسافة من الإغلاق |\n|---|---|---|\n| مقاومة | 244 | +52.5% |\n| دعم | 124.5 | −22.19% |';
+    expect(checkAgenticDraft(draft,[e])).toEqual([]);
+    expect(checkAgenticDraft(draft.replace('| مقاومة | 244 |','| مقاومة | 124.5 |'),[e])).toContain('table_value_not_grounded:GTWL:124.5');
+    expect(checkAgenticDraft(draft.replace('| دعم | 124.5 |','| دعم | 160 |'),[e])).toContain('table_value_not_grounded:GTWL:160');
+    expect(checkAgenticDraft(draft.replace('−22.19%','+22.19%'),[e]).length).toBeGreaterThan(0);
+});
+test('single-snapshot RSI negation is accepted while an asserted or contrasted easing remains rejected',()=>{
+    const e=toAgenticEvidence('get_stock',{symbols:['GTWL']},{stocks:[{symbol:'GTWL',date:'2026-10-07',close:160,rsi_14:25.05}]});
+    const draft='GTWL: RSI عند 25.05، لكن قراءة واحدة لا تثبت تخفيف ضغط البيع ولا انعكاس الاتجاه.';
+    expect(checkAgenticDraft(draft,[e])).toEqual([]);
+    expect(checkAgenticDraft(draft.replace('لا تثبت','تثبت'),[e])).toContain('rsi_snapshot_does_not_prove_trend:GTWL');
+    expect(checkAgenticDraft('GTWL: RSI لا يثبت انعكاساً، لكن تخفيف ضغط البيع واضح.',[e])).toContain('rsi_snapshot_does_not_prove_trend:GTWL');
+});
+test('writer shares official-versus-platform report capabilities and dialect correction context',()=>{
+    expect(AGENTIC_SYSTEM_PROMPT).toContain(ARTORO_PLATFORM_CONTEXT);
+    expect(ARTORO_PLATFORM_CONTEXT).toContain('/reports');
+    expect(ARTORO_PLATFORM_CONTEXT).toContain('لا نفي الموقع المذكور');
+});
 function db(rows:any[]=[]) {
     const ops:any[]=[];
     const chain:any=new Proxy({}, {get:(_,key)=>key==='then' ? (yes:any)=>Promise.resolve({data:rows,error:null}).then(yes) : (...args:any[])=>{ops.push([key,...args]);return chain;}});
@@ -14,7 +36,6 @@ test.each([
     const e=toAgenticEvidence('get_stock_levels',{symbols:[symbol]},{levels:[{symbol,close,support,resistance,date:'2026-10-07'}]});
     const draft=`**${symbol}**\n| البند | القيمة | المسافة من الإغلاق |\n|---|---:|---:|\n| الإغلاق | ${close} | — |\n| أقرب دعم | ${support} | ${below} |\n| أقرب مقاومة | ${resistance} | ${above} |`;
     expect(checkAgenticDraft(draft,[e])).toEqual([]);
-    expect(checkAgenticDraft(draft.replace('الترتيب لا يتغير','**الترتيب:** لا يتغير'),[e])).toEqual([]);
     expect(checkAgenticDraft(draft.replace(String(below),'-30%'),[e])).toContain(`table_value_not_grounded:${symbol}:-30`);
     expect(checkAgenticDraft(draft.replace(`| ${support} |`,`| ${close} |`),[e])).toContain(`table_value_not_grounded:${symbol}:${close}`);
     expect(checkAgenticDraft(draft.replace(String(below),String(below).replace('-','+')),[e]).length).toBeGreaterThan(0);
@@ -130,6 +151,7 @@ test('production zero-distance ties allow both formulas and negated order change
         {symbol:'EOSB',date:'2026-10-07',close:1.64,resistance:1.64,distance_from_resistance_pct:0}]});
     const draft='| # | السهم | الإغلاق | المقاومة | المسافة (÷ الإغلاق) | المعادلة |\n|---|---|---|---|---|---|\n| 1 | TWSA | 8.62 | 8.62 | 0.00% | (8.62 − 8.62) ÷ 8.62 × 100 |\n| 2 | FAITA | 1.009 | 1.009 | 0.00% | (1.009 − 1.009) ÷ 1.009 × 100 |\n| 3 | EOSB | 1.64 | 1.64 | 0.00% | (1.64 − 1.64) ÷ 1.64 × 100 |\nالقسمة على الإغلاق تعطي (المقاومة − الإغلاق) ÷ الإغلاق، والقسمة على المقاومة تعطي (المقاومة − الإغلاق) ÷ المقاومة.\nالترتيب لا يتغير، والقيم هنا متساوية بصفر في الحالتين.';
     expect(checkAgenticDraft(draft,[e])).toEqual([]);
+    expect(checkAgenticDraft(draft.replace('الترتيب لا يتغير','**الترتيب:** لا يتغير'),[e])).toEqual([]);
     expect(checkAgenticDraft(draft.replace('الترتيب لا يتغير','الترتيب يتغير'),[e])).toContain('screen_distance_order_monotonicity_contradiction');
     expect(checkAgenticDraft(draft.replace('| 0.00% |','| 1.00% |'),[e])).toContain('table_value_not_grounded:TWSA:1');
 });

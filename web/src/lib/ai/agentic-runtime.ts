@@ -1,4 +1,5 @@
 import { createUsageAccounting } from "./usage-accounting";
+import { ARTORO_PLATFORM_CONTEXT } from "./platform-context";
 import type { PipelineOptions, AgenticToolCall } from "./agentic-pipeline";
 import { SessionState, SessionSummary, VisionContext } from "./types";
 import { getDeepSeekApiKey } from "./server-secrets";
@@ -301,7 +302,7 @@ async function* runCore(input: RuntimeInput, evidence: AgenticEvidence[], accoun
     const reviewPayload = (reply: string) => ({ request: userMessage, draft_to_review:reply,
         available_tools:input.toolsSchema.map((tool:any)=>tool.function?.name).filter(Boolean),
         evidence:evidence.map(compactEvidence), previous_evidence:unsupersededEvidence(previousEvidence, evidence).filter(e => !usedSymbols.length || e.symbols.some(s => usedSymbols.includes(s))),
-        dialogue:recentHistory.slice(-2), context:{state:context.state,summary:context.summary,vision:context.vision,current_time_cairo:context.current_time_cairo} });
+        dialogue:recentHistory.slice(-6), context:{platform:ARTORO_PLATFORM_CONTEXT,state:context.state,summary:context.summary,vision:context.vision,current_time_cairo:context.current_time_cairo} });
     const review = async (reply: string) => {
         const deterministic = checkAgenticDraft(reply, verificationEvidence(), userMessage);
         options.diagnosticCapture?.("deterministic_review", {draft: reply, reasons: deterministic});

@@ -325,7 +325,8 @@ function checkSnapshotInterpretations(reply: string, evidence: AgenticEvidence[]
             const prefix = raw.slice(Math.max(0, easing.index - 45), easing.index);
             const blanket = /كلا\s+السهمين|كلاهما|السهمان|السهمين|both/i.test(raw);
             const targets = named.length ? named : blanket ? symbols : owner ? [owner] : [];
-            if (!/لا يثبت|لا يعني|لا يكفي|لا يمكن|(?:ليس|غير|لا)\s*$/.test(prefix)) {
+            const claimPrefix = prefix.split(/[،؛]|لكن|بل/).at(-1) || "";
+            if (!/لا\s+(?:يثبت|تثبت|يعني|تعني|يكفي|تكفي|يمكن|يدل|تدل)|(?:ليس|غير|لا)\s*$/.test(claimPrefix)) {
                 for (const symbol of targets) {
                     const dates = new Set(rows.filter(r => r.symbol === symbol && Number.isFinite(r.rsi_14)
                         && /^\d{4}-\d{2}-\d{2}/.test(r.date || "")).map(r => r.date.slice(0, 10)));
@@ -710,7 +711,11 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
             const distanceColumn = /مساف|الموقع.*(?:إغلاق|اغلاق)|بعد.*(?:إغلاق|اغلاق)/i.test(headers[idx] || "");
             const levelField: FactRecord["field"] | undefined = /دعم/.test(cells[0]) ? "distance_from_support_pct"
                 : /مقاوم/.test(cells[0]) ? "distance_from_resistance_pct" : undefined;
+            const rowFields = !tableHadStockRow ? tableMetricFields(cells[0]) : undefined;
+            const verticalLevelPrice = rowFields?.some(field => field === "support" || field === "resistance")
+                && /^(?:السعر|سعر|القيمة|قيمة|price|value)$/i.test(header.replace(/[*_`]/g," ").trim());
             const fields = screenRow && /مساف|بعد|قرب/.test(header) ? ["distance_from_resistance_pct" as const] : distanceColumn && levelField ? [levelField]
+                : verticalLevelPrice ? rowFields
                 : (scenarioRow ? scenarioMetricFields(headers[idx]) : tableMetricFields(headers[idx]))
                     || (currentSymbol ? tableMetricFields(cells[0]) : undefined);
             const allocationFacts = scenarioRow ? buildFactRecords([{ tool: "analyze_portfolio_risk", source: "scenario-calculation",
