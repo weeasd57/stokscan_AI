@@ -248,7 +248,9 @@ function scenarioTableRow(evidence: AgenticEvidence[], cells: string[], symbols:
     }
     if ((!symbols.length || symbols.every(symbol => symbol === "PORTFOLIO")) && cells.some(cell => /^(?:الإجمالي|إجمالي|المجموع|مجموع|total)$/i.test(clean(cell))))
         return { symbol: "PORTFOLIO", allocation_pct: 100, allocated_capital: scenario.data.capital };
-    if (symbols.length === 1) return scenario.data.stocks?.find((row: any) => row.symbol === symbols[0]) || null;
+    const allocationTable = headers.some(h => /توزيع|وزن|مبلغ|قيمة.*مخصص|allocation|weight|amount/i.test(h)
+        || /^(?:النسبة|نسبة|النسبة %|نسبة %)$/i.test(clean(h)));
+    if (allocationTable && symbols.length === 1) return scenario.data.stocks?.find((row: any) => row.symbol === symbols[0]) || null;
     return null;
 }
 

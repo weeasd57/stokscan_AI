@@ -700,6 +700,11 @@ describe("Agentic tool correctness and failure boundaries", () => {
         ]})];
         const table = "| البند | COMI | SWDY |\n|---|---|---|\n| المسافة من الدعم % | 0.41 | 11.8 |\n| المسافة من المقاومة % | 11.98 | 14.61 |";
         expect(checkAgenticDraft(table,e)).toEqual([]);
+        const oldScenario = toAgenticEvidence("analyze_portfolio_risk", {}, {status:"success",mode:"scenario",capital:100000,
+            stocks:[{symbol:"COMI",allocation_pct:60,allocated_capital:60000},{symbol:"SWDY",allocation_pct:25,allocated_capital:25000}]});
+        const vertical = "| السهم | الإغلاق | الدعم | المسافة النسبية للدعم |\n|---|---|---|---|\n| COMI | 124.65 | 124.14 | 0.41% |\n| SWDY | 116 | 102.31 | 11.8% |";
+        expect(checkAgenticDraft(vertical,[oldScenario,...e])).toEqual([]);
+        expect(checkAgenticDraft(vertical.replace("0.41%", "60%"),[oldScenario,...e])).toContain("table_value_not_grounded:COMI:60");
         expect(checkAgenticDraft(table.replace("0.41", "11.8"),e)).toContain("table_value_not_grounded:COMI:11.8");
         expect(checkAgenticDraft(table.replace("14.61", "19"),e)).toContain("table_value_not_grounded:SWDY:19");
     });
