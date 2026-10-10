@@ -299,22 +299,6 @@ export default function HomePage() {
 
     return (
         <div className="neobrutal-layout min-h-screen -mx-3 sm:-mx-6 md:-mx-8 overflow-hidden pb-16">
-            {/* Top Marquee Ribbon */}
-            <div className="w-full border-y-4 border-black dark:border-white bg-black dark:bg-zinc-950 text-white overflow-hidden py-3 font-mono font-black text-xs sm:text-sm uppercase tracking-widest flex select-none">
-                <div className={isAr ? "animate-marquee-neobrutal-rtl flex gap-12 shrink-0 min-w-full justify-around" : "animate-marquee-neobrutal flex gap-12 shrink-0 min-w-full justify-around"}>
-                    <span>🚀 EGX BOTS • AI SCANNERS • DAILY MARKET DATA • SMART ALERTS</span>
-                    <span>🔥 تداول بذكاء • إشارات شراء وبيع • البورصة المصرية بالذكاء الاصطناعي</span>
-                    <span>⚡ AUTOMATED SCANS • TELEGRAM ALERTS</span>
-                    <span>🤖 RANDOM FOREST & LIGHTGBM MODELS • DIRECT TELEGRAM DELIVERY</span>
-                </div>
-                <div aria-hidden="true" className={isAr ? "animate-marquee-neobrutal-rtl flex gap-12 shrink-0 min-w-full justify-around" : "animate-marquee-neobrutal flex gap-12 shrink-0 min-w-full justify-around"}>
-                    <span>🚀 EGX BOTS • AI SCANNERS • DAILY MARKET DATA • SMART ALERTS</span>
-                    <span>🔥 تداول بذكاء • إشارات شراء وبيع • البورصة المصرية بالذكاء الاصطناعي</span>
-                    <span>⚡ AUTOMATED SCANS • TELEGRAM ALERTS</span>
-                    <span>🤖 RANDOM FOREST & LIGHTGBM MODELS • DIRECT TELEGRAM DELIVERY</span>
-                </div>
-            </div>
-
             {/* Hero Section */}
             <section className="relative px-4 sm:px-6 lg:px-8 pt-12 sm:pt-20 pb-16 sm:pb-24 neobrutal-grid-bg overflow-hidden">
                 {/* Animated dots background */}
