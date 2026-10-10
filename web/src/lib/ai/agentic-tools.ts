@@ -394,25 +394,28 @@ async function executeRawTool(
 
             const { thisWeekStartIso, lastWeekStartIso } = cairoWeekBounds();
 
-            let query = supabase
+            // "Open" is a bounded, decision-relevant set: return all of it, not a
+            // page, so the reply never reports a smaller open count than exists.
+            const limit = statusFilter === "open" ? 50 : 20;
+            const applyFilters = (query: any) => {
+                let out = query;
+                if (args.symbols?.length) out = out.in("symbol", args.symbols);
+                if (statusFilter === "open") out = out.in("status", ["open", "active"]);
+                else if (statusFilter === "closed") out = out.in("status", ["win", "loss", "closed"]);
+                if (timeframe === "this_week") out = out.gte("created_at", thisWeekStartIso);
+                else if (timeframe === "last_week") out = out.gte("created_at", lastWeekStartIso).lt("created_at", thisWeekStartIso);
+                return out;
+            };
+
+            const { data: rows } = await applyFilters(supabase
                 .from("scan_results")
                 .select("symbol, signal, entry_price, target_price, stop_loss, exit_price, profit_loss_pct, status, created_at")
-                .order("created_at", { ascending: false });
-            if (args.symbols?.length) query = query.in("symbol", args.symbols);
+                .order("created_at", { ascending: false })).limit(limit);
 
-            if (statusFilter === "open") {
-                query = query.in("status", ["open", "active"]);
-            } else if (statusFilter === "closed") {
-                query = query.in("status", ["win", "loss", "closed"]);
-            }
-
-            if (timeframe === "this_week") {
-                query = query.gte("created_at", thisWeekStartIso);
-            } else if (timeframe === "last_week") {
-                query = query.gte("created_at", lastWeekStartIso).lt("created_at", thisWeekStartIso);
-            }
-
-            const { data: rows } = await query.limit(10);
+            // Exact total for the same filter so the answer states "shown of total".
+            const { count: totalCount } = await applyFilters(supabase
+                .from("scan_results")
+                .select("id", { count: "exact", head: true })).limit(1);
 
             // Also check latest available date in database for accurate reporting when empty
             const { data: latestRow } = await supabase
@@ -470,17 +473,22 @@ async function executeRawTool(
                 });
             }
 
+            const total = typeof totalCount === "number" ? totalCount : enrichedRecs.length;
             return {
                 status: "success",
                 timeframe,
                 status_filter: statusFilter,
                 count: enrichedRecs.length,
+                returned_count: enrichedRecs.length,
+                total_count: total,
                 recommendations: enrichedRecs,
-                truncated: (rows || []).length === 10,
+                truncated: enrichedRecs.length < total,
                 latest_available_date_in_system: latestDateInDb,
                 note: enrichedRecs.length === 0
                     ? `لا توجد توصيات مسجلة خلال الفترة المطلوبة (${timeframe === "this_week" ? "الأسبوع الحالي" : timeframe === "last_week" ? "الأسبوع الماضي" : timeframe}). ${latestDateInDb ? `أحدث توصيات مسجلة تعود لتاريخ ${latestDateInDb}.` : "لا يوجد تاريخ توصيات موثق متاح."}`
-                    : undefined
+                    : enrichedRecs.length < total
+                        ? `تُعرض ${enrichedRecs.length} من إجمالي ${total} توصية مطابقة. اذكر العددين في الرد.`
+                        : `كل التوصيات المطابقة معروضة (${total}). اذكر العدد الإجمالي في الرد.`
             };
         }
 

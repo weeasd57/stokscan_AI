@@ -1,5 +1,5 @@
 import {executeAgenticTool} from '../agentic-tools';
-import {checkAgenticDraft,checkUserPositionInputs,toAgenticEvidence,compactEvidence} from '../agentic-publication';
+import {checkAgenticDraft,checkUserPositionInputs,toAgenticEvidence,compactEvidence,advisoryImageConsistency} from '../agentic-publication';
 import {groundedReviewerIssues} from '../agentic-runtime';
 import {ARTORO_PLATFORM_CONTEXT} from '../platform-context';
 import {AGENTIC_SYSTEM_PROMPT} from '../agentic-pipeline';
@@ -278,4 +278,23 @@ test('scenario allocation column labelled التخصيص / من رأس الما�
     const freshEvidence=()=>[toAgenticEvidence('analyze_portfolio_risk',{}, JSON.parse(readFixture('portfolio-scenario-allocation.json')))];
     expect(checkAgenticDraft(draft.replace('| COMI | 60% |','| COMI | 99% |'),freshEvidence()).length).toBeGreaterThan(0);
     expect(checkAgenticDraft(draft.replace('| 60,000 |','| 70,000 |'),freshEvidence()).length).toBeGreaterThan(0);
+});
+
+test('image profit/return sign contradiction is raised as an advisory correction',()=>{
+    const contradictory=[toAgenticEvidence('image_vision',{image_type:'portfolio'},{positions:[
+        {symbol:'EGX30ETF',asset_type:'fund',market_value:7620,profit_value:-91.19,profit_loss_pct:1.18},
+        {symbol:'BWA',asset_type:'fund',market_value:5616,profit_value:118,profit_loss_pct:2.14},
+    ]})];
+    const reply='لقطة المحفظة: EGX30ETF خسارة -91.19 بعائد +1.18%، وBWA ربح 118 بعائد +2.14%.';
+    const issues=advisoryImageConsistency(reply,contradictory);
+    expect(issues.some(issue=>issue.includes('EGX30ETF'))).toBe(true);
+    expect(issues.some(issue=>issue.includes('BWA'))).toBe(false);
+    // Consistent evidence is not flagged.
+    const consistent=[toAgenticEvidence('image_vision',{image_type:'portfolio'},{positions:[
+        {symbol:'EGX30ETF',asset_type:'fund',market_value:7620,profit_value:-91.19,profit_loss_pct:-1.18},
+        {symbol:'BWA',asset_type:'fund',market_value:5616,profit_value:118,profit_loss_pct:2.14},
+    ]})];
+    expect(advisoryImageConsistency(reply,consistent)).toEqual([]);
+    // A symbol not cited by the reply is never flagged.
+    expect(advisoryImageConsistency('BWA ربح 118 بعائد +2.14%.',contradictory)).toEqual([]);
 });

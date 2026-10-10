@@ -860,6 +860,32 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
     return [...new Set(reasons)];
 }
 
+/**
+ * Non-blocking corrections for image-derived values. These never veto a reply;
+ * they ask the writer to fix or flag a contradiction between the profit amount
+ * and its percentage for the same position, or a stated total that does not add
+ * up. Kept separate from checkAgenticDraft so a real answer is corrected in
+ * place instead of being replaced by a fallback.
+ */
+export function advisoryImageConsistency(reply: string, evidence: AgenticEvidence[]): string[] {
+    const issues: string[] = [];
+    const cites = (symbol: string) => new RegExp(`(?<![A-Z0-9])${symbol}(?![A-Z0-9])`, "i").test(reply);
+    for (const e of evidence) {
+        if (e.tool !== "image_vision" || e.availability === "error") continue;
+        for (const row of evidenceRows(e.data)) {
+            const symbol = String(row.symbol || "").toUpperCase();
+            if (!symbol || !cites(symbol)) continue;
+            const amount = Number(row.profit_value);
+            const pct = Number(row.profit_loss_pct);
+            if (Number.isFinite(amount) && Number.isFinite(pct) && amount !== 0 && pct !== 0
+                && Math.sign(amount) !== Math.sign(pct)) {
+                issues.push(`صورة ${symbol}: مبلغ الربح/الخسارة (${amount}) لا يطابق إشارة العائد (${pct}%). صحّح الإشارة من الصورة، أو وضّح أن العمود غير متحقق بدل عرض الرقمين كناتج واحد.`);
+            }
+        }
+    }
+    return [...new Set(issues)];
+}
+
 export function safeAgenticFallback(evidence: AgenticEvidence[], reason: string): string {
     const lines = ["تعذر إكمال إجابة متحقَّق منها لكل أجزاء طلبك. " + reason];
     // Evidence passed here should already be scoped to the current request. Keep
