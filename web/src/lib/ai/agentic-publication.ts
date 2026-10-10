@@ -291,6 +291,48 @@ function checkResistanceRelations(reply: string, evidence: AgenticEvidence[]): s
     return [...new Set(reasons)];
 }
 
+/** Verify interpretations as relations, not just the presence of their individual numbers. */
+function checkSnapshotInterpretations(reply: string, evidence: AgenticEvidence[]): string[] {
+    const rows = evidence.filter(e => e.availability !== "error").flatMap(e => evidenceRows(e.data));
+    const symbols = [...new Set<string>(rows.map(r => r.symbol).filter(Boolean))];
+    let owner: string | null = symbols.length === 1 ? symbols[0] : null;
+    const reasons: string[] = [];
+    for (const raw of reply.replace(/[*_`]/g, "").split(/\n|[.!؟؛]\s+/)) {
+        const named = symbols.filter(symbol => new RegExp(`\\b${symbol}\\b`, "i").test(raw));
+        if (named.length === 1) owner = named[0];
+        if (!owner || named.length > 1 || raw.trim().startsWith("|") || /إذا|اذا|(?:^|\s)لو(?:\s|$)/.test(raw)) continue;
+        const stockRows = rows.filter(r => r.symbol === owner);
+        const levels = [...stockRows].reverse().find(r => Number.isFinite(r.close) && r.close > 0 && Number.isFinite(r.support) && Number.isFinite(r.resistance));
+        if (levels) for (const match of raw.matchAll(/(دعم|مقاوم[ةه]).{0,70}?(أكبر|أقل|أبعد|أقرب).{0,60}?(دعم|مقاوم[ةه])/g)) {
+            const beforeRelation = raw.slice(0, match.index! + match[0].indexOf(match[2]));
+            if (match[1] === match[3] || /(?:ليس|ليست|مش|غير|لا)\s*$/.test(beforeRelation)) continue;
+            if (/أكبر|أقل/.test(match[2]) && !/مساف|بعد|قرب/.test(raw)) continue;
+            const distance = (label: string) => Math.abs(levels.close - levels[/دعم/.test(label) ? "support" : "resistance"]) / levels.close;
+            const first = distance(match[1]), second = distance(match[3]);
+            const larger = /أكبر|أبعد/.test(match[2]);
+            if (larger ? first <= second + 1e-9 : first >= second - 1e-9) reasons.push(`level_distance_ranking_contradiction:${owner}`);
+        }
+        // A histogram sign is a relation to the signal, not proof of improvement over time.
+        const temporal = raw.match(/(?:الزخم\s+(يتحسن|يتعافى|يتراجع|يتدهور)|ضغط\s+البيع\s+(يتراجع|يتباطأ))/);
+        if (!temporal) continue;
+        const prefix = raw.slice(Math.max(0,temporal.index!-35),temporal.index);
+        if (/(?:لا|ليس|مش|غير|قد|يمكن أن)\s*$|لا يثبت|لا يمكن|لا يعني|لا يكفي/.test(prefix)) continue;
+        const snapshots = new Map<string,number>();
+        for (const row of stockRows) {
+            const hist = row.macd_histogram ?? row.macd_hist;
+            if (typeof hist === "number" && Number.isFinite(hist) && /^\d{4}-\d{2}-\d{2}/.test(row.date || "")) snapshots.set(row.date.slice(0,10),hist);
+        }
+        const ordered = [...snapshots.entries()].sort(([a],[b]) => a.localeCompare(b));
+        if (ordered.length < 2) reasons.push(`temporal_momentum_without_series:${owner}`);
+        else {
+            const change = ordered.at(-1)![1] - ordered.at(-2)![1];
+            const improving = Boolean(temporal[2]) || /يتحسن|يتعافى/.test(temporal[1]);
+            if (improving ? change <= 0 : change >= 0) reasons.push(`temporal_momentum_direction_contradiction:${owner}`);
+        }
+    }
+    return [...new Set(reasons)];
+}
+
 function explicitPositionInputs(request: string) {
     const normalizedRequest = normalizeDigitsAndNumberFormatting(request);
     const average = normalizedRequest.match(/(?:متوسطي|متوسط(?:ي)?(?:\s+(?:(?:ال)?شراء|سعر\s+(?:ال)?شراء))?|سعر\s+شرائي|اشتريت(?:ه)?\s+بسعر)\s*(?:(?:هو|فيه|عند)\s*)?[:=]?\s*(\d+(?:\.\d+)?)/i);
@@ -321,6 +363,7 @@ export function checkAgenticDraft(reply: string, evidence: AgenticEvidence[], re
     if (/DSML|<\/?tool_call|<\/?function_call/i.test(reply)) reasons.push("internal_tool_protocol_in_response");
     const facts = agenticFacts(evidence);
     reasons.push(...checkResistanceRelations(reply, evidence));
+    reasons.push(...checkSnapshotInterpretations(reply, evidence));
     reasons.push(...checkStrategyClaims(reply, evidence));
     reasons.push(...checkAttribution(reply, facts));
     if (request) reasons.push(...checkUserPositionInputs(reply, request));

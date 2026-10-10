@@ -54,3 +54,15 @@ test('reviewer objections require an actual draft quotation; omissions remain re
     expect(groundedReviewerIssues({passed:false,issues:[{message:'مقاومة خاطئة',kind:'claim',draft_quote:'المقاومة | 35.43'}]},draft)).toEqual(['مقاومة خاطئة']);
     expect(groundedReviewerIssues({passed:false,issues:[{message:'تاريخ الخبر غائب',kind:'omission',draft_quote:null}]},draft)).toEqual(['تاريخ الخبر غائب']);
 });
+
+test('interpretations cannot reverse level distances or invent a momentum trend from one snapshot',()=>{
+    const e=toAgenticEvidence('get_stock_levels',{}, {levels:[{symbol:'MASR',close:7.86,support:6.82,resistance:8.88,date:'2026-10-07',macd_histogram:0.0324}]});
+    expect(checkAgenticDraft('MASR\nالمسافة للمقاومة (≈13%) أكبر قليلاً من المسافة للدعم (≈13%).',[e])).toContain('level_distance_ranking_contradiction:MASR');
+    expect(checkAgenticDraft('MASR\nالمقاومة أقرب من الدعم؛ الزخم يتحسن بشكل طفيف (هيستوجرام موجب).',[e])).toContain('temporal_momentum_without_series:MASR');
+    expect(checkAgenticDraft('MASR\nالمقاومة أقرب من الدعم. لا يثبت أن الزخم يتحسن من لقطة واحدة.',[e])).toEqual([]);
+    expect(checkAgenticDraft('MASR\nضغط البيع يتراجع نسبياً في هذه اللقطة.',[e])).toContain('temporal_momentum_without_series:MASR');
+    expect(checkAgenticDraft('MASR\nالدعم أقل من المقاومة؛ المقاومة ليست أبعد من الدعم.',[e])).toEqual([]);
+    const earlier=toAgenticEvidence('get_stock',{}, {stocks:[{symbol:'MASR',date:'2026-10-06',macd_histogram:0.01}]});
+    expect(checkAgenticDraft('MASR\nالزخم يتحسن.',[earlier,e])).toEqual([]);
+    expect(checkAgenticDraft('MASR\nالزخم يتراجع.',[earlier,e])).toContain('temporal_momentum_direction_contradiction:MASR');
+});
